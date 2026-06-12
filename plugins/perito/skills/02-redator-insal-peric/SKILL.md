@@ -31,13 +31,21 @@ Se faltar o formulário, pare e peça. Sem laudo base, o segundo cérebro vira a
 | **OBSERVAÇÕES GERAIS `[subsídio]`** | o **porquê** / a direção do caso | orienta a análise; **não copia cru**; **não sobrepõe** medição/resultado. Contradição com a medição → sinaliza, não decide. |
 | **`07-Laudos-Anteriores/`** | estrutura/estilo, quando útil | forma, **nunca** dado de caso alheio. |
 
-## Arquivos de apoio (ler antes de redigir)
+## ⚡ Regra de leitura (custo de token — CRÍTICO, ler antes)
+Este é o passo que mais queima token e **trava o Cowork**. Disciplina obrigatória:
+1. **Cada arquivo, UMA leitura.** Nunca releia o formulário nem um `[agente].md` já lido — guarde o conteúdo na memória de trabalho. Nunca `Read` **e** `cat` o mesmo arquivo.
+2. **Agentes: abrir SOMENTE os `[Presente]`** do formulário. Para os `[Ausente]`/em branco **não se lê arquivo nenhum** — saem com a linha-padrão "Descaracterizada a insalubridade." Liste os `[Presente]` antes e leia só esses `[agente].md`.
+3. **NUNCA abrir `laudo-data.EXEMPLO.json`** (20 KB) — o schema está inline no Passo 5; baste-se nele.
+4. **Não procurar o script** — é `scripts/build_laudo.py`, relativo a esta skill; rode direto.
+5. **Teto:** um laudo típico se monta com **~6–10 leituras**. Passou disso = está lendo demais → pare e reavalie.
+
+## Arquivos de apoio (ler conforme a regra acima)
 - **`scripts/build_laudo.py`** — monta o `.docx` a partir do JSON de conteúdo (Passo 5). **Você NÃO edita o .docx** — produz o JSON e roda o script.
-- **`scripts/laudo-data.EXEMPLO.json`** — exemplo real e completo do JSON (consulta opcional, só em caso de dúvida de schema).
+- **`scripts/laudo-data.EXEMPLO.json`** — ⛔ **NÃO ABRIR** (20 KB, estoura o contexto). O schema completo está inline no **Passo 5**; baste-se nele.
 - `00-Template/template-insalubridade.docx` · `template-periculosidade.docx` · `template-insal-peric.docx` — saída (texto fixo intocável); o script lê, você não.
 - `00-Template/MAPA-CAMPOS-template-*.md` — origem de cada `{{...}}` do template escolhido.
 - `08-Textos-Padrão/INDICE-TEXTOS.md` — mapa agente → arquivo `.md`.
-- `08-Textos-Padrão/[agente].md` — análise/conclusão/critérios/argumentos por agente (abrir só os **[Presente]**).
+- `08-Textos-Padrão/[agente].md` — análise/conclusão/critérios/argumentos por agente. **Abrir SOMENTE os `[Presente]`, uma vez cada.** Os `[Ausente]` não se lê (saem com a linha-padrão).
 - `01-Insalubridade/Agentes-Quimicos/quadro-anexo-11-limites-tolerancia.md` (LT + grau por substância) · `quadro-anexo-13-enquadramento.md` (operações por grau).
 - `04-EPIs/analise-epi-padrao.md` — EPI por eficácia/regularidade/período; recorte = quantidade × vida útil por CA.
 - `08-Textos-Padrão/_bloco-respostas-quesitos.md` · `_bloco-vocabulario-tecnico.md`.
