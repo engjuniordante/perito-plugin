@@ -29,15 +29,15 @@ Se faltar o formulário, pare e peça. Sem laudo base, o segundo cérebro vira a
 | **Laudo Base** (quando houver) | **como escrever** — estrutura e análise de agente, já na voz do Irineu | **ADAPTAR**: mantém a forma, **troca o dado pelo do formulário**. ⚠ é de OUTRO processo → **nunca** copiar nome/medição/CA/período dele. |
 | **`08-Textos-Padrão/`** + quadros An.11/13 + `04-EPIs/` + `_bloco-respostas-quesitos.md` | tudo que o **laudo base não cobre** (e a prosa inteira, se não houver base) | voz do perito por agente, grau/LT, lógica de EPI, respostas-padrão. |
 | **OBSERVAÇÕES GERAIS `[subsídio]`** | o **porquê** / a direção do caso | orienta a análise; **não copia cru**; **não sobrepõe** medição/resultado. Contradição com a medição → sinaliza, não decide. |
-| **`07-Laudos-Anteriores/`** | estrutura/estilo, quando útil | forma, **nunca** dado de caso alheio. |
+| **`07-Laudos-Anteriores/`** | ⛔ **NÃO abrir** (laudos inteiros = 40 KB+; a prosa por agente vem do `08`) | só se o perito pedir explicitamente. |
 
 ## ⚡ Regra de leitura (custo de token — CRÍTICO, ler antes)
 Este é o passo que mais queima token e **trava o Cowork**. Disciplina obrigatória:
-1. **Cada arquivo, UMA leitura.** Nunca releia o formulário nem um `[agente].md` já lido — guarde o conteúdo na memória de trabalho. Nunca `Read` **e** `cat` o mesmo arquivo.
-2. **Agentes: abrir SOMENTE os `[Presente]`** do formulário. Para os `[Ausente]`/em branco **não se lê arquivo nenhum** — saem com a linha-padrão "Descaracterizada a insalubridade." Liste os `[Presente]` antes e leia só esses `[agente].md`.
+1. **Cada arquivo, UMA leitura — sem exceção.** Leu o formulário? **NÃO releia** (nem `Read`, nem `cat`, nem "pra conferir"). Idem qualquer `[agente].md`. Guarde o conteúdo na memória de trabalho na 1ª leitura.
+2. **Agentes: abrir só os `08-Textos-Padrão/[agente].md` dos `[Presente]`** (arquivos pequenos). Os `[Ausente]` não se lê. ⛔ **NUNCA abrir laudos inteiros de `07-Laudos-Anteriores/`** (40 KB+ cada) — a prosa por agente vem do `08`, não do laudo final. **Laudo base só existe se o PERITO colar um no chat** — não vá procurar um sozinho.
 3. **NUNCA abrir `laudo-data.EXEMPLO.json`** (20 KB) — o schema está inline no Passo 5; baste-se nele.
-4. **Não procurar o script** — é `scripts/build_laudo.py`, relativo a esta skill; rode direto.
-5. **Teto:** um laudo típico se monta com **~6–10 leituras**. Passou disso = está lendo demais → pare e reavalie.
+4. **Script:** localize `build_laudo.py` **UMA vez** (um `find` só, dentro da pasta do plugin) e **reuse o caminho** — não fique procurando a cada passo.
+5. **Teto:** um laudo típico se monta com **~6–8 leituras**. Passou disso = está lendo demais → pare e reavalie.
 
 ## Arquivos de apoio (ler conforme a regra acima)
 - **`scripts/build_laudo.py`** — monta o `.docx` a partir do JSON de conteúdo (Passo 5). **Você NÃO edita o .docx** — produz o JSON e roda o script.
