@@ -1,0 +1,95 @@
+{
+  "perito_nome": "Irineu de Freitas Branco Junior",
+  "scalars": {
+    "VARA_CIDADE": "Mogi Guaçu",
+    "PROCESSO": "0011375-97.2024.5.15.0071",
+    "RECLAMANTE": "ANDERSON BARBOSA",
+    "RECLAMADA": "SYLVAMO DO BRASIL LTDA.",
+    "CIDADE": "Mogi Guaçu",
+    "DATA_PROTOCOLO": "4 de abril de 2026",
+    "DATA_VISTORIA": "5 de março de 2026",
+    "HORARIO_VISTORIA": "11h00",
+    "LOCAL_VISTORIA": "Sede da Reclamada",
+    "HONORARIOS_VALOR": "R$ 5.800,00",
+    "HONORARIOS_EXTENSO": "cinco mil e oitocentos reais",
+    "NUMERO_FOLHAS": "27"
+  },
+  "cargos": [
+    [
+      "Ajudante Prático",
+      "18/10/2016 a 31/03/2017"
+    ],
+    [
+      "Ajudante de Acabamento",
+      "01/04/2017 a 30/09/2019"
+    ],
+    [
+      "Operador de Transporte de Bobinas",
+      "01/10/2019 a 31/10/2020"
+    ],
+    [
+      "2º Assistente Cortadeiras",
+      "01/11/2020 a 15/02/2023"
+    ]
+  ],
+  "blocks": {
+    "LISTA_PARTICIPANTES": [
+      "Anderson Barbosa – Reclamante;",
+      "André Ricardo Silva Almeida – Advogado(a) do(a) Reclamante;",
+      "Leandro Carlos Rezende – Técnico de segurança do trabalho da Reclamada;",
+      "Adan Henrique Cipriano de Carvalho – Operador de cortadeira de precisão;",
+      "Alexandre Silveira Picaza – Advogado da Reclamada;",
+      "Daniel Henrique Faquinete – Engenheiro de manufatura da Reclamada;",
+      "Rafael Luan de Jesus Bernardes de Oliveira – Assistente técnico da Reclamada."
+    ],
+    "ATIVIDADES_POR_FUNCAO": [
+      "Conforme informações durante a diligência pericial, as atividades do(a) Reclamante nas funções descritas abaixo consistiam em:",
+      "Ajudante Prático:",
+      "- Carregar e descarregar o carro transportador de bobinas, empurrando as bobinas manualmente (peso de 2.800 kg a 3.500 kg), atividade realizada sozinho, com eventual auxílio de outros funcionários.",
+      "- Enrolar os papéis no chão, colocando manualmente o rolo no carrinho (peso aproximado de 100 kg).",
+      "- Organizar o setor de trabalho e auxiliar os operadores de máquinas.",
+      "Ajudante de Acabamento:",
+      "- Mesmas atividades do ajudante prático, já com treinamento; revezamento de 3 máquinas com carrinhos (02 automatizados e 01 manual).",
+      "Operador de Transporte de Bobinas:",
+      "- Empurrar as bobinas da máquina de papel para o acabamento e para o elevador, nos transportadores instalados no piso, sozinho; uso do Ease Move insuficiente para todas as atividades.",
+      "- Cortar embalagem com serra manual, enrolar a manta e transportar manualmente o carrinho até o desembalador (peso aproximado do rolo da manta de 100 kg).",
+      "2º Assistente Cortadeiras:",
+      "- Carregar e descarregar os carros da cortadeira, empurrando as bobinas; colocar o semi-eixo dentro do canudo (peso aproximado de 20 kg).",
+      "- Enrolar manualmente bobinas marcadas, organizar o setor (5S), passar e cortar ponta das bobinas e retirar refugos de papéis do chão.",
+      "- Duas vezes por semana também realizava as atividades de operador de transporte de bobinas."
+    ],
+    "QUESITOS_RECLAMANTE": [
+      "O Reclamante não apresentou quesitos."
+    ],
+    "QUESITOS_RECLAMADA": [
+      "1. Descrever as atividades do Ajudante Prático (18/10/2016 a 31/03/2017), com movimentos repetitivos e esforço físico.",
+      "Resposta: Vide item 4.",
+      "2. Descrever as atividades do Ajudante de Acabamento (01/04/2017 a 30/09/2019), com movimentos repetitivos e esforço físico.",
+      "Resposta: Vide item 4.",
+      "3. Descrever as atividades do Operador de Transporte de Bobinas (01/10/2019 a 31/10/2020); qual o esforço, em Kgf?",
+      "Resposta: Vide item 4.",
+      "4. Descrever as atividades do 2º Assistente Cortadeiras (01/11/2020 a 15/02/2023), com movimentos repetitivos e esforço físico.",
+      "Resposta: Vide item 4.",
+      "5. Ao movimentar as bobinas tinha auxílio de outro ajudante ou usava o easy mover?",
+      "Resposta: As atividades eram realizadas individualmente e em pares; o equipamento easy move não estava disponível para todas as atividades.",
+      "6. A distância para deslocar a bobina era inferior a 40 metros e o tempo menor que 01 minuto?",
+      "Resposta: Sim.",
+      "7. Qual a carga a ser movida e o equipamento de transporte?",
+      "Resposta: Vide itens 5 e 8 do laudo pericial.",
+      "8. O piso é nivelado, liso, duro e com pequena inclinação?",
+      "Resposta: Sim, porém não identificada pequena inclinação.",
+      "9. Havia outros profissionais que faziam a mesma atividade do reclamante?",
+      "Resposta: Sim.",
+      "10. A postura ao deslocar a bobina era com tronco ereto com pequena inclinação para frente?",
+      "Resposta: Não.",
+      "11. Havia variação frequente de carga de trabalho física devido a outras atividades?",
+      "Resposta: Sim, haviam variações.",
+      "12. Qual o tempo de intervalo para deslocamento de uma bobina para outra?",
+      "Resposta: Para a análise ergonômica avaliada não é necessário quantificar o tempo de deslocamento.",
+      "13. Qual o tempo efetivo e a frequência ao deslocar uma bobina de papel com a mão?",
+      "Resposta: Para a análise ergonômica avaliada não é necessário quantificar o tempo de deslocamento.",
+      "14. Protesta-se pela apresentação de quesitos suplementares.",
+      "Resposta: Serão respondidos quando solicitados."
+    ]
+  }
+}

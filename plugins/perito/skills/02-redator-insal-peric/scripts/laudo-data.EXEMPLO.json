@@ -1,0 +1,299 @@
+{
+  "perito_nome": "Irineu de Freitas Branco Junior",
+  "scalars": {
+    "{{VARA}}": "2ª Vara do Trabalho de Araraquara/SP",
+    "{{PROCESSO}}": "0010094-14.2026.5.15.0079",
+    "{{RECLAMANTE}}": "Jeferson Souza de Oliveira",
+    "{{RECLAMADA}}": "São Martinho S.A.",
+    "{{HONORARIOS_VALOR}}": "R$ 5.800,00",
+    "{{HONORARIOS_EXTENSO}}": "cinco mil e oitocentos reais",
+    "{{CIDADE}}": "Araraquara",
+    "{{DATA_PROTOCOLO}}": "_____ de ______________ de 2026",
+    "{{DATA_VISTORIA}}": "17/05/2026",
+    "{{HORARIO_VISTORIA}}": "13h00min",
+    "{{LOCAL_VISTORIA}}": "Usina Santa Cruz – Américo Brasiliense/SP",
+    "{{ESCOPO_AVALIACAO}}": "será avaliado somente o período imprescrito, correspondente aos últimos cinco anos retroativos à data da autuação da ação, compreendido entre 26/01/2021 e 08/12/2025",
+    "{{NUMERO_FOLHAS}}": "_____"
+  },
+  "blocks": {
+    "{{LISTA_PARTICIPANTES}}": [
+      "Jeferson Souza de Oliveira – Reclamante;",
+      "Ruan Felipe Pavanelli Costa – Assistente técnico do Reclamante;",
+      "Valderice Mariano Paterno – Assistente técnica da Reclamada;",
+      "Cassiano Silvestre Azevedo – Líder de produção agrícola da Reclamada;",
+      "Paulo Sérgio Mazola – Líder de CCT (Corte, Carregamento e Transporte) da Reclamada."
+    ],
+    "{{ATIVIDADES_POR_FUNCAO}}": [
+      "Conforme informações durante a diligência pericial, as atividades do(a) Reclamante durante a entressafra consistiam em:",
+      "- Conduzir os equipamentos para a realização do plantio, abastecimento de adubo.",
+      "- Auxiliar o mecânico em esvaziar com a utilização da bomba elétrica o tanque de combustível durante a manutenção do tanque e troca de suportes do tanque, com frequência de 01 vez por semana, porém, a Reclamada contesta e informa que a frequência de substituição do tanque é baixa.",
+      "- Auxiliar nas atividades de manutenção mecânica com exposição a graxa e óleo.",
+      "Conforme informações durante a diligência pericial, as atividades do(a) Reclamante durante a safra consistiam em:",
+      "- Conduzir o trator transbordo acompanhando a colhedora de cana para o carregamento nos caminhões.",
+      "- Conduzir a colhedora para a colheira da cana.",
+      "- Auxiliar os mecânicos, troca de mangueiras hidráulicas, roda guia, elevador, esteira e bomba hidráulica, e que auxilia a substituição de tanque de combustível, e que o apoio aos mecânicos ocorria diariamente.",
+      "- Limpeza dos filtros dos defensivos agrícolas."
+    ],
+    "{{ANALISE_RUIDO_CONTINUO}}": [
+      "O critério de avaliação segue o Quadro do Anexo nº 1 da NR-15.",
+      "Conforme dispõe o item 2 do Anexo nº 1 da NR-15, os níveis de ruído contínuo ou intermitente devem ser medidos em decibéis (dB) com instrumento de nível de pressão sonora operando no circuito \"A\" e circuito de resposta lenta (SLOW), sendo as leituras feitas próximas ao ouvido do trabalhador.",
+      "Conforme medição realizada no local de labor do Reclamante, com dosímetro de ruído devidamente calibrado, foi obtido o valor de 74,2 dB(A).",
+      "Efetuando a análise do valor obtido com a tabela de limites de tolerância para ruído contínuo ou intermitente, conforme o quadro do Anexo nº 1 da NR-15, observamos que, para o período de 08 horas de trabalho, o limite máximo de exposição é de 85 dB(A). Portanto, abaixo do limite de tolerância.",
+      "Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_RUIDO_IMPACTO}}": [
+      "Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_CALOR}}": [
+      "Após vistoria no local de trabalho do Reclamante, constatou-se que as atividades eram desenvolvidas em ambiente externo, a céu aberto, não havendo presença de fonte artificial de calor por pelo menos 60 minutos diariamente ao longo da jornada de trabalho.",
+      "Conforme o Anexo nº 3 da NR-15, com redação da Portaria SEPRT nº 1.359, de 09 de dezembro de 2019, as atividades realizadas a céu aberto, sem fonte artificial de calor, estão excluídas do enquadramento da insalubridade por calor.",
+      "Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_BAIXO_ILUMINAMENTO}}": [
+      "O Anexo nº 4 da NR-15 (Iluminamento) foi revogado pela Portaria nº 3.751, de 23 de novembro de 1990, não sendo objeto de caracterização de insalubridade."
+    ],
+    "{{ANALISE_RAD_IONIZANTES}}": [
+      "Não constatada exposição a radiações ionizantes inerentes à função. Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_HIPERBARICAS}}": [
+      "Não constatada exposição a condições hiperbáricas. Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_RAD_NAO_IONIZANTES}}": [
+      "Não constatada exposição a radiações não ionizantes de fontes artificiais (soldagem, micro-ondas ou ultravioleta artificial) inerentes à função. A radiação solar, decorrente do trabalho a céu aberto, não se enquadra no Anexo nº 7 da NR-15.",
+      "Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_VIBRACOES}}": [
+      "Para a avaliação do nível de vibração, foi utilizado equipamento de vibração, marca Chrompack número de série 140, devidamente calibrado pelo Laboratório de Acústica da Chrompack, conforme Certificado de Calibração em anexo.",
+      "De acordo com as medições de vibração realizadas nas atividades exercidas pelo Reclamante, foram obtidos os valores descritos abaixo conforme relatórios de avaliação.",
+      "@@TABELA_VIBRACAO@@",
+      "Efetuando a análise dos valores obtidos com os limites de tolerância para vibração de corpo inteiro VCI, do Anexo nº 8 da NR-15, conforme descritos acima, observamos que os limites máximos de exposição para vibração de corpo inteiro (VCI) são de AREN = 1,1 m/s² e VDVR = 21,0 m/s^1,75 portanto, abaixo do limite de tolerância.",
+      "Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_FRIO}}": [
+      "Não constatada exposição ao frio em câmaras frigoríficas inerente à função. Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_UMIDADE}}": [
+      "Não constatada a realização de atividades em locais alagados ou encharcados, com umidade localizada e específica que justifique o enquadramento; o trabalho a céu aberto, sujeito a condições climáticas naturais, não configura a umidade prevista no Anexo nº 10 da NR-15.",
+      "Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_QUIM_QUANTITATIVOS}}": [
+      "Não constatada exposição a agentes químicos com limite de tolerância quantitativo (Anexo nº 11 da NR-15). Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_POEIRAS_MINERAIS}}": [
+      "Não constatada exposição a poeiras minerais nos termos do Anexo nº 12 da NR-15. Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_QUIM_QUALITATIVOS}}": [
+      "Conforme vistoria no local e análise das atividades realizadas pelo Reclamante, ficou constatada a exposição ao agente químico óleo mineral durante as atividades de auxílio à manutenção mecânica — troca de mangueiras hidráulicas, roda-guia, elevador, esteira e bomba hidráulica —, com a utilização de graxa, óleo queimado e óleo hidráulico, atividade realizada diariamente tanto na safra quanto na entressafra.",
+      "Conforme análise da FISPQ, o óleo hidráulico utilizado (óleo Shell Tellus 68) contém óleo mineral em sua composição química.",
+      "Conforme o Anexo nº 13 da NR-15, da Portaria 3.214, de 08 de junho de 1978, a manipulação de óleos minerais, óleo queimado e outros hidrocarbonetos e compostos de carbono é considerada insalubre em grau máximo, mediante inspeção realizada no local de trabalho.",
+      "O contato do Reclamante com o óleo lubrificante — óleo mineral — se dava com o óleo impregnado e queimado. Cabe ressaltar que todo óleo mineral em contato com temperaturas elevadas perde a sua característica original; portanto, há que se destacar que óleos queimados e usados podem adquirir características carcinogênicas devido à exposição a temperaturas elevadas.",
+      "Conforme análise das fichas de controle e entrega de EPIs, foi comprovado o fornecimento de 01 creme de proteção contra agentes químicos (CA 35339). Para a proteção química, é essencial utilizar aventais que possuam CA específico para esse tipo de risco, com materiais e certificações adequadas. Cabe destacar, ainda, que as luvas fornecidas (vaqueta e anticorte) são de proteção mecânica, não conferindo proteção contra o agente químico. Dessa forma, não houve o atendimento ao fornecimento adequado do EPI de acordo com o item 6.1.1 da NR-6 da Portaria 3.214, de 08 de junho de 1978.",
+      "O(A) Reclamante ficava exposto(a) a agentes químicos, sendo caracterizada a insalubridade em grau máximo, correspondente ao percentual de 40%, conforme regulamenta o Anexo nº 13, da NR-15, da Portaria 3.214, de 08 de junho de 1978."
+    ],
+    "{{ANALISE_BENZENO}}": [
+      "Não constatada exposição ao benzeno nos termos do Anexo nº 13-A da NR-15. Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_AGENTES_BIOLOGICOS}}": [
+      "Não constatada exposição a agentes biológicos nos termos do Anexo nº 14 da NR-15. Descaracterizada a insalubridade."
+    ],
+    "{{ANALISE_PERIC_EXPLOSIVOS}}": [
+      "Não constatada atividade ou operação com explosivos nos termos do Anexo nº 1 da NR-16. Descaracterizada a periculosidade."
+    ],
+    "{{ANALISE_PERIC_INFLAMAVEIS}}": [
+      "Conforme análise das atividades realizadas pelo Reclamante e vistoria no local, a colhedora possuía tanque suplementar de combustível com capacidade de 280 litros, sendo que a máquina original possui 330 litros de combustível, e a instalação do tanque suplementar foi realizada na oficina agrícola da Reclamada.",
+      "O Reclamante auxiliava o mecânico no esvaziamento, por meio de bomba elétrica, do tanque de combustível durante a manutenção do tanque e a troca de suportes, com frequência de 01 vez por semana, conforme informado pelo Reclamante (a Reclamada contesta, informando que a frequência de substituição do tanque é baixa). Na oficina existe o armazenamento de combustível em containers de 1.000 litros, próximo ao equipamento em manutenção.",
+      "Conforme dispõe o item 16.6 da NR-16, as operações de transporte de inflamáveis líquidos ou gasosos liquefeitos, em quaisquer vasilhames e a granel, são consideradas em condições de periculosidade. O item 16.6.1.1 exclui as quantidades de inflamáveis contidas nos tanques de combustível originais de fábrica e suplementares, desde que certificados pelo órgão competente — o que não é o caso do tanque suplementar artesanal verificado.",
+      "O Reclamante exercia a função de operador de transbordo e operador de colhedora, conduzindo equipamento automotor dotado de tanque original de combustível e de tanque suplementar instalado pela oficina da usina, este sem qualquer documentação técnica, projeto ou homologação.",
+      "Conforme dispõe o Anexo nº 2 da NR-16, são consideradas atividades perigosas aquelas que envolvem armazenamento, transporte, manuseio ou abastecimento de líquidos inflamáveis, especialmente quando realizados em recipientes não certificados ou fora dos padrões de segurança industrial.",
+      "A presença de um tanque suplementar artesanal, sem controle de qualidade, aumenta expressivamente o risco de vazamentos, pressurização irregular e ignição acidental, configurando condição de exposição direta a agente inflamável durante toda a jornada. Tal situação enquadra-se nas hipóteses previstas pela norma, uma vez que o trabalhador permanece em contato habitual com fonte potencial de incêndio ou explosão.",
+      "O(A) Reclamante exerceu atividades ou operações perigosas com inflamáveis, sendo caracterizada a periculosidade, conforme regulamenta o Anexo nº 2, da NR 16, da Portaria 3.214, de 08 de junho de 1978."
+    ],
+    "{{ANALISE_PERIC_ROUBOS}}": [
+      "Não constatada exposição a roubos ou outras espécies de violência física nas atividades de segurança pessoal ou patrimonial. Descaracterizada a periculosidade."
+    ],
+    "{{ANALISE_PERIC_ELETRICIDADE}}": [
+      "Não constatada atividade ou operação em sistema elétrico de potência em condições de periculosidade, nos termos do Anexo nº 4 da NR-16. Descaracterizada a periculosidade."
+    ],
+    "{{ANALISE_PERIC_MOTOCICLETA}}": [
+      "Não constatada a utilização de motocicleta nas atividades laborais. Descaracterizada a periculosidade."
+    ],
+    "{{ANALISE_PERIC_RADIACOES}}": [
+      "Não constatada exposição a radiações ionizantes ou substâncias radioativas. Descaracterizada a periculosidade."
+    ],
+    "{{CONCLUSAO_ITENS}}": [
+      "O(A) Reclamante ficava exposto(a) a agentes químicos, sendo caracterizada a insalubridade em grau máximo, correspondente ao percentual de 40% durante todo o período laboral, sendo o período imprescrito de 26/01/2021 a 08/12/2025, conforme regulamenta o Anexo nº 13, da NR-15, da Portaria 3.214, de 08 de junho de 1978.",
+      "O(A) Reclamante exerceu atividades ou operações perigosas com inflamáveis, sendo caracterizada a periculosidade durante todo o período laboral, sendo o período imprescrito de 26/01/2021 a 08/12/2025, conforme regulamenta o Anexo nº 2, da NR 16, da Portaria 3.214, de 08 de junho de 1978."
+    ],
+    "{{QUESITOS_RECLAMANTE}}": [
+      "a) Quais foram as funções exercidas pelo reclamante durante a vigência do pacto laboral?",
+      "Resposta: Vide, por gentileza, item 2 no laudo.",
+      "b) Quais foram os setores onde o reclamante desenvolveu o seu trabalho?",
+      "Resposta: Vide, por gentileza, item 2 no laudo.",
+      "c) No exercício de suas funções, o reclamante mantinha contato com produtos químicos, tais como graxas, óleos e defensores agrícolas? Se sim, quais?",
+      "Resposta: Vide, por gentileza, item 6.13 no laudo.",
+      "d) Alguns destes produtos podem ser considerados como substâncias cancerígenas?",
+      "Resposta: Vide, por gentileza, item 6.13 no laudo.",
+      "e) Qual era o nível de ruído no local de trabalho? Informe se foi avaliado o ruído das máquinas em operação.",
+      "Resposta: Vide, por gentileza, item 6.1 no laudo.",
+      "f) O reclamante permanecia exposto ao calor e a radiação não ionizante?",
+      "Resposta: Vide, por gentileza, itens 6.3 e 6.7 no laudo.",
+      "g) Estava o reclamante exposto a trabalho com umidade?",
+      "Resposta: Vide, por gentileza, item 6.10 no laudo.",
+      "h) Informe o perito se o obreiro estava exposto a vibração de corpo inteiro?",
+      "Resposta: Vide, por gentileza, item 6.8 no laudo.",
+      "i) O reclamante desenvolvia tarefas relacionadas à mecânica? Com quais substâncias trabalhava nessas ocasiões?",
+      "Resposta: Vide, por gentileza, item 6.13 no laudo.",
+      "j) A reclamada fornecia EPI's? Quais? Comprovou o fornecimento nos autos?",
+      "Resposta: Vide, por gentileza, item 5 no laudo.",
+      "k) Em caso positivo, informar os números dos \"C.A\" dos equipamentos fornecidos à época, junto ao Ministério do Trabalho.",
+      "Resposta: Vide, por gentileza, item 5 no laudo.",
+      "l) O labor nos locais indicados pelo reclamante, sem fazer o uso correto de EPI's, caracteriza o trabalho em condições insalubres?",
+      "Resposta: Vide, por gentileza, item 6.13 no laudo.",
+      "m) A reclamada cumpriu o que determina a letra \"h\" do item 6.6.1 da NR-6 do MTB, registrando em livros ou fichas os EPI's entregues ao reclamante?",
+      "Resposta: Vide, por gentileza, item 5 no laudo.",
+      "n) Por fim, no exercício de suas funções, laborava o reclamante em condições insalubres? Em caso positivo, pede-se ao sr. perito que informe se há a caracterização e em que grau.",
+      "Resposta: Vide, por gentileza, item 8 no laudo.",
+      "o) O reclamante, em suas atividades diárias, mantinha contato habitual e permanente com produtos inflamáveis?",
+      "Resposta: Vide, por gentileza, item 7.2 no laudo.",
+      "p) O reclamante, em suas atividades diárias, mantinha contato com eletricidade?",
+      "Resposta: Vide, por gentileza, item 7.4 no laudo.",
+      "q) O reclamante realizava suas atividades em áreas consideradas de risco?",
+      "Resposta: Vide, por gentileza, item 7.2 no laudo.",
+      "r) Existe no local de trabalho do reclamante outras situações ensejadoras do direito ao recebimento do adicional de periculosidade, e ainda, outros agentes nocivos à saúde do trabalhador? Em caso positivo, quais?",
+      "Resposta: Vide, por gentileza, item 8 no laudo."
+    ],
+    "{{QUESITOS_RECLAMADA}}": [
+      "1) Escopo e método (postos/veículos, período, documentos, instrumentos e métodos).",
+      "Resposta: Vide, por gentileza, itens 1 a 3 no laudo.",
+      "2) Atividades e tempo (tarefas por jornada, % por ambiente, fonte do dado).",
+      "Resposta: Vide, por gentileza, item 3 no laudo.",
+      "3) Ruído (NHO-01 / NR-15 Anexo 1) — dosimetria, EPI e conclusão.",
+      "Resposta: Vide, por gentileza, item 6.1 no laudo.",
+      "4) Vibração de corpo inteiro (NHO-09) — acelerações, tempo de exposição e conclusão.",
+      "Resposta: Vide, por gentileza, item 6.8 no laudo.",
+      "5) Calor (NR-15 / Portaria SEPRT nº 1.359/2019) — fonte natural a céu aberto × artificial.",
+      "Resposta: Vide, por gentileza, item 6.3 no laudo.",
+      "6) Agentes químicos (NR-15 Anexos 11 e 13) — contato cutâneo, FISPQ e EPI.",
+      "Resposta: Vide, por gentileza, item 6.13 no laudo.",
+      "7) EPI/EPC e registros; e periculosidade (NR-16) — enquadramento, área de risco, tempo e medidas de controle.",
+      "Resposta: Vide, por gentileza, item 5 e item 7.2 no laudo.",
+      "8) Conclusão — por período e por atividade, quanto a insalubridade e/ou periculosidade.",
+      "Resposta: Vide, por gentileza, item 8 no laudo."
+    ]
+  },
+  "identificacao": [
+    [
+      "Trabalhador Rural",
+      "—",
+      "01/04/2011",
+      "01/12/2013",
+      "26/01/2026",
+      "—",
+      "—"
+    ],
+    [
+      "Tratorista – Operador de Preparo de Solo",
+      "Conservação e Sistematização / Transporte de Mudas Mecânico",
+      "01/12/2013",
+      "01/04/2023",
+      "26/01/2026",
+      "26/01/2021",
+      "08/12/2025"
+    ],
+    [
+      "Tratorista – Operador de Transbordo",
+      "Tratores de Puxe / Transbordo Mecânico",
+      "01/04/2023",
+      "01/04/2024",
+      "26/01/2026",
+      "26/01/2021",
+      "08/12/2025"
+    ],
+    [
+      "Tratorista – Operador de Colhedora",
+      "Corte Mecanizado / Plantio Mecânico",
+      "01/04/2024",
+      "08/12/2025",
+      "26/01/2026",
+      "26/01/2021",
+      "08/12/2025"
+    ]
+  ],
+  "epi": {
+    "anos": [
+      "2023",
+      "2024",
+      "2025"
+    ],
+    "linhas": [
+      [
+        "Protetor auricular",
+        "Ruído",
+        "5745",
+        "",
+        "",
+        "1"
+      ],
+      [
+        "Protetor auricular",
+        "Ruído",
+        "11512",
+        "",
+        "1",
+        ""
+      ],
+      [
+        "Capa de proteção",
+        "Umidade",
+        "28449",
+        "",
+        "1",
+        ""
+      ],
+      [
+        "Creme de proteção",
+        "Químico",
+        "35339",
+        "",
+        "1",
+        ""
+      ],
+      [
+        "Máscara de proteção",
+        "Poeira",
+        "38263",
+        "",
+        "2",
+        ""
+      ],
+      [
+        "Capuz de proteção",
+        "RNI",
+        "38352",
+        "1",
+        "1",
+        "1"
+      ]
+    ]
+  },
+  "nr6": {
+    "ficha": "SIM",
+    "ca": "SIM",
+    "treinamento": "SIM",
+    "adequado": "",
+    "frequencia": "NAO",
+    "fiscalizacao": ""
+  },
+  "vibracao": [
+    [
+      "Trator de Transbordo",
+      "1,00",
+      "16,50"
+    ],
+    [
+      "Colhedora",
+      "0,60",
+      "7,90"
+    ]
+  ]
+}

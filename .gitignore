@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+*.docx
+*.xlsx
+!plugins/perito/skills/**/scripts/*.EXEMPLO.json
+perito-config.json

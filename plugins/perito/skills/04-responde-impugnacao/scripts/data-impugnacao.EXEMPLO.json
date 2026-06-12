@@ -1,0 +1,22 @@
+{
+  "perito_nome": "Irineu de Freitas Branco Junior",
+  "scalars": {
+    "CIDADE_VARA": "Mogi Guaçu",
+    "NUMERO_PROCESSO": "0011375-97.2024.5.15.0071",
+    "NOME_RECLAMANTE": "ANDERSON BARBOSA",
+    "NOME_RECLAMADA": "SYLVAMO DO BRASIL LTDA.",
+    "ID_IMPUGNACAO": "a1b2c3d",
+    "DATA_EXTENSO": "10 de junho de 2026"
+  },
+  "parte_impugnante": "Reclamada",
+  "esclarecimentos": [
+    "ESCLARECIMENTOS SOLICITADOS PELA RECLAMADA",
+    "A Reclamada impugnou o laudo pericial alegando que a análise ergonômica não teria considerado a disponibilidade do equipamento Ease Move. Passo a esclarecer os pontos suscitados.",
+    "1- Esclareça o perito se o equipamento Ease Move estava disponível para todas as atividades de movimentação de bobinas.",
+    "Resposta: Conforme constatado na diligência pericial, não havia equipamento Ease Move em quantidade suficiente para todas as atividades, sendo parte da movimentação realizada manualmente, como descrito no item 4 do laudo.",
+    "2- Esclareça o perito se a distância de deslocamento das bobinas era inferior a 40 metros.",
+    "Resposta: Sim, conforme já respondido ao quesito 6 da Reclamada, vide item 4 do laudo pericial.",
+    "3- Requer o perito que reveja a qualificação de ERGONOMICAMENTE INADEQUADAS.",
+    "Resposta: Ratifico a conclusão do laudo. A qualificação decorre da pontuação obtida no Checklist de Couto, com condição biomecânica RUIM e alta exigência para membros superiores e coluna vertebral, conforme item 8."
+  ]
+}
