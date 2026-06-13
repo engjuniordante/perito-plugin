@@ -79,17 +79,11 @@ Este é o passo que mais queima token e **trava o Cowork**. Disciplina obrigató
 | _Bloco fixo_ — Vocabulário Técnico | `_bloco-vocabulario-tecnico.md` |
 | _Bloco fixo_ — Respostas a quesitos | `_bloco-respostas-quesitos.md` |
 
-## Arquivos de apoio (ler conforme a regra acima)
-- **`<base-dir>/scripts/build_laudo.py`** — monta o `.docx` a partir do JSON de conteúdo (Passo 5). **Você NÃO edita o .docx** — produz o JSON e roda o script. Caminho direto pela base-dir do skill; **não procure com Glob**.
-- **`scripts/laudo-data.EXEMPLO.json`** — ⛔ **NÃO ABRIR** (20 KB, estoura o contexto). O schema completo está inline no **Passo 5**; baste-se nele.
-- `00-Template/template-insalubridade.docx` · `template-periculosidade.docx` · `template-insal-peric.docx` — saída (texto fixo intocável); o script lê, você não.
-- `00-Template/MAPA-CAMPOS-template-*.md` — origem de cada `{{...}}`. **Ler só o do template escolhido** (1:1 no Passo 0) — nunca os outros dois.
-- ⛔ `08-Textos-Padrão/INDICE-TEXTOS.md` — **NÃO ABRIR** (17 KB de metadado). O mapa agente → arquivo está **inline na Regra de leitura** acima.
-- `08-Textos-Padrão/[agente].md` — análise/conclusão/critérios/argumentos por agente. **Abrir SOMENTE os `[Presente]` (inclui abaixo do LT), uma vez cada.** Só o `[Ausente]` de verdade não se lê (sai com a linha-padrão).
-- `01-Insalubridade/Agentes-Quimicos/quadro-anexo-11-limites-tolerancia.md` (LT + grau por substância) · `quadro-anexo-13-enquadramento.md` (operações por grau).
+## Arquivos de apoio (só os que a Regra de leitura ainda não citou)
+Os bans (INDICE, EXEMPLO.json, script, MAPA dos outros templates) e o mapa agente→arquivo já estão na **Regra de leitura** acima. Além daqueles, conforme a necessidade do caso:
+- `01-Insalubridade/Agentes-Quimicos/quadro-anexo-11-limites-tolerancia.md` (LT + grau por substância) · `quadro-anexo-13-enquadramento.md` (operações por grau) — só quando houver agente químico An.11/An.13 presente.
 - `04-EPIs/analise-epi-padrao.md` — EPI por eficácia/regularidade/período; recorte = quantidade × vida útil por CA.
-- `08-Textos-Padrão/_bloco-respostas-quesitos.md` · `_bloco-vocabulario-tecnico.md`.
-- `05-Setores-e-Funcoes/[setor].md` — quando a função identifica o setor.
+- `05-Setores-e-Funcoes/[setor].md` — só quando a função identifica o setor.
 
 ## Saída
 Um `JSON de conteúdo` (`laudo-data.json`) → o **script** `scripts/build_laudo.py` gera o `.docx` final, nome: **`laudo-[processo].docx`**. Ao final, o relatório de validação do script + a sua auto-conferência de conteúdo.
@@ -144,7 +138,7 @@ Ler o status de cada agente no formulário. **Você só escreve no JSON os agent
   2. Senão → abre `08-Textos-Padrão/[agente].md` (via **mapa inline** na Regra de leitura — **não** o INDICE), escolhe a variante **caracterizada × descaracterizada** conforme o status/medição, e preenche a moldura com os dados do formulário.
   3. Base não tem o agente → redige com técnica geral e **SINALIZA** no relatório "texto não veio da base do Irineu".
 
-**Roteamento do Anexo 13 (qualitativos)** — escolher o arquivo pela substância do formulário: óleo/graxa → `agentes-quimicos-oleo-mineral.md` (grau máx.); solvente/thinner → `agentes-quimicos-solventes-aromaticos.md`; ácido → `agentes-quimicos-acidos.md`; cimento/álcali → `agentes-quimicos-cimento-alcalis.md`; glifosato/organofosforado → `agentes-quimicos-organofosforados.md`.
+**Anexo 13 (qualitativos):** roteia pela substância — ver as linhas An.13 do mapa agente→arquivo (óleo/graxa = grau máximo).
 
 **Grau e LT — sempre consultar os quadros, nunca chutar:** An.11 por substância (`quadro-anexo-11`: mínimo 10 / médio 20 / máximo 40); An.13 por operação (`quadro-anexo-13`).
 
