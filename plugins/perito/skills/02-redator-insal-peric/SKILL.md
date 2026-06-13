@@ -136,10 +136,10 @@ Preencher do formulário: `{{VARA}}`, `{{PROCESSO}}`, `{{RECLAMANTE}}`, `{{RECLA
 - **Honorários:** se o formulário trouxer `Valor (R$)` e `Por extenso` **preenchidos**, usar esses valores em `{{HONORARIOS_VALOR}}`/`{{HONORARIOS_EXTENSO}}`. Se vierem **em branco**, deixar um placeholder curto (`____`) e avisar no relatório — nunca arbitrar valor. (O perito arbitra e preenche no formulário; o Redator só transcreve.)
 
 ### 2. Varredura dos agentes (cada `{{ANALISE_*}}`)
-Percorrer **todas** as subseções do template escolhido (15 NR-15 + 6 NR-16 no combinado). Para cada uma, ler o status no formulário:
+Ler o status de cada agente no formulário. **Você só escreve no JSON os agentes que precisam de prosa própria — os AUSENTES o script preenche sozinho:**
 
-- **`[Ausente]`** → `"Descaracterizada a insalubridade."` (1 linha). Periculosidade não aplicável → frase-padrão de não enquadramento. Anexo revogado (Iluminação An.4) → texto-padrão de revogação.
-- **`[Presente]`** → desenvolver a análise nesta ordem de fonte:
+- **`[Ausente]`** (não há o agente) → **NÃO emita o bloco `ANALISE_*` no JSON.** O `build_laudo.py` preenche automaticamente, na voz do Irineu, a descaracterização-padrão por agente (inclui a frase de periculosidade e o texto de revogação do An.4 Iluminamento). Isso corta ~metade do JSON. **Apenas omita — não escreva "Descaracterizada…" você mesmo.**
+- **`[Presente]`** (inclui **presente abaixo do LT / descaracterizado por medição** — ⚠ isso **NÃO** é ausente: precisa da análise desenvolvida, então **emita o bloco**) → desenvolver a análise nesta ordem de fonte:
   1. **Laudo base** cobre este agente → adapta a análise dele, trocando o dado pelo do formulário.
   2. Senão → abre `08-Textos-Padrão/[agente].md` (via **mapa inline** na Regra de leitura — **não** o INDICE), escolhe a variante **caracterizada × descaracterizada** conforme o status/medição, e preenche a moldura com os dados do formulário.
   3. Base não tem o agente → redige com técnica geral e **SINALIZA** no relatório "texto não veio da base do Irineu".
@@ -189,7 +189,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
 1. **Montar o JSON `laudo-data.json`** com tudo decidido nos Passos 1–4 — **você já tem tudo em contexto, NÃO releia formulário, mapa nem `[agente].md`**. Schema:
    - `perito_nome`: `config.perito.nome` (do `perito-config.json` — checagem de identidade do script). Opcional: `nomes_proibidos` = `config.perito.nomes_proibidos`.
    - `scalars`: `VARA` (vara do processo!), `PROCESSO`, `RECLAMANTE`, `RECLAMADA`, `HONORARIOS_VALOR`, `HONORARIOS_EXTENSO`, `CIDADE`, `DATA_PROTOCOLO`, `DATA_VISTORIA`, `HORARIO_VISTORIA`, `LOCAL_VISTORIA`, `ESCOPO_AVALIACAO`, `NUMERO_FOLHAS`.
-   - `blocks`: cada chave é um marcador (`LISTA_PARTICIPANTES`, `ATIVIDADES_POR_FUNCAO`, os 15 `ANALISE_*` da NR-15 + 6 da NR-16, `CONCLUSAO_ITENS`, `QUESITOS_RECLAMANTE`, `QUESITOS_RECLAMADA`) e o valor é uma **lista de parágrafos**. Para a tabela de vibração, inclua a linha `"@@TABELA_VIBRACAO@@"` dentro do bloco `ANALISE_VIBRACOES`, no ponto onde a tabela entra.
+   - `blocks`: cada chave é um marcador (`LISTA_PARTICIPANTES`, `ATIVIDADES_POR_FUNCAO`, os `ANALISE_*` **só dos agentes PRESENTES** — os ausentes o script preenche, ver Passo 2 —, `CONCLUSAO_ITENS`, `QUESITOS_RECLAMANTE`, `QUESITOS_RECLAMADA`) e o valor é uma **lista de parágrafos**. Para a tabela de vibração, inclua a linha `"@@TABELA_VIBRACAO@@"` dentro do bloco `ANALISE_VIBRACOES`, no ponto onde a tabela entra.
    - `identificacao`: lista de linhas `[Função, Setor, Início, Término, Autuação, ImprInício, ImprTérmino]` (uma por função; fora do imprescrito → `"—"` nas duas últimas).
    - `epi`: `{ "anos": ["2023","2024","2025"], "linhas": [[Descrição, Agente, C.A., q_ano1, q_ano2, q_ano3], ...] }` (só EPIs ligados a agente; quantidade por ano, vazio = `""`).
    - `nr6`: `{ "ficha","ca","treinamento","adequado","frequencia","fiscalizacao" }`, cada um `"SIM"` / `"NAO"` / `""` (branco = linha do perito 👤, não marca).
@@ -222,7 +222,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
      "nr6": { "ficha": "SIM", "ca": "SIM", "treinamento": "NAO", "adequado": "NAO", "frequencia": "", "fiscalizacao": "" }
    }
    ```
-   > Inclua **todos** os `ANALISE_*` do template escolhido (os `[Ausente]` com a linha-padrão `"Descaracterizada a insalubridade."`). `vibracao` só entra se houver tabela.
+   > Emita em `blocks` **só os `ANALISE_*` dos agentes PRESENTES** (no exemplo: químico qualitativo + inflamáveis). **Os ausentes ficam de fora** — o script preenche cada um com a descaracterização-padrão na voz do Irineu. `vibracao` só entra se houver tabela.
 
 2. **Rodar o script** (monta o .docx inteiro) — caixa-preta, não leia o código:
    `python3 <base-dir>/scripts/build_laudo.py <00-Template/template-insal-peric.docx> laudo-data.json <SAÍDA>`

@@ -40,6 +40,41 @@ from docx.shared import Pt, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+# ---------------- descaracterização-padrão por agente AUSENTE ----------------
+# O modelo só emite os ANALISE_* dos agentes PRESENTES; este mapa preenche
+# automaticamente os AUSENTES com a redação verbatim do Irineu (extraída dos
+# laudos dele). Cada valor é a lista de parágrafos do bloco.
+# ⚠ 4 entradas (RUIDO_CONTINUO, VIBRACOES, QUIM_QUALITATIVOS, PERIC_INFLAMAVEIS)
+# foram derivadas do padrão (são quase sempre PRESENTES, raramente caem aqui).
+_INSAL = 'Descaracterizada a insalubridade.'
+_PERIC = 'Descaracterizada a periculosidade.'
+_NC = 'Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a %s nos termos do Anexo nº %s da NR-%s.'
+ABSENT_ANALISE = {
+    # NR-15
+    'ANALISE_RUIDO_CONTINUO':   [_NC % ('ruído contínuo ou intermitente', '1', '15'), _INSAL],
+    'ANALISE_RUIDO_IMPACTO':    [_NC % ('ruído de impacto', '2', '15'), _INSAL],
+    'ANALISE_CALOR':            ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição ao agente calor nos termos do Anexo nº 3 da NR-15.', _INSAL],
+    'ANALISE_BAIXO_ILUMINAMENTO': ['O Anexo nº 4 da NR-15 (Iluminamento) foi revogado pela Portaria nº 3.751, de 23/11/1990, não sendo, portanto, objeto de análise no presente laudo.'],
+    'ANALISE_RAD_IONIZANTES':   [_NC % ('radiações ionizantes', '5', '15'), _INSAL],
+    'ANALISE_HIPERBARICAS':     ['Não foi constatado, nas atividades exercidas pelo(a) Reclamante, trabalho sob condições hiperbáricas nos termos do Anexo nº 6 da NR-15.', _INSAL],
+    'ANALISE_RAD_NAO_IONIZANTES': ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a radiações não ionizantes em condições que se enquadrem no Anexo nº 7 da NR-15.', _INSAL],
+    'ANALISE_VIBRACOES':        [_NC % ('vibrações', '8', '15'), _INSAL],
+    'ANALISE_FRIO':             ['Não aplicável às atividades exercidas pelo(a) Reclamante, nos termos do Anexo nº 9 da NR-15.', _INSAL],
+    'ANALISE_UMIDADE':          ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a condições de umidade que se enquadrem no Anexo nº 10 da NR-15.', _INSAL],
+    'ANALISE_QUIM_QUANTITATIVOS': ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a agentes químicos sujeitos a avaliação quantitativa nos termos do Anexo nº 11 da NR-15.', _INSAL],
+    'ANALISE_POEIRAS_MINERAIS': [_NC % ('poeiras minerais', '12', '15'), _INSAL],
+    'ANALISE_QUIM_QUALITATIVOS': ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a agentes químicos sujeitos a avaliação qualitativa nos termos do Anexo nº 13 da NR-15.', _INSAL],
+    'ANALISE_BENZENO':          ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a benzeno nos termos do Anexo nº 13-A da NR-15.', _INSAL],
+    'ANALISE_AGENTES_BIOLOGICOS': [_NC % ('agentes biológicos', '14', '15'), _INSAL],
+    # NR-16
+    'ANALISE_PERIC_EXPLOSIVOS': [_NC % ('explosivos', '1', '16'), _PERIC],
+    'ANALISE_PERIC_INFLAMAVEIS': [_NC % ('inflamáveis', '2', '16'), _PERIC],
+    'ANALISE_PERIC_ROUBOS':     ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a situações de roubo ou outras espécies de violência física nos termos do Anexo nº 3 da NR-16.', _PERIC],
+    'ANALISE_PERIC_ELETRICIDADE': ['Não foi constatado, nas atividades exercidas pelo(a) Reclamante, contato com instalações ou equipamentos elétricos energizados em condições que se enquadrem no Anexo nº 4 da NR-16.', _PERIC],
+    'ANALISE_PERIC_MOTOCICLETA': ['Não foi constatado, nas atividades exercidas pelo(a) Reclamante, uso de motocicleta para o exercício do trabalho nos termos do Anexo nº 5 da NR-16.', _PERIC],
+    'ANALISE_PERIC_RADIACOES':  ['Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a radiações ionizantes em condições de periculosidade nos termos da NR-16.', _PERIC],
+}
+
 # ---------------- helpers de parágrafo ----------------
 def all_paragraphs(document):
     out = []
@@ -93,6 +128,17 @@ def replace_blocks(document, blocks):
         for p in [p for p in all_paragraphs(document) if mk in p.text]:
             set_block(p, lines)
 
+def fill_absent_analises(document):
+    """Qualquer {{ANALISE_*}} que o modelo NÃO enviou (agente ausente) recebe a
+    descaracterização-padrão por agente. Devolve a lista de marcadores preenchidos."""
+    filled = []
+    for p in all_paragraphs(document):
+        m = re.search(r'\{\{(ANALISE_[A-Z0-9_]+)\}\}', p.text)
+        if m and m.group(1) in ABSENT_ANALISE:
+            set_block(p, ABSENT_ANALISE[m.group(1)])
+            filled.append(m.group(1))
+    return filled
+
 def set_cell_text(cell, text, bold=None):
     p = cell.paragraphs[0]
     for extra in cell.paragraphs[1:]:
@@ -123,6 +169,10 @@ def build(template_path, data_path, out_path):
 
     # blocos (multi-parágrafo) primeiro, depois escalares
     replace_blocks(doc, data.get('blocks', {}))
+    # agentes AUSENTES que o modelo não enviou -> descaracterização-padrão automática
+    auto = fill_absent_analises(doc)
+    if auto:
+        print('Agentes ausentes preenchidos pelo script (%d): %s' % (len(auto), ', '.join(a.replace('ANALISE_', '') for a in auto)))
 
     scalars = dict(data.get('scalars', {}))
     # anos do EPI no cabeçalho
