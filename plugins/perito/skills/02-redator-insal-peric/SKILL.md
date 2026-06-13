@@ -185,7 +185,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
    - `scalars`: `VARA` (vara do processo!), `PROCESSO`, `RECLAMANTE`, `RECLAMADA`, `HONORARIOS_VALOR`, `HONORARIOS_EXTENSO`, `CIDADE`, `DATA_PROTOCOLO`, `DATA_VISTORIA`, `HORARIO_VISTORIA`, `LOCAL_VISTORIA`, `ESCOPO_AVALIACAO`, `NUMERO_FOLHAS`.
    - `blocks`: cada chave é um marcador (`LISTA_PARTICIPANTES`, `ATIVIDADES_POR_FUNCAO`, os `ANALISE_*` **só dos agentes PRESENTES** — os ausentes o script preenche, ver Passo 2 —, `CONCLUSAO_ITENS`, `QUESITOS_RECLAMANTE`, `QUESITOS_RECLAMADA`) e o valor é uma **lista de parágrafos**. Para a tabela de vibração, inclua a linha `"@@TABELA_VIBRACAO@@"` dentro do bloco `ANALISE_VIBRACOES`, no ponto onde a tabela entra.
    - `identificacao`: lista de linhas `[Função, Setor, Início, Término, Autuação, ImprInício, ImprTérmino]` (uma por função; fora do imprescrito → `"—"` nas duas últimas).
-   - `epi`: `{ "anos": ["2023","2024","2025"], "linhas": [[Descrição, Agente, C.A., q_ano1, q_ano2, q_ano3], ...] }` (só EPIs ligados a agente; quantidade por ano, vazio = `""`).
+   - `epi`: `{ "anos": ["2023","2024","2025"], "linhas": [[Descrição, Agente, C.A., q_ano1, q_ano2, q_ano3], ...] }`. ⚠ **SEMPRE 3 anos em `anos` e SEMPRE 6 campos por linha** (desc, agente, ca, v1, v2, v3) — **mesmo que o imprescrito cubra só 1 ou 2 anos**. Ano sem entrega/inexistente → string vazia `""` na posição (ex.: imprescrito de 2 anos → `"anos":["2024","2025",""]` e cada linha `[...,"3","1",""]`). Nunca encurtar a lista.
    - `nr6`: `{ "ficha","ca","treinamento","adequado","frequencia","fiscalizacao" }`, cada um `"SIM"` / `"NAO"` / `""` (branco = linha do perito 👤, não marca).
    - `vibracao`: `[[Equipamento, AREN, VDVR], ...]` — só se houver tabela de vibração; senão **omitir a chave**.
 
@@ -212,7 +212,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
        "QUESITOS_RECLAMADA": ["A Reclamada não apresentou quesitos."]
      },
      "identificacao": [["Operador de colhedora", "Agrícola", "01/03/2019", "15/08/2024", "12/01/2026", "12/01/2024", "15/08/2024"]],
-     "epi": { "anos": ["2023","2024"], "linhas": [["Creme protetor", "Químico (óleo)", "12345", "2", ""]] },
+     "epi": { "anos": ["2023","2024","2025"], "linhas": [["Creme protetor", "Químico (óleo)", "12345", "2", "1", ""]] },
      "nr6": { "ficha": "SIM", "ca": "SIM", "treinamento": "NAO", "adequado": "NAO", "frequencia": "", "fiscalizacao": "" }
    }
    ```

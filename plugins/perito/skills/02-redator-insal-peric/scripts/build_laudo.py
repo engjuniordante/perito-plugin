@@ -197,16 +197,18 @@ def build(template_path, data_path, out_path):
                 set_cell_text(row.cells[ci], str(val), bold=False)
         t0._tbl.remove(tmpl)
 
-    # tabela de EPI (resumo por agente)
+    # tabela de EPI (resumo por agente) — tolerante: cada linha preenche TODAS as células
+    # (desc, agente, ca, v1, v2, v3); campo faltante -> '' (nunca deixa {{EPI_*}} residual).
     t2 = find_table(doc, '{{EPI_DESC}}')
-    if t2 is not None and data.get('epi', {}).get('linhas'):
+    if t2 is not None:
         tmpl = t2.rows[-1]._tr
-        for row_vals in data['epi']['linhas']:
+        for row_vals in (data.get('epi', {}).get('linhas') or []):
             new_tr = deepcopy(tmpl); t2._tbl.append(new_tr)
             row = t2.rows[-1]
-            for ci, val in enumerate(row_vals[:len(row.cells)]):
+            for ci in range(len(row.cells)):
+                val = row_vals[ci] if ci < len(row_vals) else ''
                 set_cell_text(row.cells[ci], str(val))
-        t2._tbl.remove(tmpl)
+        t2._tbl.remove(tmpl)   # remove a linha-modelo (some os {{EPI_*}} mesmo sem dados)
 
     # NR-6
     t3 = find_table(doc, 'NR-6 EQUIPAMENTO')
