@@ -70,9 +70,9 @@ Um `JSON de conteúdo` (`laudo-data-ergo.json`) → o script gera o `.docx`, em 
 
 ⚠ A SAÍDA vai **dentro do workspace montado** (`Laudos-Gerados/`, sincronizada com o Drive) — nunca no Desktop (o sandbox do Cowork não acessa).
 
-### 3. Ler o relatório do script — e PARAR nele
-O script imprime os **níveis derivados** (BM/MS/CV → qualificação) e avisa: célula de formulação vazia, aba de avaliação vazia, marcador residual, identidade. **Se houver aviso → corrigir o JSON (ou pedir a planilha correta) e rodar de novo** — nunca editar o .docx.
-> ⛔ **NUNCA faça dump/leitura do `.docx` inteiro pra "conferir"** — o relatório do script já cobre marcadores + identidade + níveis. Checagem pontual → um `grep` do campo, nunca o documento todo.
+### 3. Rodou sem AVISO? ACABOU — entregue o relatório e PARE
+O script imprime os **níveis derivados** (BM/MS/CV → qualificação) e avisa: célula de formulação vazia, aba de avaliação vazia, marcador residual, identidade. ✅ sem aviso = laudo pronto. **Se houver aviso → corrigir o JSON (ou pedir a planilha correta) e rodar de novo** — nunca editar o .docx.
+> ⛔⛔ **APÓS rodar o script, é PROIBIDO inspecionar o resultado:** nada de `unzip`/`cat`/`sed` no `.docx`, python com `import docx`/`document.xml` pra "dar uma olhada", `cat` no `build_laudo_ergo.py`, nem reabrir este SKILL. O .docx é render determinístico do JSON + planilha — não há nada novo pra ver. Essa inspeção é o que estoura o contexto.
 
 ---
 

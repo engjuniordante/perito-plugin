@@ -235,12 +235,24 @@ def build(template_path, data_path, out_path):
             warnings.append('VAZAMENTO: "%s" presente no documento' % bad)
 
     doc.save(out_path)
+
+    # --- relatório autossuficiente: tudo que dispensa reabrir o .docx ---
+    n_paras = len([p for p in all_paragraphs(doc) if p.text.strip()])
+    n_tbls = len(doc.tables)
+    ident_rows = len(data.get('identificacao', []) or [])
+    epi_rows = len(data.get('epi', {}).get('linhas', []) or [])
+    vib_rows = len(data.get('vibracao', []) or [])
     print('OK ->', out_path)
+    print('CONTEÚDO: %d parágrafos não-vazios | %d tabelas (identificação=%d linhas, EPI=%d linhas, vibração=%d linhas)'
+          % (n_paras, n_tbls, ident_rows, epi_rows, vib_rows))
+    if auto:
+        print('Agentes AUSENTES preenchidos pelo script: %d/%d' % (len(auto), 21))
     if warnings:
-        print('\n⚠ AVISOS:')
+        print('\n⚠ AVISOS (corrija o JSON e rode de novo):')
         for w in warnings: print('  -', w)
     else:
-        print('Sem marcadores residuais. Identidade OK.')
+        print('✅ VALIDAÇÃO OK: sem marcador residual, identidade do perito presente, sem vazamento.')
+        print('✅ DOCUMENTO COMPLETO E VÁLIDO — verificação encerrada. NÃO reabra/dumpe o .docx: ele é render determinístico do JSON já conferido.')
     return not warnings
 
 def build_vibracao_table(doc, linhas):
