@@ -122,6 +122,7 @@ Disparou → **NÃO redigir a análise técnica.** Devolver: *"Formulário em es
 > ⛔ **TRAVA DE IDENTIDADE × DADO DO CASO (erro grave se violar):**
 > - **Identidade do PERITO** (nome, CREA, titulação, contato) = **SEMPRE `config.perito.nome`** (do `perito-config.json`). **NUNCA** usar o nome do dono da máquina / usuário do Cowork / CLAUDE.md global. Se aparecer outro nome de "perito" em qualquer lugar, é vazamento — corrigir para o do config.
 > - **Dado do CASO** (`{{VARA}}`, partes, `{{LISTA_PARTICIPANTES}}`, honorários, datas, local, `{{DATA_AUTUACAO}}`) = **SEMPRE do FORMULÁRIO**, nunca do CLAUDE.md. ⚠ `{{VARA}}` = a **vara do processo** (ex.: "2ª Vara de Araraquara") — **NÃO** a jurisdição-base do perito (Mogi Guaçu). Confundir as duas = vara errada no endereçamento.
+> - ⚠ **`{{CIDADE}}` (cidade do fecho "Cidade, data") = a cidade da VARA do processo**, **NÃO** a `config.perito.cidade` (Mogi Guaçu é a base do perito, não o foro do caso). Derive da `{{VARA}}` (ex.: vara de Araraquara → "Araraquara"). Se a vara não der a cidade com clareza, deixe `[NÃO LOCALIZADO]` e sinalize — **nunca** caia na cidade-base do config.
 
 Preencher do formulário: `{{VARA}}`, `{{PROCESSO}}`, `{{RECLAMANTE}}`, `{{RECLAMADA}}`, `{{DATA_VISTORIA}}`/`{{HORARIO_VISTORIA}}`/`{{LOCAL_VISTORIA}}`, `{{LISTA_PARTICIPANTES}}`, `{{ESCOPO_AVALIACAO}}`, **tabela de identificação** (`{{FUNCAO}}`/`{{SETOR}}`/`{{PERIODO_INICIO}}`/`{{PERIODO_TERMINO}}`/`{{DATA_AUTUACAO}}`/`{{PERIODO_IMPRESCRITO_INICIO}}`/`{{PERIODO_IMPRESCRITO_TERMINO}}` — Imprescrito tem **duas colunas, Início e Término: preencher AMBAS** com as datas do imprescrito ★; função fora do imprescrito → "—" nas duas; +linhas se houver várias funções), `{{ATIVIDADES_POR_FUNCAO}}`, `{{CIDADE}}`/`{{DATA_PROTOCOLO}}`, `{{NUMERO_FOLHAS}}`.
 - **Tabela de identificação:** todas as linhas em **peso normal — sem negrito**. O destaque (negrito) das funções do imprescrito existe **só no formulário de campo** (leitura do perito); no laudo final, a tabela sai limpa, sem negrito em nenhuma linha.
@@ -226,12 +227,13 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
 2. **Rodar o script** (monta o .docx inteiro) — caixa-preta, não leia o código:
    `python3 <base-dir>/scripts/build_laudo.py <00-Template/template-insal-peric.docx> laudo-data.json <SAÍDA>`
    - **SAÍDA = dentro do workspace montado**, em `Base Perícia Irineu/Laudos-Gerados/laudo-<processo>.docx` (pasta sincronizada com o Drive — o perito abre no Word). ⚠ O sandbox do Cowork **não acessa o Desktop** nem fora do projeto — nunca gravar lá.
-3. **Ler o relatório do script.** Ele valida e avisa: marcador `{{...}}` residual, nome do perito ausente, vazamento ("Antonio Carlos…"). **Se houver aviso → corrigir o JSON e rodar de novo** (nunca editar o .docx).
+3. **Ler o relatório do script — e PARAR nele.** Ele valida e avisa: marcador `{{...}}` residual, nome do perito ausente, vazamento ("Antonio Carlos…"). **Se houver aviso → corrigir o JSON e rodar de novo** (nunca editar o .docx). Errou o JSON? O relatório te diz — **não precisa pré-ler o `build_laudo.py` pra "acertar de primeira"; é só iterar pelo relatório.**
+   > ⛔ **NUNCA faça dump/leitura do `.docx` inteiro pra "conferir"** (são ~30 KB que estouram o contexto à toa). O relatório do script **já** cobre marcadores residuais + identidade + vazamento. Se precisar checar um ponto específico, faça **um `grep` pontual** daquele campo — nunca o documento todo.
 4. O script já: limpa legendas de foto, monta as 3 tabelas + a de vibração, garante Arial 10,5 / autofit / sem negrito / sem sublinhado, preserva timbre, sumário, fundamentação fixa e anexos de calibração. Lembrar o perito do **F9** (atualizar sumário) ao abrir.
 
 ### 6. Coerência de CONTEÚDO (o que o script NÃO vê)
 O `build_laudo.py` já valida no Passo 5: **marcadores `{{...}}` residuais, nome do perito (Irineu), vazamento de identidade, legendas de foto** — se ele avisar, corrija o JSON. E já garante a **formatação** (Arial 10,5, autofit, sem negrito, sem sublinhado, tabela de vibração, fotos limpas). Aqui você confere o que é **conteúdo** (responsabilidade sua no JSON):
-- **Identidade × caso:** o `scalars.VARA` é a **vara do processo** (do formulário), não Mogi Guaçu; `perito_nome` = Irineu (nunca o dono da máquina).
+- **Identidade × caso:** o `scalars.VARA` é a **vara do processo** (do formulário), não Mogi Guaçu; **`scalars.CIDADE` (fecho) = a cidade DESSA vara, não a cidade-base do perito**; `perito_nome` = Irineu (nunca o dono da máquina).
 - **Não vazou para os blocos:** texto cru de campo `[interno]`/`[subsídio]`, rótulo "Laudo Base", `[NÃO LOCALIZADO]` em campo crítico, nem **dado de caso do laudo base/`07-Laudos-Anteriores`** (nome/medição/CA/período de OUTRO processo).
 - **Coerência:** ementa = conclusão; agentes caracterizados batem com as medições do formulário; no só-insalubridade não há bloco NR-16, e vice-versa.
 - **Vibração (Anexo 8) com mais de um equipamento** → apresentar as medições em **tabela** (Equipamento | AREN [LT = 1,1 m/s²] | VDVR [LT = 21,0]), cabeçalho azul + texto branco, Arial 10,5, centralizada — **não** em bullets (padrão do Irineu; uma linha por equipamento, ex.: Transbordo / Colhedora).
@@ -256,6 +258,7 @@ Laudo base usado: [sim — adaptado / não — base de conhecimento]
 AUTO-CONFERÊNCIA (obrigatória):
   • Perito = Irineu de Freitas Branco Junior (não o usuário/dono da máquina)? [Sim/Não]
   • Vara = a do processo (formulário), não a jurisdição-base do perito? [Sim/Não]
+  • Cidade do fecho = a cidade da vara do processo, não a cidade-base do perito (Mogi Guaçu)? [Sim/Não]
   • Participantes copiados do formulário (não lista genérica inventada)? [Sim/Não]
   • Nenhum marcador {{...}} residual no .docx (incl. {{LEGENDA_FOTO}})? [Sim/Não]
   • Atividades só com o que veio do formulário (nada inventado)? [Sim/Não]
