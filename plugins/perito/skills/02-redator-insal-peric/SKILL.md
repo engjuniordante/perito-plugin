@@ -33,19 +33,51 @@ Se faltar o formulário, pare e peça. Sem laudo base, o segundo cérebro vira a
 
 ## ⚡ Regra de leitura (custo de token — CRÍTICO, ler antes)
 Este é o passo que mais queima token e **trava o Cowork**. Disciplina obrigatória:
-1. **Cada arquivo, UMA leitura — sem exceção.** Leu o formulário? **NÃO releia** (nem `Read`, nem `cat`, nem "pra conferir"). Idem qualquer `[agente].md`. Guarde o conteúdo na memória de trabalho na 1ª leitura.
-2. **Agentes: abrir só os `08-Textos-Padrão/[agente].md` dos `[Presente]`** (arquivos pequenos). Os `[Ausente]` não se lê. ⛔ **NUNCA abrir laudos inteiros de `07-Laudos-Anteriores/`** (40 KB+ cada) — a prosa por agente vem do `08`, não do laudo final. **Laudo base só existe se o PERITO colar um no chat** — não vá procurar um sozinho.
-3. **NUNCA abrir `laudo-data.EXEMPLO.json`** (20 KB) — o schema está inline no Passo 5; baste-se nele.
-4. **Script:** localize `build_laudo.py` **UMA vez** (um `find` só, dentro da pasta do plugin) e **reuse o caminho** — não fique procurando a cada passo.
-5. **Teto:** um laudo típico se monta com **~6–8 leituras**. Passou disso = está lendo demais → pare e reavalie.
+
+> **🚫 UMA PASSADA SÓ — não existe "passada de reconhecimento".** O erro nº 1 que trava o Cowork: ler tudo numa 1ª passada "pra entender", depois **reler tudo** numa 2ª passada "pra montar o JSON". **Proibido.** Você lê cada arquivo **uma única vez** e já vai **extraindo o conteúdo pro `laudo-data.json` na hora** — a 1ª leitura é a definitiva. Quando terminar de ler os `[Presente]`, você **já tem tudo em contexto** pra montar o JSON inteiro, sem reabrir nada.
+> ❌ **NUNCA crie uma task do tipo "reler formulário", "reler textos-padrão", "revisar fontes".** Se você se pegar prestes a dar `Read` num arquivo que já leu → **PARE**: o conteúdo está no seu contexto, use-o.
+
+1. **Cada arquivo, UMA leitura — sem exceção.** Leu o formulário? **NÃO releia** (nem `Read`, nem `cat`, nem "pra conferir"). Idem qualquer `[agente].md`, mapa ou bloco. Guarde o conteúdo na memória de trabalho na 1ª leitura.
+2. **Agentes: abrir só os `08-Textos-Padrão/[agente].md` dos `[Presente]`** (arquivos pequenos), **um por agente presente**. `[Presente]` inclui o agente **abaixo do LT** (precisa do texto-padrão pra escrever a descaracterização na voz do Irineu — não é one-liner). Só o `[Ausente]` de verdade não se lê (sai com a linha-padrão). ⛔ **NUNCA abrir laudos inteiros de `07-Laudos-Anteriores/`** (40 KB+ cada) — a prosa por agente vem do `08`, não do laudo final. **Laudo base só existe se o PERITO colar um no chat** — não vá procurar um sozinho.
+3. ⛔ **NUNCA abrir `08-Textos-Padrão/INDICE-TEXTOS.md`** (17 KB de metadado de manutenção — nº de laudos-fonte, "saturado?", lote processado — nada disso te serve). O mapa **agente → arquivo** está **inline aqui embaixo**; baste-se nele.
+4. ⛔ **NUNCA abrir `laudo-data.EXEMPLO.json`** (20 KB) — o schema está inline no Passo 5; baste-se nele.
+5. **Mapas:** ler **só o MAPA-CAMPOS do template escolhido** (tabela 1:1 no Passo 0) — **nunca** abrir os outros dois.
+6. **Script:** o `build_laudo.py` está em **`<base-dir do skill>/scripts/build_laudo.py`** (a base-dir é informada no início da execução). Use esse caminho **direto** — **não fique dando `Glob`/`find`** a cada passo.
+7. **Teto:** um laudo típico se monta com **~6–8 leituras, cada arquivo 1×**. Passou disso = está relendo → pare e reavalie.
+
+### Mapa agente → arquivo (`08-Textos-Padrão/`) — use SEM abrir o índice
+| Agente (status no formulário) | Arquivo `08-Textos-Padrão/…` |
+|---|---|
+| Ruído (An.1) | `ruido.md` |
+| Calor (An.3) | `calor.md` |
+| Radiações Ionizantes — insalub. (An.5) | `radiacoes-ionizantes-nr15.md` |
+| RNI / solda (An.7) | `radiacoes-nao-ionizantes.md` |
+| Vibração — VCI+VMB (An.8) | `vibracao.md` |
+| Frio (An.9) | `frio.md` |
+| Umidade (An.10) | `umidade.md` |
+| Químico quantitativo (An.11) | `agentes-quimicos-quantitativos.md` |
+| Biológicos (An.14) | `agentes-biologicos.md` |
+| **An.13 (qualitativo) — roteia pela substância:** óleo/graxa | `agentes-quimicos-oleo-mineral.md` |
+| An.13 — solvente/thinner/aromático | `agentes-quimicos-solventes-aromaticos.md` |
+| An.13 — ácido | `agentes-quimicos-acidos.md` |
+| An.13 — cimento/álcali cáustico | `agentes-quimicos-cimento-alcalis.md` |
+| An.13 — glifosato/organofosforado | `agentes-quimicos-organofosforados.md` |
+| Peric. — Explosivos (NR-16 An.1) | `periculosidade-explosivos.md` |
+| Peric. — Inflamáveis (NR-16 An.2) | `periculosidade-inflamaveis.md` |
+| Peric. — Roubos/Violência (NR-16 An.3) | `periculosidade-roubos-violencia.md` |
+| Peric. — Eletricidade (NR-16 An.4) | `periculosidade-eletricidade.md` |
+| Peric. — Motocicleta (NR-16 An.5) | `periculosidade-motocicleta.md` |
+| Peric. — Radiações Ionizantes | `periculosidade-radiacoes-ionizantes.md` |
+| _Bloco fixo_ — Vocabulário Técnico | `_bloco-vocabulario-tecnico.md` |
+| _Bloco fixo_ — Respostas a quesitos | `_bloco-respostas-quesitos.md` |
 
 ## Arquivos de apoio (ler conforme a regra acima)
-- **`scripts/build_laudo.py`** — monta o `.docx` a partir do JSON de conteúdo (Passo 5). **Você NÃO edita o .docx** — produz o JSON e roda o script.
+- **`<base-dir>/scripts/build_laudo.py`** — monta o `.docx` a partir do JSON de conteúdo (Passo 5). **Você NÃO edita o .docx** — produz o JSON e roda o script. Caminho direto pela base-dir do skill; **não procure com Glob**.
 - **`scripts/laudo-data.EXEMPLO.json`** — ⛔ **NÃO ABRIR** (20 KB, estoura o contexto). O schema completo está inline no **Passo 5**; baste-se nele.
 - `00-Template/template-insalubridade.docx` · `template-periculosidade.docx` · `template-insal-peric.docx` — saída (texto fixo intocável); o script lê, você não.
-- `00-Template/MAPA-CAMPOS-template-*.md` — origem de cada `{{...}}` do template escolhido.
-- `08-Textos-Padrão/INDICE-TEXTOS.md` — mapa agente → arquivo `.md`.
-- `08-Textos-Padrão/[agente].md` — análise/conclusão/critérios/argumentos por agente. **Abrir SOMENTE os `[Presente]`, uma vez cada.** Os `[Ausente]` não se lê (saem com a linha-padrão).
+- `00-Template/MAPA-CAMPOS-template-*.md` — origem de cada `{{...}}`. **Ler só o do template escolhido** (1:1 no Passo 0) — nunca os outros dois.
+- ⛔ `08-Textos-Padrão/INDICE-TEXTOS.md` — **NÃO ABRIR** (17 KB de metadado). O mapa agente → arquivo está **inline na Regra de leitura** acima.
+- `08-Textos-Padrão/[agente].md` — análise/conclusão/critérios/argumentos por agente. **Abrir SOMENTE os `[Presente]` (inclui abaixo do LT), uma vez cada.** Só o `[Ausente]` de verdade não se lê (sai com a linha-padrão).
 - `01-Insalubridade/Agentes-Quimicos/quadro-anexo-11-limites-tolerancia.md` (LT + grau por substância) · `quadro-anexo-13-enquadramento.md` (operações por grau).
 - `04-EPIs/analise-epi-padrao.md` — EPI por eficácia/regularidade/período; recorte = quantidade × vida útil por CA.
 - `08-Textos-Padrão/_bloco-respostas-quesitos.md` · `_bloco-vocabulario-tecnico.md`.
@@ -59,13 +91,13 @@ Um `JSON de conteúdo` (`laudo-data.json`) → o **script** `scripts/build_laudo
 ## Passo a passo
 
 ### 0. Selecionar o template (à prova de erro)
-Ler `▶ TIPO DE LAUDO` no formulário:
-- `Insalubridade` → `template-insalubridade.docx`
-- `Periculosidade` → `template-periculosidade.docx`
-- `Insalubridade + Periculosidade` → `template-insal-peric.docx`
+Ler `▶ TIPO DE LAUDO` no formulário e escolher template **+ seu único MAPA-CAMPOS** (1:1 — ler **só** o mapa da linha escolhida, nunca os outros dois):
+- `Insalubridade` → `template-insalubridade.docx` + `MAPA-CAMPOS-template-insalubridade.md`
+- `Periculosidade` → `template-periculosidade.docx` + `MAPA-CAMPOS-template-periculosidade.md`
+- `Insalubridade + Periculosidade` → `template-insal-peric.docx` + `MAPA-CAMPOS-template-insal-peric.md`
 - `Ergonomia`, **flag ausente ou ambíguo** → **PARE e pergunte**. Ergonomia = skill errada (redirecionar para o Redator Ergonômico). Errar o template é falha grave.
 
-Carregar o `MAPA-CAMPOS` do template escolhido. **Só preencher os marcadores que existem nesse template** (o só-insalubridade não tem NR-16; o só-periculosidade não tem os 15 agentes NR-15, mas tem o lembrete fixo "EPI não neutraliza periculosidade").
+Carregar **só o `MAPA-CAMPOS` do template escolhido**, uma vez. **Só preencher os marcadores que existem nesse template** (o só-insalubridade não tem NR-16; o só-periculosidade não tem os 15 agentes NR-15, mas tem o lembrete fixo "EPI não neutraliza periculosidade").
 
 ### 0.5 Detector de formulário pré-diligência (PARE se disparar)
 Antes de redigir, verificar se o formulário foi **preenchido in loco** ou se ainda é o **output cru do Extrator** (estado pré-diligência). Disparo se **TODAS** as condições abaixo forem verdadeiras:
@@ -100,7 +132,7 @@ Percorrer **todas** as subseções do template escolhido (15 NR-15 + 6 NR-16 no 
 - **`[Ausente]`** → `"Descaracterizada a insalubridade."` (1 linha). Periculosidade não aplicável → frase-padrão de não enquadramento. Anexo revogado (Iluminação An.4) → texto-padrão de revogação.
 - **`[Presente]`** → desenvolver a análise nesta ordem de fonte:
   1. **Laudo base** cobre este agente → adapta a análise dele, trocando o dado pelo do formulário.
-  2. Senão → abre `08-Textos-Padrão/[agente].md` (via INDICE), escolhe a variante **caracterizada × descaracterizada** conforme o status/medição, e preenche a moldura com os dados do formulário.
+  2. Senão → abre `08-Textos-Padrão/[agente].md` (via **mapa inline** na Regra de leitura — **não** o INDICE), escolhe a variante **caracterizada × descaracterizada** conforme o status/medição, e preenche a moldura com os dados do formulário.
   3. Base não tem o agente → redige com técnica geral e **SINALIZA** no relatório "texto não veio da base do Irineu".
 
 **Roteamento do Anexo 13 (qualitativos)** — escolher o arquivo pela substância do formulário: óleo/graxa → `agentes-quimicos-oleo-mineral.md` (grau máx.); solvente/thinner → `agentes-quimicos-solventes-aromaticos.md`; ácido → `agentes-quimicos-acidos.md`; cimento/álcali → `agentes-quimicos-cimento-alcalis.md`; glifosato/organofosforado → `agentes-quimicos-organofosforados.md`.
@@ -143,7 +175,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
 ### 5. Gerar o .docx — via SCRIPT (não editar o XML na mão)
 ⚠ **Não manipule o `.docx` manualmente** (lento, caro em token e foi a fonte dos bugs de marcador residual / identidade). O seu trabalho termina no **JSON de conteúdo**; o script faz toda a montagem, determinística.
 
-1. **Montar o JSON `laudo-data.json`** com tudo decidido nos Passos 1–4. Schema (exemplo COMPLETO e real em `scripts/laudo-data.EXEMPLO.json` — abrir só se tiver dúvida):
+1. **Montar o JSON `laudo-data.json`** com tudo decidido nos Passos 1–4 — **você já tem tudo em contexto, NÃO releia formulário, mapa nem `[agente].md`** (⛔ não abra `laudo-data.EXEMPLO.json`; o schema completo está logo abaixo). Schema:
    - `perito_nome`: `config.perito.nome` (do `perito-config.json` — checagem de identidade do script). Opcional: `nomes_proibidos` = `config.perito.nomes_proibidos`.
    - `scalars`: `VARA` (vara do processo!), `PROCESSO`, `RECLAMANTE`, `RECLAMADA`, `HONORARIOS_VALOR`, `HONORARIOS_EXTENSO`, `CIDADE`, `DATA_PROTOCOLO`, `DATA_VISTORIA`, `HORARIO_VISTORIA`, `LOCAL_VISTORIA`, `ESCOPO_AVALIACAO`, `NUMERO_FOLHAS`.
    - `blocks`: cada chave é um marcador (`LISTA_PARTICIPANTES`, `ATIVIDADES_POR_FUNCAO`, os 15 `ANALISE_*` da NR-15 + 6 da NR-16, `CONCLUSAO_ITENS`, `QUESITOS_RECLAMANTE`, `QUESITOS_RECLAMADA`) e o valor é uma **lista de parágrafos**. Para a tabela de vibração, inclua a linha `"@@TABELA_VIBRACAO@@"` dentro do bloco `ANALISE_VIBRACOES`, no ponto onde a tabela entra.
