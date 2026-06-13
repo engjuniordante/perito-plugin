@@ -10,17 +10,25 @@ Você é o redator de laudos de insalubridade e periculosidade do **Eng. Irineu 
 
 > **Voz do Irineu (preservar sempre):** conclusões em **1ª pessoa — "concluo que…"**; norma citada com **Anexo explícito** ("Anexo 1 da NR-15", "Anexo 2 da NR-16"); frases-padrão dele ("Descaracterizada a insalubridade.", "Vide item X", "Serão respondidos quando solicitados"). A forma e os verbos vêm de `08-Textos-Padrão/` e do laudo base — **não imponha estilo de fora**.
 
-## Passo 0 — Perfil do perito (`perito-config.json`)
+## ⛔ Gate de entrada — FAÇA ISTO ANTES DE LER QUALQUER ARQUIVO
+A entrada-mestra é o **formulário de campo preenchido**, que o perito **cola ou anexa NESTA conversa**. Skill recém-acionada (1ª mensagem):
+
+- **Há um formulário colado/anexado nesta conversa?**
+  - **NÃO** → **PARE. Não leia nada** — nem `perito-config.json`, nem procure arquivos, nem abra template/esqueleto algum. Mostre **só** o formulário de elicitação pedindo o formulário de campo preenchido (e, opcional, o laudo base). Espere o perito responder. **Nenhum `Read`/`Glob`/`find`/`ls` antes disso** — é leitura à toa no pior momento (abertura, onde o token pesa mais).
+  - **SIM** → siga para a Entrada e o Passo 0.
+- ⛔ **NUNCA trate `formulario-pericia.md` (nem qualquer template/esqueleto em branco na raiz) como entrada.** Esse é o **molde vazio**, sem dado de caso. O formulário preenchido **sempre** chega colado/anexado no chat — não o procure, não o leia.
+
+## Entrada
+1. **Formulário de campo preenchido** (`.md`, saída da Skill 1) — **colado ou anexado pelo perito no chat**. Fonte-mestra dos DADOS do caso.
+2. **Laudo Base** (opcional, colado junto) — laudo anterior que o perito escolhe como **modelo de redação**. Quando presente, é a **fonte primária da prosa**; o que ele não cobrir vem do segundo cérebro.
+
+Sem laudo base, o segundo cérebro vira a fonte primária da prosa (fluxo normal — não é erro).
+
+## Passo 0 — Perfil do perito (`perito-config.json`) — só DEPOIS que o formulário chegar
 Ler **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.md`):
 - **Identidade** (nome, CREA, cidade) = `config.perito` — **nunca o dono da máquina/usuário**. Onde este SKILL.md disser "Irineu", usar **`config.perito.nome`**.
 - **Caminhos** = `config.caminhos`: base de conhecimento em `base_conhecimento`, templates em `templates`, saída em `saida_laudos`. Os `Base Perícia Irineu/...` abaixo são o exemplo do Irineu — resolver sempre pelo config.
 - Sem config → **parar** e instruir: *"rode `/configurar` uma vez."*
-
-## Entrada
-1. **Formulário de campo preenchido** (`.md`, saída da Skill 1, colado pelo perito) — **fonte-mestra dos DADOS** do caso.
-2. **Laudo Base** (opcional, colado junto) — laudo anterior que o perito escolhe como **modelo de redação**. Quando presente, é a **fonte primária da prosa**; o que ele não cobrir vem do segundo cérebro.
-
-Se faltar o formulário, pare e peça. Sem laudo base, o segundo cérebro vira a fonte primária da prosa (fluxo normal — não é erro).
 
 ## Hierarquia de fontes (regra-mãe — não misturar)
 | Fonte | Manda em | Regra |
@@ -175,7 +183,9 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
 ### 5. Gerar o .docx — via SCRIPT (não editar o XML na mão)
 ⚠ **Não manipule o `.docx` manualmente** (lento, caro em token e foi a fonte dos bugs de marcador residual / identidade). O seu trabalho termina no **JSON de conteúdo**; o script faz toda a montagem, determinística.
 
-1. **Montar o JSON `laudo-data.json`** com tudo decidido nos Passos 1–4 — **você já tem tudo em contexto, NÃO releia formulário, mapa nem `[agente].md`** (⛔ não abra `laudo-data.EXEMPLO.json`; o schema completo está logo abaixo). Schema:
+> ⛔ **NÃO leia `laudo-data.EXEMPLO.json` (não existe mais no plugin) nem o código do `build_laudo.py`.** O script é **caixa-preta**: o contrato do JSON é **só** o schema + exemplo abaixo. Reler esses arquivos é o que ainda estourava o contexto.
+
+1. **Montar o JSON `laudo-data.json`** com tudo decidido nos Passos 1–4 — **você já tem tudo em contexto, NÃO releia formulário, mapa nem `[agente].md`**. Schema:
    - `perito_nome`: `config.perito.nome` (do `perito-config.json` — checagem de identidade do script). Opcional: `nomes_proibidos` = `config.perito.nomes_proibidos`.
    - `scalars`: `VARA` (vara do processo!), `PROCESSO`, `RECLAMANTE`, `RECLAMADA`, `HONORARIOS_VALOR`, `HONORARIOS_EXTENSO`, `CIDADE`, `DATA_PROTOCOLO`, `DATA_VISTORIA`, `HORARIO_VISTORIA`, `LOCAL_VISTORIA`, `ESCOPO_AVALIACAO`, `NUMERO_FOLHAS`.
    - `blocks`: cada chave é um marcador (`LISTA_PARTICIPANTES`, `ATIVIDADES_POR_FUNCAO`, os 15 `ANALISE_*` da NR-15 + 6 da NR-16, `CONCLUSAO_ITENS`, `QUESITOS_RECLAMANTE`, `QUESITOS_RECLAMADA`) e o valor é uma **lista de parágrafos**. Para a tabela de vibração, inclua a linha `"@@TABELA_VIBRACAO@@"` dentro do bloco `ANALISE_VIBRACOES`, no ponto onde a tabela entra.
@@ -183,8 +193,38 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
    - `epi`: `{ "anos": ["2023","2024","2025"], "linhas": [[Descrição, Agente, C.A., q_ano1, q_ano2, q_ano3], ...] }` (só EPIs ligados a agente; quantidade por ano, vazio = `""`).
    - `nr6`: `{ "ficha","ca","treinamento","adequado","frequencia","fiscalizacao" }`, cada um `"SIM"` / `"NAO"` / `""` (branco = linha do perito 👤, não marca).
    - `vibracao`: `[[Equipamento, AREN, VDVR], ...]` — só se houver tabela de vibração; senão **omitir a chave**.
-2. **Rodar o script** (monta o .docx inteiro):
-   `python3 scripts/build_laudo.py <caminho de 00-Template/template-insal-peric.docx> laudo-data.json <SAÍDA>`
+
+   **Exemplo concreto (forma exata — use como molde, não precisa de mais nada):**
+   ```json
+   {
+     "perito_nome": "Irineu de Freitas Branco Junior",
+     "scalars": {
+       "VARA": "2ª Vara do Trabalho de Araraquara", "PROCESSO": "0010094-14.2026.5.15.0079",
+       "RECLAMANTE": "Fulano de Tal", "RECLAMADA": "Empresa X S.A.",
+       "HONORARIOS_VALOR": "3.500,00", "HONORARIOS_EXTENSO": "três mil e quinhentos reais",
+       "CIDADE": "Araraquara", "DATA_PROTOCOLO": "13/06/2026",
+       "DATA_VISTORIA": "10/06/2026", "HORARIO_VISTORIA": "09h00", "LOCAL_VISTORIA": "sede da Reclamada",
+       "ESCOPO_AVALIACAO": "insalubridade e periculosidade", "NUMERO_FOLHAS": "—"
+     },
+     "blocks": {
+       "LISTA_PARTICIPANTES": ["Fulano de Tal – Reclamante"],
+       "ATIVIDADES_POR_FUNCAO": ["Operava a colhedora na safra...", "Na entressafra, manutenção..."],
+       "ANALISE_RUIDO": ["Constatei nível de 82 dB(A), abaixo do limite de tolerância de 85 dB(A) do Anexo 1 da NR-15. Descaracterizada a insalubridade por ruído."],
+       "ANALISE_OLEO_MINERAL": ["O(A) Reclamante mantinha contato cutâneo habitual com óleo mineral... Caracterizada a insalubridade em grau máximo (40%), Anexo 13 da NR-15."],
+       "ANALISE_VIBRACOES": ["Medições conforme tabela:", "@@TABELA_VIBRACAO@@", "Os valores ultrapassam o LT..."],
+       "CONCLUSAO_ITENS": ["O(A) Reclamante ficava exposto(a) a agentes químicos, sendo caracterizada a insalubridade em grau máximo, correspondente ao percentual de 40%..."],
+       "QUESITOS_RECLAMANTE": ["1) Há insalubridade?", "Resposta: Vide, por gentileza, item 6.13 no laudo."],
+       "QUESITOS_RECLAMADA": ["A Reclamada não apresentou quesitos."]
+     },
+     "identificacao": [["Operador de colhedora", "Agrícola", "01/03/2019", "15/08/2024", "12/01/2026", "12/01/2024", "15/08/2024"]],
+     "epi": { "anos": ["2023","2024"], "linhas": [["Creme protetor", "Químico (óleo)", "12345", "2", ""]] },
+     "nr6": { "ficha": "SIM", "ca": "SIM", "treinamento": "NAO", "adequado": "NAO", "frequencia": "", "fiscalizacao": "" }
+   }
+   ```
+   > Inclua **todos** os `ANALISE_*` do template escolhido (os `[Ausente]` com a linha-padrão `"Descaracterizada a insalubridade."`). `vibracao` só entra se houver tabela.
+
+2. **Rodar o script** (monta o .docx inteiro) — caixa-preta, não leia o código:
+   `python3 <base-dir>/scripts/build_laudo.py <00-Template/template-insal-peric.docx> laudo-data.json <SAÍDA>`
    - **SAÍDA = dentro do workspace montado**, em `Base Perícia Irineu/Laudos-Gerados/laudo-<processo>.docx` (pasta sincronizada com o Drive — o perito abre no Word). ⚠ O sandbox do Cowork **não acessa o Desktop** nem fora do projeto — nunca gravar lá.
 3. **Ler o relatório do script.** Ele valida e avisa: marcador `{{...}}` residual, nome do perito ausente, vazamento ("Antonio Carlos…"). **Se houver aviso → corrigir o JSON e rodar de novo** (nunca editar o .docx).
 4. O script já: limpa legendas de foto, monta as 3 tabelas + a de vibração, garante Arial 10,5 / autofit / sem negrito / sem sublinhado, preserva timbre, sumário, fundamentação fixa e anexos de calibração. Lembrar o perito do **F9** (atualizar sumário) ao abrir.
