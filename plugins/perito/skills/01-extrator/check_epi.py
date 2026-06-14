@@ -41,6 +41,9 @@ MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo', 'facial',
 AN13 = 'Químico dérmico (An.13)'
 CA_NUM_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*(\d{1,6})', re.I)
 DATE_RE = re.compile(r'\b(\d{2})/(\d{2})/(\d{4})\b')
+# Descrição da ficha NUNCA pode ser o agente/anexo (ex.: "Químico dérmico (An.13)").
+# A descrição é o NOME DO PRODUTO, literal. Se a descrição traz "(An.N)", foi renomeada.
+AGENTE_NA_DESC_RE = re.compile(r'\(\s*an\.?\s*\d', re.I)
 
 
 # ---------------- fontes de classificação por C.A. ----------------
@@ -157,6 +160,11 @@ def process(lines, cadict, caepi):
         trecho = raw.strip()[:120]
         line = raw
         ca = extract_ca(raw)
+        # ⛔ Descrição renomeada para o AGENTE — proibido (vaza pro laudo; o perito lê a ficha).
+        # Só nas linhas da TABELA de fornecimento (data · qtd · desc · C.A.), não no resumo/obs.
+        _parts = [p.strip() for p in raw.split(' · ')]
+        if len(_parts) >= 3 and DATE_RE.search(_parts[0]) and AGENTE_NA_DESC_RE.search(_parts[-2]):
+            flags.append((trecho, 'DESCRIÇÃO DA FICHA SUBSTITUÍDA PELO AGENTE — restaure o NOME DO PRODUTO (literal da ficha). O agente vai só nesta verificação 🔧, NUNCA na coluna Descrição.'))
         agente = src = hit = None
         known = False  # C.A. existe no dicionário OU na base CAEPI (mesmo sem agente NR-15)
         classified = False

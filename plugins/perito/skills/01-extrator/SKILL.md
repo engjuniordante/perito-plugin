@@ -72,7 +72,7 @@ Não depende de você obedecer regra em prosa — é a rede que impede a cagada 
 **EPIs (Parte 3a+3b):** treinamento e controle de entrega ← Parte 3b. **Separar o período UMA vez (a redatora não refaz):**
 - *EPIs — período imprescrito:* entregas ABAIXO da divisória da Parte 3a.
 - *Histórico anterior:* entregas ACIMA — resumir, não descartar.
-- **Descrição = NOME DO PRODUTO verbatim da ficha** (ex.: "CREME PROT PELE G3...", "PROTETOR AUDITIVO SILICONE PLUGUE") — **NUNCA** substituir pelo agente/anexo ("Ruído (An.1)", "Químico dérmico (An.13)"). A classificação por agente é do `check_epi.py` (bloco 🔧); renomear a descrição apaga o dado e quebra o cálculo de cobertura.
+- ⛔ **Descrição = NOME DO PRODUTO verbatim da ficha** (ex.: "CREME PROT PELE G3...", "PROTETOR AUDITIVO SILICONE PLUGUE") — **NUNCA, em NENHUMA etapa**, substituir pelo agente/anexo ("Ruído (An.1)", "Químico dérmico (An.13)"). **Nem ao montar, nem depois de rodar o guard.** Motivo: o perito **lê a ficha** para conferir e tirar dúvidas, e isso **reflete no laudo** — trocar o nome corrompe os dois. A classificação por agente vive **só** no bloco 🔧 (e no EPI-RESUMO, que referencia por agente); a coluna Descrição fica intocada. O `check_epi.py` **BLOQUEIA** (🚩 + exit 2) se achar agente na descrição — corrija restaurando o nome do produto da ficha.
 - Exceções (ergonomia = todo período; ata que manda avaliar tudo; data de extinção) resolvidas aqui.
 - Propagar o alerta de origem da ficha (PDF digital × OCR). Reproduzir a CONFERÊNCIA OBRIGATÓRIA como checklist.
 
