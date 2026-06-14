@@ -40,6 +40,8 @@ Caminhos (relativos à raiz do projeto — confira que existem na pasta):
 - Pasta dos **templates** `.docx` (ex.: `00-Template`)
 - Nome/caminho da **planilha de agendamento** `.xlsx` (a que a Skill 7 lê)
 - Pasta de **saída dos laudos** (ex.: `Laudos-Gerados`)
+- Pasta dos **formulários de campo** do Extrator (ex.: `Formularios-Campo`) — separada dos
+  laudos finais; default `Formularios-Campo` se o perito não informar
 
 Alertas:
 - **E-mail** para o planejamento de prazos (Skill 7)
@@ -61,6 +63,7 @@ Base de conhecimento: [caminho]  [✓ encontrada / ⚠ não localizada]
 Templates: [caminho]             [✓ / ⚠]
 Planilha de agendamento: [caminho] [✓ / ⚠]
 Saída dos laudos: [caminho]
+Formulários de campo: [caminho]
 E-mail dos alertas: [email]
 
 Arquivo gravado: perito-config.json (raiz do projeto — persiste entre sessões).

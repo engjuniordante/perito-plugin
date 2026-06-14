@@ -28,7 +28,8 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
     "base_conhecimento": ".",
     "templates": "00-Template",
     "planilha_agendamento": "2026 - PLANEJAMENTO PERÍCIAS.xlsx",
-    "saida_laudos": "Laudos-Gerados"
+    "saida_laudos": "Laudos-Gerados",
+    "formularios_campo": "Formularios-Campo"
   },
   "email_alertas": "perito@exemplo.com"
 }
@@ -46,7 +47,9 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
   projeto montado, não o disco do Windows). `base_conhecimento` = pasta com `08-Textos-Padrao/`,
   `04-EPIs/`, etc. (`"."` quando o projeto já é a própria base). `templates` = pasta dos
   `.docx`. `planilha_agendamento` = a planilha que a Skill 7 lê. `saida_laudos` = onde os
-  `.docx` gerados são gravados.
+  `.docx` gerados são gravados. `formularios_campo` = pasta onde o **Extrator** grava o
+  formulário de campo `.md` (insumo da diligência); separada dos laudos finais. Ausente no
+  config (perfis antigos) → o Extrator usa o default `Formularios-Campo`.
 - `email_alertas` — destinatário do planejamento de prazos (Skill 7).
 
 ## Padrão "ler config / se não existir, configurar" (toda skill, no início)

@@ -25,7 +25,8 @@ Faltou algum? Avise qual e prossiga; o ausente vira `[NÃO LOCALIZADO]`.
 ## Saída
 Um `.md` espelhando **exatamente** seções, ordem e campos do `formulario-pericia.md` — **um campo por linha** (não compactar). Fecha com `## ✅ AUTO-CHECK`, `## ⚠ CAMPOS A VERIFICAR IN LOCO` e `## 🚩 FLAGS`.
 
-**Gravação:** saída inexistente → `Write` direto. Saída já existente (rerun) → `Read` antes de `Edit`/`Write` (escrita sem leitura prévia falha e queima um turno).
+**Onde gravar:** na pasta `config.caminhos.formularios_campo` (default `Formularios-Campo` se o config não tiver o campo), **dentro da raiz do projeto conectado** — criar a pasta se não existir. **Nunca** gravar dentro da pasta da skill / do gerador de laudo (é código do plugin: some no `/plugin update` e no sandbox efêmero). Nome do arquivo: `Formulario-Campo-<Reclamante>-<nº processo>.md`.
+**Como gravar:** saída inexistente → `Write` direto. Saída já existente (rerun) → `Read` antes de `Edit`/`Write` (escrita sem leitura prévia falha e queima um turno).
 
 ## Arquivos a ler (só estes)
 ⚠ **Localização:** `formulario-pericia.md` e `_esqueleto-agentes.md` ficam na **MESMA pasta deste SKILL.md** (empacotados com a skill) — ler pelo caminho relativo ao diretório da skill. **Não procurar em `base_conhecimento` nem rodar `find`** para achá-los. Só `analise-epi-padrao.md` mora na base do perito.
