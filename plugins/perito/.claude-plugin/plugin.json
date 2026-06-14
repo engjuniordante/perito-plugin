@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "perito",
   "displayName": "Perito — Laudos SST",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "description": "Pipeline de perícia trabalhista (laudos NR-15/NR-16/NR-17, impugnações, base de conhecimento e alertas de prazos). Identidade e caminhos por perito via perito-config.json na raiz do projeto.",
   "author": {
     "name": "Antonio Carlos Dante Junior",

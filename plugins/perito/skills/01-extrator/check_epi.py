@@ -131,24 +131,6 @@ def is_epi_line(ll, raw):
     return False
 
 
-def set_agent_segment(line, new_agent):
-    parts = line.split(' · ')
-    if len(parts) < 2:
-        return None
-    ca_idx = None
-    for i, p in enumerate(parts):
-        if CA_NUM_RE.search(p):
-            ca_idx = i
-            break
-    if ca_idx is None or ca_idx < 1:
-        return None
-    if ca_idx >= 2:
-        parts[ca_idx - 1] = new_agent
-    else:
-        parts.insert(ca_idx, new_agent)
-    return ' · '.join(parts)
-
-
 def process(lines, cadict, caepi):
     new_lines, fixes, flags = [], [], []
     nao_cat = []
@@ -180,11 +162,8 @@ def process(lines, cadict, caepi):
                     if hit.get('agente'):
                         agente, src = hit['agente'], 'CAEPI'
         if agente:
-            fixed = set_agent_segment(raw, agente)
-            if fixed is not None:
-                if fixed != raw:
-                    fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
-                line = fixed
+            # SÓ reporta no bloco 🔧 — NUNCA reescreve a linha (a Descrição da ficha é intocável).
+            fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
             classified = True
 
         # C.A. conhecido na base SEM agente NR-15 (botina, óculos, luva mecânica…) =
@@ -197,14 +176,10 @@ def process(lines, cadict, caepi):
             is_creme = 'creme' in l2 or 'pomada' in l2
             is_solar = 'solar' in l2
             if is_creme and not is_solar and (has_rad or not has_quim):
-                fixed = set_agent_segment(raw, AN13)
-                if fixed is not None:
-                    fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
-                    line = fixed
-                    agente = AN13
-                    classified = True
-                else:
-                    flags.append((trecho, 'creme/pomada deveria ser %s — estrutura não reconhecida, corrija manual.' % AN13))
+                # SÓ reporta — NUNCA reescreve a linha.
+                fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
+                agente = AN13
+                classified = True
             l3 = line.lower()
             has_rad3 = any(t in l3 for t in RAD)
             has_quim3 = any(t in l3 for t in QUIM)
@@ -400,7 +375,7 @@ def main():
 
     bloco = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n']
     if fixes:
-        bloco.append('**🔧 Classificado/corrigido automaticamente (confira pelo C.A.):**')
+        bloco.append('**🔧 Classificado pelo C.A. (referência — a Descrição da ficha NÃO é alterada; use no quadro-resumo):**')
         for trecho, msg in fixes:
             bloco.append('- `%s` → %s' % (trecho, msg))
     if flags:
