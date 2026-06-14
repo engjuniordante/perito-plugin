@@ -135,17 +135,17 @@ def process(lines, cadict, caepi):
     new_lines, fixes, flags = [], [], []
     nao_cat = []
     for raw in lines:
-        ll = raw.lower()
-        if not is_epi_line(ll, raw):
-            new_lines.append(raw)
+        new_lines.append(raw)            # a linha NUNCA é modificada
+        # processa SÓ as linhas da TABELA de fornecimento (Data · Qtd · Descrição · C.A.).
+        # Ignora EPI-RESUMO, observações e flags (citam C.A./agente legitimamente).
+        _parts = [p.strip() for p in raw.split(' · ')]
+        if not (len(_parts) >= 3 and DATE_RE.search(_parts[0])):
             continue
+        ll = raw.lower()
         trecho = raw.strip()[:120]
-        line = raw
         ca = extract_ca(raw)
         # ⛔ Descrição renomeada para o AGENTE — proibido (vaza pro laudo; o perito lê a ficha).
-        # Só nas linhas da TABELA de fornecimento (data · qtd · desc · C.A.), não no resumo/obs.
-        _parts = [p.strip() for p in raw.split(' · ')]
-        if len(_parts) >= 3 and DATE_RE.search(_parts[0]) and AGENTE_NA_DESC_RE.search(_parts[-2]):
+        if AGENTE_NA_DESC_RE.search(_parts[-2]):
             flags.append((trecho, 'DESCRIÇÃO DA FICHA SUBSTITUÍDA PELO AGENTE — restaure o NOME DO PRODUTO (literal da ficha). O agente vai só nesta verificação 🔧, NUNCA na coluna Descrição.'))
         agente = src = hit = None
         known = False  # C.A. existe no dicionário OU na base CAEPI (mesmo sem agente NR-15)
@@ -170,28 +170,21 @@ def process(lines, cadict, caepi):
         # não-neutralizador → silêncio: NÃO é "não catalogado", NÃO aplica heurística.
         elif not known:
             # (2) C.A. desconhecido (nem dicionário nem CAEPI): regra absoluta + flags
-            l2 = line.lower()
-            has_rad = any(t in l2 for t in RAD)
-            has_quim = any(t in l2 for t in QUIM)
-            is_creme = 'creme' in l2 or 'pomada' in l2
-            is_solar = 'solar' in l2
+            has_rad = any(t in ll for t in RAD)
+            has_quim = any(t in ll for t in QUIM)
+            is_creme = 'creme' in ll or 'pomada' in ll
+            is_solar = 'solar' in ll
             if is_creme and not is_solar and (has_rad or not has_quim):
-                # SÓ reporta — NUNCA reescreve a linha.
                 fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
                 agente = AN13
                 classified = True
-            l3 = line.lower()
-            has_rad3 = any(t in l3 for t in RAD)
-            has_quim3 = any(t in l3 for t in QUIM)
-            has_umid3 = any(t in l3 for t in UMID)
-            is_mask3 = any(t in l3 for t in MASK)
-            is_creme3 = 'creme' in l3 or 'pomada' in l3
-            is_solar3 = 'solar' in l3
-            is_capa3 = 'capa' in l3 or 'impermeáv' in l3 or 'impermeav' in l3
-            if has_rad3 and not is_mask3 and not is_creme3 and not is_solar3 and not classified:
-                flags.append((line.strip()[:120], 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'))
-            if is_capa3 and has_quim3 and not has_umid3 and not classified:
-                flags.append((line.strip()[:120], 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'))
+            has_umid = any(t in ll for t in UMID)
+            is_mask = any(t in ll for t in MASK)
+            is_capa = 'capa' in ll or 'impermeáv' in ll or 'impermeav' in ll
+            if has_rad and not is_mask and not is_creme and not is_solar and not classified:
+                flags.append((trecho, 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'))
+            if is_capa and has_quim and not has_umid and not classified:
+                flags.append((trecho, 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'))
             if ca:
                 nao_cat.append(ca)
 
@@ -203,8 +196,6 @@ def process(lines, cadict, caepi):
                 if h and h.get('validade_iso') and di > h['validade_iso']:
                     flags.append((trecho, 'EPI entregue em %s com C.A. %s VENCIDO em %s — indício de aquisição sem CA válido (NT 146/2015). Confirmar.'
                                   % (dbr, ca, h['validade_br'])))
-
-        new_lines.append(line)
 
     def dedup(xs):
         seen, out = set(), []
@@ -278,15 +269,11 @@ def cobertura(lines, cadict, caepi=None):
             continue
         if not in_impr:
             continue
-        s = raw.strip()
-        if s.startswith('#') or s.startswith('>'):  # próxima seção/nota → fim da tabela
-            in_impr = False
-            continue
         ll = raw.lower()
-        if not is_epi_line(ll, raw):
-            continue
         parts = [p.strip() for p in raw.split(' · ')]
-        if len(parts) < 2:
+        # só linhas da TABELA de fornecimento (Data · Qtd · Descrição · C.A.) — o date-gate
+        # já exclui cabeçalhos (#), notas (>), resumo e obs (sem data no 1º campo).
+        if not (len(parts) >= 3 and DATE_RE.search(parts[0])):
             continue
         mq = QTY_RE.search(parts[1])
         if not mq:
