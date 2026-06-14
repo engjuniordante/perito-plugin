@@ -223,6 +223,81 @@ def process(lines, cadict, caepi):
     return new_lines, dedup(fixes), dedup(flags), dedup(nao_cat)
 
 
+# ---------- cobertura (item 6.1.1 NR-6): qtd × vida útil — determinística ----------
+# Calcula a soma de meses cobertos por agente, para os EPI cuja vida útil é regra estável:
+#   - creme/pomada: 1 unidade ≈ 1 mês (universal).
+#   - protetor auditivo: vida útil POR C.A. (boletim) — lida do CA-dicionario.json
+#     (campo "vida_util_meses"). Sem o campo → não calcula esse item (lista em ⓘ).
+# Luva/conjuntos/demais = empírico → o perito decide (não entram no cálculo).
+# Sai como SUGESTÃO: o perito confronta com os meses do imprescrito (menos afastamentos).
+QTY_RE = re.compile(r'(\d+)')
+
+
+def _vida_util(ca, desc_l, cadict):
+    if 'creme' in desc_l or 'pomada' in desc_l:
+        return 1, 'creme 1/mês'
+    if ca and ca in cadict:
+        v = cadict[ca].get('vida_util_meses')
+        if v:
+            try:
+                return int(v), 'C.A. %s' % ca
+            except (TypeError, ValueError):
+                return None, None
+    return None, None
+
+
+def _is_protetor_aud(desc_l):
+    return (('protet' in desc_l or 'auric' in desc_l or 'auditiv' in desc_l)
+            and 'solar' not in desc_l)
+
+
+def cobertura(lines, cadict):
+    """Σ(qtd × vida útil) por agente (creme→An.13, protetor auditivo→Ruído). Só as entregas
+    do imprescrito (abaixo da divisória ▼, se houver). Retorna (resultados, faltou_vu, tem_divisoria)."""
+    tem_divisoria = any('▼' in l for l in lines)
+    in_impr = not tem_divisoria  # sem divisória → considera todas
+    buckets, faltou_vu = {}, []
+    for raw in lines:
+        if '▼' in raw:
+            in_impr = True
+            continue
+        if not in_impr:
+            continue  # entregas anteriores ao imprescrito
+        ll = raw.lower()
+        if not is_epi_line(ll, raw):
+            continue
+        parts = [p.strip() for p in raw.split(' · ')]
+        if len(parts) < 2:
+            continue
+        mq = QTY_RE.search(parts[1])
+        if not mq:
+            continue
+        qtd = int(mq.group(1))
+        is_creme = 'creme' in ll or 'pomada' in ll
+        if not (is_creme or _is_protetor_aud(ll)):
+            continue  # luva/conjunto/etc → perito decide
+        ca = extract_ca(raw)
+        vu, _ = _vida_util(ca, ll, cadict)
+        if vu is None:
+            faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
+            continue
+        agente = AN13 if is_creme else 'Ruído (An.1)'
+        b = buckets.setdefault(agente, [0, 0])
+        b[0] += qtd * vu
+        b[1] += 1
+    res = ['%s: %d entregas → ~%d meses cobertos (Σ qtd × vida útil)' % (a, n, m)
+           for a, (m, n) in buckets.items()]
+    return res, _dedup_simple(faltou_vu), tem_divisoria
+
+
+def _dedup_simple(xs):
+    seen, out = set(), []
+    for x in xs:
+        if x and x not in seen:
+            seen.add(x); out.append(x)
+    return out
+
+
 def strip_old_block(text):
     idx = text.find(MARK)
     if idx == -1:
@@ -255,12 +330,13 @@ def main():
     with open(path, encoding='utf-8') as f:
         text = f.read()
     new_lines, fixes, flags, nao_cat = process(text.splitlines(), cadict, caepi)
+    cob_res, faltou_vu, _ = cobertura(text.splitlines(), cadict)
     body = strip_old_block('\n'.join(new_lines))
 
     age = caepi.age_days()
     stale = age is not None and age > 90
 
-    if not fixes and not flags and not nao_cat and not stale:
+    if not fixes and not flags and not nao_cat and not stale and not cob_res and not faltou_vu:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(body)
         print('✅ check_epi: nenhuma classificação de EPI suspeita.')
@@ -277,6 +353,13 @@ def main():
             bloco.append('- ⚠ `%s` → %s' % (trecho, msg))
     if nao_cat:
         bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (nem no dicionário nem na base CAEPI — verificar e catalogar): ' + ', '.join(nao_cat))
+    if cob_res:
+        bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do imprescrito menos afastamentos, e o boletim do C.A.):**')
+        for r in cob_res:
+            bloco.append('- %s' % r)
+    if faltou_vu:
+        bloco.append('\nⓘ Vida útil não cadastrada (cobertura não calculada) p/ C.A./item: ' + ', '.join(faltou_vu)
+                     + ' — cataloque `vida_util_meses` no CA-dicionario.json.')
     if stale:
         bloco.append('\n**⏰ Base CAEPI com %d dias** (build %s) — re-baixe o RelatorioCA do MTE e rode `build_caepi_index.py`.' % (age, caepi.build_date))
     new = body.rstrip() + '\n\n' + '\n'.join(bloco) + '\n'
@@ -289,6 +372,10 @@ def main():
         print('🚩 %s → %s' % (trecho, msg))
     if nao_cat:
         print('📇 não catalogados: %s' % ', '.join(nao_cat))
+    for r in cob_res:
+        print('📐 %s' % r)
+    if faltou_vu:
+        print('ⓘ vida útil não cadastrada: %s' % ', '.join(faltou_vu))
     if stale:
         print('⏰ CAEPI desatualizado (%d dias)' % age)
     sys.exit(2 if flags else 0)

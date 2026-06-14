@@ -32,16 +32,14 @@ Um `.md` espelhando **exatamente** seções, ordem e campos do `formulario-peric
 - **(1) LOOKUP por C.A.:** `CA-dicionario.json` (override curado, vence) → `caepi.sqlite` (base oficial do MTE). Achou → reescreve o agente, **ignorando o nome do produto**.
 - **(2) REGRA ABSOLUTA** (C.A. fora de ambos): creme/pomada → `Químico dérmico (An.13)`, **exceto "protetor solar"** (não é EPI — NT 146/2015 §4).
 - **(3) CA VENCIDO (NT 146/2015):** nas linhas da ficha com **data + C.A.**, compara a **entrega × validade do C.A.**; entrega > validade → 🚩 (indício de aquisição sem CA válido; perito decide). CA vencido **hoje** é irrelevante.
-- **(4)** crava o bloco `🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI`: 🔧 classificado · 🚩 conferir · 📇 C.A. não catalogados · ⏰ aviso se o índice CAEPI tiver >90 dias.
+- **(4)** crava o bloco `🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI`: 🔧 classificado · 🚩 conferir · 📇 C.A. não catalogados · **📐 cobertura** (Σ qtd × vida útil — creme e protetor auditivo, só entregas do imprescrito) · ⏰ aviso se o índice CAEPI tiver >90 dias.
 
 Não depende de você obedecer regra em prosa — é a rede que impede a cagada de sair no formulário. Reproduzir o resultado do script na resposta (não reabrir o `.md` — o script já editou). Saiu `🚩`/`📇`/`⏰` → avisar o perito.
 
 ## Arquivos a ler (só estes)
-⚠ **Localização:** `formulario-pericia.md` e `_esqueleto-agentes.md` ficam na **MESMA pasta deste SKILL.md** (empacotados com a skill) — ler pelo caminho relativo ao diretório da skill. **Não procurar em `base_conhecimento` nem rodar `find`** para achá-los. Só `analise-epi-padrao.md` mora na base do perito.
-- `formulario-pericia.md` *(pasta da skill)* — estrutura a espelhar (seções que **não** sejam a de agentes).
-- `_esqueleto-agentes.md` *(pasta da skill)* — bloco fixo de agentes: **copiar VERBATIM** para a saída, sempre completo (13 anexos NR-15 A–M + Periculosidade), mesmo os não citados pelo NLM. Depois sobrepor Status/Obs/medições só nos agentes com base documental.
-- `base_conhecimento/04-EPIs/analise-epi-padrao.md` — **só se houver tabela de EPI** (vida útil por CA, para o EPI-resumo).
-- **NÃO** abrir template `.docx`, laudos anteriores nem gabaritos de teste — não são insumo do Extrator.
+⚠ **Localização:** `formulario-pericia.md` fica na **MESMA pasta deste SKILL.md** (empacotado com a skill) — ler pelo caminho relativo ao diretório da skill. **Não procurar em `base_conhecimento` nem rodar `find`.** É a **ÚNICA** leitura de estrutura — o bloco de agentes (13 anexos NR-15 A–M + Periculosidade) já está **embutido** nele.
+- `formulario-pericia.md` *(pasta da skill)* — estrutura a espelhar, **incluindo a seção de AGENTES** já embutida: mantê-la completa na saída e só sobrepor Status/Obs/medições nos agentes com base documental.
+- **NÃO** ler `check_epi.py` (caixa-preta — o que ele faz está descrito na Saída), nem `analise-epi-padrao.md` (a cobertura agora é calculada pelo `check_epi.py`, não em prosa), nem template `.docx`/laudos anteriores/gabaritos.
 
 ## Regras de ouro
 1. **Formato Notas-do-iPhone:** sem tabelas markdown (`|`) — usar listas/bullets (`·` e `—`). Tabela quebra no Notas.
@@ -77,20 +75,16 @@ Não depende de você obedecer regra em prosa — é a rede que impede a cagada 
 - Exceções (ergonomia = todo período; ata que manda avaliar tudo; data de extinção) resolvidas aqui.
 - Propagar o alerta de origem da ficha (PDF digital × OCR). Reproduzir a CONFERÊNCIA OBRIGATÓRIA como checklist.
 
-**EPI — RESUMO por agente `[interno]`** (pré-cálculo, não veio do NLM): **trazer SÓ os agentes pertinentes ao caso** (alegados na Inicial ou com indício documental). **NÃO listar agentes que não estão no caso** (ex.: frio, biológico se não há alegação nem indício). Classificar cada EPI pelo **agente que protege** (protetor → ruído; creme/luva impermeável química → óleo/álcali An.13; PFF/cartucho → poeira/químico inalável An.12/11; máscara/lente de solda → radiação An.7; vestimenta térmica → frio An.9). **Vestimenta impermeável genérica (capa, calça/blusão impermeável) → UMIDADE (An.10)**; só classificar como **defensivos (An.13)** quando o EPI for explicitamente para pulverização/hidrorrepelente/aplicação de agrotóxico — **na dúvida, umidade**. Sem EPI neutralizante: calor (An.3) e periculosidade. **Biológico (An.14) não é elidido por EPI** — só listar se houver agente biológico no caso. Cobertura = qtd × vida útil por CA (`04-EPIs/analise-epi-padrao.md`) vs meses do imprescrito (menos afastamentos): `✓` cobre · `⚠ gap N meses` · `✗` insuficiente · `[incompleto — ver ficha]`. Coluna "Neutraliza?" **em branco** (perito decide).
-**⛔ REGRA DURA — classificação de EPI por agente (anti-erro; vale p/ TODO EPI e TODO caso):**
-1. **O C.A. é a CHAVE PRIMÁRIA.** Classifique pela FUNÇÃO que o C.A. aprova, **NUNCA pelo nome comercial / linha / fantasia.** "G3", "Luz Negra", "Protek" etc. são **marca — não são agente** ("Luz Negra" **não** é UV/radiação). O guard `check_epi.py` faz o lookup do C.A. no `CA-dicionario.json` e **sobrepõe** sua classificação — então nem tente adivinhar pelo nome; deixe o agente provisório e o script resolve pelo C.A.
-2. **Creme protetivo / creme de proteção = SEMPRE químico dérmico (An.13)** (barreira contra óleos/graxas/solventes/álcalis). A ficha quase sempre escreve "creme protetivo / de proteção" quando é o dérmico-químico. **A ÚNICA exceção é "protetor solar"** — esse sim é solar/UV (a ficha costuma escrever "protetor solar" explícito). Sem "solar" no nome → é An.13, ponto.
-3. **Classificação sua é PROVISÓRIA.** O veredicto vem do C.A. (dicionário) ou do perito in loco. Sem função explícita → `[agente a confirmar pelo C.A.]`.
-4. **DIREÇÃO PROIBIDA = EXCLUSÃO.** Uma classificação **nunca** afasta/elide agente. Errar **incluindo** (+ flag) é tolerável; errar **excluindo** corrompe o laudo. Na dúvida → vincule ao agente químico mais provável **+ flag**, jamais remova.
+**EPI — RESUMO por agente `[interno]`** (pré-cálculo, não veio do NLM): **trazer SÓ os agentes pertinentes ao caso** (alegados na Inicial ou com indício documental) — **não listar** agentes ausentes do caso. **Classificação e cobertura = do `check_epi.py`** (passo final): ele resolve o agente pelo **C.A.** (o nome comercial NUNCA classifica — "G3", "Luz Negra", "Protek" são marca, não agente) e cospe o bloco `🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI` com 🔧 classificação · 📐 cobertura (Σ qtd × vida útil — creme e protetor auditivo) · 🚩 conferir. **NÃO classificar nem calcular cobertura em prosa** — deixe o agente provisório e o script resolve pelo C.A. Coluna "Neutraliza?" **em branco** (perito decide in loco).
+> **Direção que o script enforce** (não precisa repetir em prosa; respeite-a — errar EXCLUINDO corrompe o laudo, errar incluindo +flag é tolerável): creme/pomada = **An.13** (exceto "protetor solar" = UV); capa/impermeável genérico = **Umidade An.10** (só "defensivos An.13" se for pulverização/hidrorrepelente/agrotóxico); **biológico não é elidido por EPI**; calor e periculosidade sem EPI neutralizante.
 
 **4 flags de EPI** (vão para "Observações sobre os EPIs"): (1) **EPI ≠ agente que protege** (ex.: luva anticorte = proteção mecânica, não é luva impermeável química → não serve p/ An.13); (2) **entrega FORA do imprescrito** (EPI adequado só antes/depois do período → não cobre); (3) **EPI indicado (OS/PPP) mas nunca entregue** (ex.: PFF2 obrigatório na OS, sem entrega na ficha); (4) **inconsistência contestação × ficha** (defesa alega fornecimento que a ficha não comprova).
 
 **NR-6 (Parte 3b):** transferir os 6 itens SIM/NÃO. Os dois itens 👤 (adequado ao risco / fiscalização) ficam em branco (perito).
 
 **AGENTES (Parte 3b + Inicial) — PROCEDIMENTO:**
-⚠ A "PRÉ-TRIAGEM DE AGENTES" da Parte 3b é **INSUMO, não formato de saída**. **Nunca copiá-la como a seção de agentes** — a seção é montada SEMPRE pelo esqueleto completo abaixo:
-1. Copiar VERBATIM o `_esqueleto-agentes.md` (todos os 13 anexos + periculosidade, completos — mesmo os não citados pelo NLM).
+⚠ A "PRÉ-TRIAGEM DE AGENTES" da Parte 3b é **INSUMO, não formato de saída**. **Nunca copiá-la como a seção de agentes** — a seção é o **bloco fixo já embutido no `formulario-pericia.md`**:
+1. Manter o bloco de AGENTES do `formulario-pericia.md` completo (todos os 13 anexos + periculosidade — mesmo os não citados pelo NLM).
 2. Sobrepor a pré-triagem do NLM: agente com base documental → Status `[Presente — fonte/pág — confirmar in loco]` + Obs (alegação da Inicial / indício de EPI) + janela de exposição. **Medições em branco** (dB, IBUTG, AREN/VDVR, concentração, C.A., vida útil…) para o perito preencher — **SALVO quando há PPP/PGR/PPRA com valores citados**: aí **preencher os campos de medição com esses valores** + fonte/pág, marcando `[Presente — conforme PPP/PGR, pág __ — confirmar in loco]`.
 3. Agente sem base → Status em branco + Obs "avaliar in loco". **Nunca encolher nem suprimir bloco.**
 Lógica das fontes: **Inicial = pedido** (o que verificar). **Contestação defende** → negativa **não** prova ausência (nunca marcar [Ausente] por causa dela). **PPP/PGR/PPRA** = única base p/ `[Presente]` + medições. O perito decide [Ausente]/[Presente] in loco — a skill **sugere** o agente (Status `[Presente — confirmar in loco]` + Obs) mas **mantém os campos de medição em branco** para ele preencher.
@@ -113,7 +107,7 @@ Lógica das fontes: **Inicial = pedido** (o que verificar). **Contestação defe
 ```
 ## ✅ AUTO-CHECK DA EXTRAÇÃO
 - TIPO de laudo veio do PEDIDO da Inicial (não da ata)? [Sim/Não]
-- Agentes: 13 blocos NR-15 (A–M) + Periculosidade completos (esqueleto verbatim, não encolhido)? [Sim/Não]
+- Agentes: 13 blocos NR-15 (A–M) + Periculosidade completos (bloco do formulário, não encolhido)? [Sim/Não]
 - Saída sem tabelas markdown — tudo em bullets `·`/`—`? [Sim/Não]
 - Tabela de EPI cobre todo o imprescrito? [Sim/Não — período coberto × descoberto]
 - Quesitos Juízo/Reclamante/Reclamada localizados? [Sim/Não]

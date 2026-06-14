@@ -101,10 +101,17 @@ Fonte **primária** da classificação de EPI por agente. O guard `check_epi.py`
     "anexo": "13",
     "desc": "Creme de proteção G3 Luz Negra",
     "nota": "'Luz Negra' é marca — não é protetor solar"
+  },
+  "12187": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 24,
+    "desc": "Protetor auditivo concha",
+    "nota": "vida útil do boletim — usada no cálculo de cobertura"
   }
 }
 ```
 - **`agente`** (obrigatório) = string exata que vai pra coluna AGENTE do laudo (ex.: `Ruído (An.1)`, `Químico dérmico (An.13)`, `Umidade (An.10)`, `Radiação não-ionizante (An.7)`).
+- **`vida_util_meses`** (opcional, inteiro) = vida útil declarada no boletim do C.A., **em meses**. Quando presente, o `check_epi.py` usa no cálculo automático de cobertura (Σ qtd × vida útil) — **só faz sentido para protetor auditivo** (creme já é 1/mês universal; luva/conjunto = perito). Migrar aqui os valores da tabela "Vida útil declarada por CA" do `analise-epi-padrao.md` (relocação, não duplicar).
 - `anexo` / `desc` / `nota` = opcionais (humanos).
 
 **Como gravar:** ler o JSON, **adicionar/substituir só a entrada do C.A.** (preservar as demais), regravar UTF-8 indentado, atualizar `_meta.atualizado`. Mostrar ao perito a entrada gravada (diff) + caminho. **Nunca** reescrever o arquivo inteiro perdendo entradas. C.A. já existente com classe diferente → mostrar os dois e confirmar antes de sobrepor.
