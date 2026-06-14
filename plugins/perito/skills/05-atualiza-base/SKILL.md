@@ -109,6 +109,17 @@ Fonte **primária** da classificação de EPI por agente. O guard `check_epi.py`
 
 **Como gravar:** ler o JSON, **adicionar/substituir só a entrada do C.A.** (preservar as demais), regravar UTF-8 indentado, atualizar `_meta.atualizado`. Mostrar ao perito a entrada gravada (diff) + caminho. **Nunca** reescrever o arquivo inteiro perdendo entradas. C.A. já existente com classe diferente → mostrar os dois e confirmar antes de sobrepor.
 
+## Base oficial CAEPI — `04-EPIs/caepi.sqlite`
+
+Fonte **primária e oficial** da classificação de EPI por C.A. (124k+ CAs do MTE). O guard usa a ordem: **CA-dicionario.json (override curado) → caepi.sqlite (oficial) → regra absoluta**. Ou seja: o CAEPI cobre o grosso automaticamente; o `CA-dicionario.json` é só pra **corrigir o que o CAEPI erra/ambígua** (edge cases) — decisão do perito vence.
+
+**Atualizar o índice** (gatilhos: "atualiza CAEPI", "atualizei a base de CA", ou o guard avisou `⏰ índice >90 dias`):
+1. O perito baixa o `RelatorioCA_*.csv.gz` no site do MTE (`https://caepi.mte.gov.br` → exportar **Relatório CA**, **sem filtro**, pra base completa) e informa o caminho do arquivo.
+2. Rodar: `python3 <pasta da skill 01-extrator>/build_caepi_index.py <RelatorioCA_*.csv.gz> <base_conhecimento>/04-EPIs/caepi.sqlite`
+3. Reportar o resumo do script (CAs gravados, % com agente derivado, build_date). O download é **manual** (o site é `.aspx` com estado, sem API) — re-baixar a cada ~90 dias; o guard cobra quando vencer.
+
+> **Quando catalogar no `CA-dicionario.json` em vez de mexer no CAEPI:** sempre que o CAEPI classificar um C.A. errado/ambíguo (o derivado não bate com o que o perito sabe), grava-se o override no dicionário (ver seção acima) — **não** se edita o `caepi.sqlite` à mão (ele é regenerado do CSV a cada update e a edição se perderia).
+
 ## Regras
 
 ### Preservar a linguagem do perito

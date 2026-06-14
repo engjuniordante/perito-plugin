@@ -54,5 +54,11 @@ Imprima a saída do script como corpo do e-mail/planejamento. **Não reescrever*
 ## Agendamento (scheduled task)
 Configurado na instalação (Fase 7/8): roda **toda sexta-feira às 07h00**, lê a planilha no caminho fixo da pasta montada e envia o planejamento por e-mail ao Irineu. Para testar antes de ativar: o perito diz **"rodar o alerta agora"** → você roda o script e mostra a saída.
 
+## Lembrete da base CAEPI (anexar ao planejamento)
+Após montar o planejamento, checar a idade do índice CAEPI (a base oficial de C.A. usada pelo guard de EPI). Se `04-EPIs/caepi.sqlite` existir, ler o `build_date`:
+`python3 -c "import sqlite3,datetime,sys; c=sqlite3.connect(sys.argv[1]); d=c.execute(\"SELECT v FROM meta WHERE k='build_date'\").fetchone(); print((datetime.date.today()-datetime.date.fromisoformat(d[0])).days if d else -1)"` `<base_conhecimento>/04-EPIs/caepi.sqlite`
+- Resultado **> 90** → acrescentar ao fim do planejamento: **"⏰ Base CAEPI com N dias — re-baixar o RelatorioCA no site do MTE e rodar `/atualiza base` (atualiza CAEPI)."**
+- Arquivo ausente ou ≤ 90 → não mencionar.
+
 ## Modelo
 **Sonnet** — a tarefa é leitura + execução de script + formatação; não exige julgamento pesado.

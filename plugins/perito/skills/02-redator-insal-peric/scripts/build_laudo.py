@@ -18,7 +18,7 @@ Estrutura do JSON:
   "vibracao": [ ["Trator de Transbordo","1,00","16,50"], ["Colhedora","0,60","7,90"] ]   // opcional
 }
 """
-import sys, json, re
+import sys, json, re, os, sqlite3
 from copy import deepcopy
 
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
@@ -162,9 +162,28 @@ def find_table(doc, needle):
     return None
 
 # ---------------- main ----------------
-def build(template_path, data_path, out_path, ca_dict_path=None):
+def _resolve_epi_paths(extras):
+    """extras = caminhos soltos (qualquer ordem): .json=dicionário, .sqlite=CAEPI,
+    diretório=base (deriva 04-EPIs/CA-dicionario.json e 04-EPIs/caepi.sqlite)."""
+    caepi_p = dicio_p = None
+    for a in extras:
+        if not a:
+            continue
+        if os.path.isdir(a):
+            caepi_p = caepi_p or os.path.join(a, '04-EPIs', 'caepi.sqlite')
+            dicio_p = dicio_p or os.path.join(a, '04-EPIs', 'CA-dicionario.json')
+        elif a.endswith(('.sqlite', '.db')):
+            caepi_p = a
+        elif a.endswith('.json'):
+            dicio_p = a
+    return caepi_p, dicio_p
+
+
+def build(template_path, data_path, out_path, *epi_paths):
     data = json.load(open(data_path, encoding='utf-8'))
-    cadict = _load_ca_dict(ca_dict_path or data.get('ca_dicionario_path'))
+    caepi_p, dicio_p = _resolve_epi_paths(list(epi_paths) + [data.get('ca_dicionario_path'), data.get('caepi_path')])
+    cadict = _load_ca_dict(dicio_p)
+    caepi = _open_caepi(caepi_p)
     doc = docx.Document(template_path)
     warnings = []
 
@@ -200,7 +219,7 @@ def build(template_path, data_path, out_path, ca_dict_path=None):
 
     # guard determinístico de EPI ANTES de montar a tabela: C.A.=chave (lookup no
     # dicionário), creme->An.13 (regra absoluta), flaga o resto. Muta as linhas.
-    epi_fixes, epi_flags, epi_naocat = epi_guard(data.get('epi', {}).get('linhas') or [], cadict)
+    epi_fixes, epi_flags, epi_naocat = epi_guard(data.get('epi', {}).get('linhas') or [], cadict, caepi)
 
     # tabela de EPI (resumo por agente) — tolerante: cada linha preenche TODAS as células
     # (desc, agente, ca, v1, v2, v3); campo faltante -> '' (nunca deixa {{EPI_*}} residual).
@@ -338,9 +357,28 @@ def _load_ca_dict(path):
     return out
 
 
-def epi_guard(linhas, cadict=None):
-    """linhas = [[desc, agente, ca, ...], ...]. C.A. é a CHAVE: lookup no cadict
-    sobrepõe o agente (ignora o nome). Sem C.A. no dicionário: regra absoluta
+def _caepi_lookup(con, ca):
+    if not con or not ca:
+        return None
+    try:
+        r = con.execute('SELECT agente FROM ca WHERE ca=?', (ca,)).fetchone()
+    except Exception:
+        return None
+    return r[0] if r and r[0] else None
+
+
+def _open_caepi(path):
+    if path and os.path.exists(path):
+        try:
+            return sqlite3.connect('file:%s?mode=ro' % path, uri=True)
+        except Exception:
+            return None
+    return None
+
+
+def epi_guard(linhas, cadict=None, caepi=None):
+    """linhas = [[desc, agente, ca, ...], ...]. C.A. é a CHAVE: override curado
+    (cadict) vence; depois base oficial CAEPI; sem nenhum → regra absoluta
     creme/pomada=An.13 (exceto protetor solar). MUTA as linhas.
     Devolve (fixes, flags, nao_catalogados)."""
     cadict = cadict or {}
@@ -353,11 +391,17 @@ def epi_guard(linhas, cadict=None):
         trecho = ('%s · %s' % (str(row[0]), str(row[1]))).strip(' ·')[:120]
         ca = re.sub(r'\D', '', str(row[2])) if len(row) > 2 else ''
 
-        # (1) LOOKUP por C.A. — fonte primária, ignora o nome
+        # (1) LOOKUP por C.A. — override curado vence; depois CAEPI oficial
+        agente = src = None
         if ca and ca in cadict:
-            agente = cadict[ca].get('agente') or 'Químico dérmico (An.13)'
+            agente, src = cadict[ca].get('agente'), 'dicionário'
+        elif ca:
+            hit = _caepi_lookup(caepi, ca)
+            if hit:
+                agente, src = hit, 'CAEPI'
+        if agente:
             if str(row[1]) != agente:
-                fixes.append((trecho, 'C.A. %s → %s [dicionário]' % (ca, agente)))
+                fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
                 row[1] = agente
             continue
         if ca:
@@ -389,7 +433,7 @@ def epi_guard(linhas, cadict=None):
     return dedup(fixes), dedup(flags), dedup(nao_cat)
 
 if __name__ == '__main__':
-    if len(sys.argv) not in (4, 5):
-        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<CA-dicionario.json>]'); sys.exit(1)
-    ok = build(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) == 5 else None)
+    if len(sys.argv) < 4:
+        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]'); sys.exit(1)
+    ok = build(sys.argv[1], sys.argv[2], sys.argv[3], *sys.argv[4:])
     sys.exit(0 if ok else 2)

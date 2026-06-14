@@ -3,28 +3,31 @@
 """
 check_epi.py — guarda determinístico da classificação de EPI no formulário de campo.
 
-Roda SOBRE o .md recém-gerado pelo Extrator. O C.A. é a CHAVE PRIMÁRIA: o nome
-comercial NUNCA define o agente. Faz, direto no arquivo:
+O C.A. é a CHAVE PRIMÁRIA; o nome comercial NUNCA classifica. Edita o próprio .md:
 
-  1) LOOKUP por C.A. no CA-dicionario.json (fonte primária): se o C.A. consta,
-     reescreve o agente da linha pelo valor do dicionário — IGNORA o nome do produto.
-  2) REGRA ABSOLUTA (C.A. fora do dicionário): creme/pomada = químico dérmico
-     (An.13). Exceção: "protetor solar" é o caso real de solar/UV — NÃO força An.13.
-  3) MARCA (🚩) o que só o C.A. resolve (EPI em radiação sem ser máscara/lente de
-     solda; capa virando químico) e lista os C.A. NÃO CATALOGADOS (para entrar no
-     dicionário antes de fechar o laudo).
+  1) LOOKUP por C.A. (prioridade):
+     a. CA-dicionario.json (override curado do perito) — vence tudo.
+     b. caepi.sqlite (base OFICIAL do MTE) — agente/anexo derivado da fonte.
+     Achou → reescreve o agente da linha, IGNORANDO o nome do produto.
+  2) REGRA ABSOLUTA (C.A. fora de a/b): creme/pomada = Químico dérmico (An.13).
+     Exceção: "protetor solar" (não é EPI — NT 146/2015 §4).
+  3) CA VENCIDO (NT 146/2015): em linhas da ficha com DATA + C.A., compara a data da
+     ENTREGA com a VALIDADE do C.A. (caepi). entrega > validade → 🚩 (indício de
+     aquisição sem CA válido; o perito decide). CA vencido HOJE é irrelevante.
+  4) MARCA 🚩 o que só o C.A. resolve e lista 📇 C.A. não catalogados.
+  5) Avisa se o índice CAEPI tiver > 90 dias (re-baixar do MTE).
 
-Por que C.A. = chave: o nome engana (marca, idioma, nome técnico incomum). O C.A. é
-único e estável. Lookup no script (não na prosa do modelo) = à prova do modelo
-contornar a regra.
+Lookup no script (não na prosa) = à prova do modelo contornar. sqlite3/stdlib, zero pip.
 
-Sem dependências externas. Idempotente. Sai com código 2 quando resta 🚩.
-
-uso: python3 check_epi.py <formulario-campo.md> [<CA-dicionario.json>]
+uso: python3 check_epi.py <form.md> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]
+  (qualquer ordem; um diretório resolve <dir>/04-EPIs/caepi.sqlite e .../CA-dicionario.json)
 """
 import json
+import os
 import re
+import sqlite3
 import sys
+from datetime import date
 
 MARK = '## 🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI'
 
@@ -36,12 +39,13 @@ UMID = ('umidade', 'an.10', 'an. 10', 'anexo 10')
 MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo', 'facial',
         'solda', 'soldad', 'capuz')
 AN13 = 'Químico dérmico (An.13)'
-CA_RE = re.compile(r'c\.?\s?a\.?', re.I)
-CA_NUM_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*(\d{3,6})', re.I)
+CA_NUM_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*(\d{1,6})', re.I)
+DATE_RE = re.compile(r'\b(\d{2})/(\d{2})/(\d{4})\b')
 
 
+# ---------------- fontes de classificação por C.A. ----------------
 def load_dict(path):
-    if not path:
+    if not path or not os.path.exists(path):
         return {}
     try:
         with open(path, encoding='utf-8') as f:
@@ -50,7 +54,7 @@ def load_dict(path):
         return {}
     out = {}
     for k, v in raw.items():
-        if k.startswith('_'):
+        if str(k).startswith('_'):
             continue
         key = re.sub(r'\D', '', str(k))
         if key:
@@ -58,43 +62,84 @@ def load_dict(path):
     return out
 
 
+class Caepi:
+    def __init__(self, path):
+        self.con = None
+        self.build_date = None
+        if path and os.path.exists(path):
+            try:
+                self.con = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
+                row = self.con.execute("SELECT v FROM meta WHERE k='build_date'").fetchone()
+                self.build_date = row[0] if row else None
+            except Exception:
+                self.con = None
+
+    def get(self, ca):
+        if not self.con:
+            return None
+        try:
+            r = self.con.execute(
+                'SELECT agente, validade_iso, validade_br, situacao FROM ca WHERE ca=?', (ca,)).fetchone()
+        except Exception:
+            return None
+        if not r:
+            return None
+        return {'agente': r[0], 'validade_iso': r[1], 'validade_br': r[2], 'situacao': r[3]}
+
+    def age_days(self):
+        if not self.build_date:
+            return None
+        try:
+            return (date.today() - date.fromisoformat(self.build_date)).days
+        except Exception:
+            return None
+
+
 def extract_ca(line):
     m = CA_NUM_RE.search(line)
     return m.group(1) if m else None
 
 
+def first_date_iso(line):
+    m = DATE_RE.search(line)
+    if not m:
+        return None, None
+    d, mo, y = m.groups()
+    try:
+        return date(int(y), int(mo), int(d)).isoformat(), '%s/%s/%s' % (d, mo, y)
+    except ValueError:
+        return None, None
+
+
 def is_epi_line(ll, raw):
     if 'creme' in ll or 'pomada' in ll or 'capa' in ll:
         return True
-    if CA_RE.search(ll) and re.search(r'\d{3,6}', raw):
+    if CA_NUM_RE.search(raw):
         return True
     return False
 
 
 def set_agent_segment(line, new_agent):
-    """Reescreve o segmento de AGENTE (o imediatamente antes do C.A.). Se só há a
-    descrição antes do C.A. (sem slot de agente), INSERE. Devolve None se a
-    estrutura `... · ... · C.A. nnnn · ...` não for reconhecível."""
     parts = line.split(' · ')
     if len(parts) < 2:
         return None
     ca_idx = None
     for i, p in enumerate(parts):
-        if CA_RE.search(p) and re.search(r'\d{3,6}', p):
+        if CA_NUM_RE.search(p):
             ca_idx = i
             break
     if ca_idx is None or ca_idx < 1:
         return None
     if ca_idx >= 2:
-        parts[ca_idx - 1] = new_agent      # já existe slot de agente -> sobrescreve
+        parts[ca_idx - 1] = new_agent
     else:
-        parts.insert(ca_idx, new_agent)    # só a descrição antes do C.A. -> insere
+        parts.insert(ca_idx, new_agent)
     return ' · '.join(parts)
 
 
-def process(lines, cadict):
+def process(lines, cadict, caepi):
     new_lines, fixes, flags = [], [], []
-    nao_catalogados = []
+    nao_cat = []
     for raw in lines:
         ll = raw.lower()
         if not is_epi_line(ll, raw):
@@ -103,50 +148,66 @@ def process(lines, cadict):
         trecho = raw.strip()[:120]
         line = raw
         ca = extract_ca(raw)
+        classified = False
 
-        # (1) LOOKUP por C.A. — fonte primária, ignora o nome
-        if ca and ca in cadict:
-            agente = cadict[ca].get('agente') or AN13
-            fixed = set_agent_segment(raw, agente)
-            if fixed is not None:
-                if fixed != raw:
-                    fixes.append((trecho, 'C.A. %s → %s [dicionário]' % (ca, agente)))
-                line = fixed
-            new_lines.append(line)
-            continue
-
-        # C.A. presente mas fora do dicionário -> catalogar
+        # (1) LOOKUP por C.A. — override curado vence; depois CAEPI oficial
         if ca:
-            nao_catalogados.append(ca)
-
-        ll2 = line.lower()
-        has_rad = any(t in ll2 for t in RAD)
-        has_quim = any(t in ll2 for t in QUIM)
-        is_creme = 'creme' in ll2 or 'pomada' in ll2
-        is_solar = 'solar' in ll2
-
-        # (2) REGRA ABSOLUTA — creme/pomada = An.13 (exceto protetor solar)
-        if is_creme and not is_solar and (has_rad or not has_quim):
-            fixed = set_agent_segment(raw, AN13)
-            if fixed is not None:
-                fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
-                line = fixed
+            agente = None
+            if ca in cadict:
+                agente = cadict[ca].get('agente')
+                src = 'dicionário'
             else:
-                flags.append((trecho, 'creme/pomada deveria ser %s — estrutura da linha não reconhecida, corrija manualmente.' % AN13))
+                hit = caepi.get(ca)
+                if hit and hit.get('agente'):
+                    agente = hit['agente']
+                    src = 'CAEPI'
+            if agente:
+                fixed = set_agent_segment(raw, agente)
+                if fixed is not None:
+                    if fixed != raw:
+                        fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
+                    line = fixed
+                classified = True
 
-        # (3) MARCAÇÃO — sobre a linha já (possivelmente) corrigida
-        ll3 = line.lower()
-        has_rad3 = any(t in ll3 for t in RAD)
-        has_quim3 = any(t in ll3 for t in QUIM)
-        has_umid3 = any(t in ll3 for t in UMID)
-        is_mask3 = any(t in ll3 for t in MASK)
-        is_creme3 = 'creme' in ll3 or 'pomada' in ll3
-        is_solar3 = 'solar' in ll3
-        is_capa3 = 'capa' in ll3 or 'impermeáv' in ll3 or 'impermeav' in ll3
-        if has_rad3 and not is_mask3 and not is_creme3 and not is_solar3:
-            flags.append((line.strip()[:120], 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — nome comercial ≠ agente. Confira o C.A.'))
-        if is_capa3 and has_quim3 and not has_umid3:
-            flags.append((line.strip()[:120], 'capa/impermeável classificada como químico — vestimenta impermeável protege UMIDADE (An.10). Confirme.'))
+        # (2) REGRA ABSOLUTA — creme/pomada = An.13 (exceto solar), se não classificado
+        if not classified:
+            if ca:
+                nao_cat.append(ca)
+            l2 = line.lower()
+            has_rad = any(t in l2 for t in RAD)
+            has_quim = any(t in l2 for t in QUIM)
+            is_creme = 'creme' in l2 or 'pomada' in l2
+            is_solar = 'solar' in l2
+            if is_creme and not is_solar and (has_rad or not has_quim):
+                fixed = set_agent_segment(raw, AN13)
+                if fixed is not None:
+                    fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
+                    line = fixed
+                else:
+                    flags.append((trecho, 'creme/pomada deveria ser %s — estrutura não reconhecida, corrija manual.' % AN13))
+
+        # (3) CA VENCIDO na ENTREGA (NT 146/2015) — linhas da ficha (data + C.A.)
+        if ca:
+            di, dbr = first_date_iso(raw)
+            if di:
+                hit = caepi.get(ca)
+                if hit and hit.get('validade_iso') and di > hit['validade_iso']:
+                    flags.append((trecho, 'EPI entregue em %s com C.A. %s VENCIDO em %s — indício de aquisição sem CA válido (NT 146/2015). Confirmar.'
+                                  % (dbr, ca, hit['validade_br'])))
+
+        # (4) MARCAÇÃO genérica — sobre a linha já classificada/corrigida
+        l3 = line.lower()
+        has_rad3 = any(t in l3 for t in RAD)
+        has_quim3 = any(t in l3 for t in QUIM)
+        has_umid3 = any(t in l3 for t in UMID)
+        is_mask3 = any(t in l3 for t in MASK)
+        is_creme3 = 'creme' in l3 or 'pomada' in l3
+        is_solar3 = 'solar' in l3
+        is_capa3 = 'capa' in l3 or 'impermeáv' in l3 or 'impermeav' in l3
+        if has_rad3 and not is_mask3 and not is_creme3 and not is_solar3 and not classified:
+            flags.append((line.strip()[:120], 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'))
+        if is_capa3 and has_quim3 and not has_umid3 and not classified:
+            flags.append((line.strip()[:120], 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'))
 
         new_lines.append(line)
 
@@ -156,7 +217,7 @@ def process(lines, cadict):
             if x not in seen:
                 seen.add(x); out.append(x)
         return out
-    return new_lines, dedup(fixes), dedup(flags), dedup(nao_catalogados)
+    return new_lines, dedup(fixes), dedup(flags), dedup(nao_cat)
 
 
 def strip_old_block(text):
@@ -166,48 +227,67 @@ def strip_old_block(text):
     return text[:idx].rstrip() + '\n'
 
 
+def resolve_paths(args):
+    caepi_p = dicio_p = None
+    for a in args:
+        if os.path.isdir(a):
+            caepi_p = caepi_p or os.path.join(a, '04-EPIs', 'caepi.sqlite')
+            dicio_p = dicio_p or os.path.join(a, '04-EPIs', 'CA-dicionario.json')
+        elif a.endswith(('.sqlite', '.db')):
+            caepi_p = a
+        elif a.endswith('.json'):
+            dicio_p = a
+    return caepi_p, dicio_p
+
+
 def main():
-    if len(sys.argv) not in (2, 3):
-        print('uso: python3 check_epi.py <formulario-campo.md> [<CA-dicionario.json>]'); sys.exit(1)
+    if len(sys.argv) < 2:
+        print('uso: python3 check_epi.py <form.md> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]')
+        sys.exit(1)
     path = sys.argv[1]
-    cadict = load_dict(sys.argv[2] if len(sys.argv) == 3 else None)
+    caepi_p, dicio_p = resolve_paths(sys.argv[2:])
+    cadict = load_dict(dicio_p)
+    caepi = Caepi(caepi_p)
+
     with open(path, encoding='utf-8') as f:
         text = f.read()
-
-    new_lines, fixes, flags, nao_cat = process(text.splitlines(), cadict)
+    new_lines, fixes, flags, nao_cat = process(text.splitlines(), cadict, caepi)
     body = strip_old_block('\n'.join(new_lines))
 
-    if not fixes and not flags and not nao_cat:
+    age = caepi.age_days()
+    stale = age is not None and age > 90
+
+    if not fixes and not flags and not nao_cat and not stale:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(body)
         print('✅ check_epi: nenhuma classificação de EPI suspeita.')
         sys.exit(0)
 
-    bloco = [MARK + ' (gerado pelo check_epi.py — C.A. é a chave, o nome NÃO classifica)\n']
+    bloco = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n']
     if fixes:
-        bloco.append('**🔧 Classificado/corrigido automaticamente (confira mesmo assim):**')
+        bloco.append('**🔧 Classificado/corrigido automaticamente (confira pelo C.A.):**')
         for trecho, msg in fixes:
             bloco.append('- `%s` → %s' % (trecho, msg))
     if flags:
-        bloco.append('\n**🚩 Confira pelo C.A. (não corrigi — só o C.A. diz o certo):**')
+        bloco.append('\n**🚩 Conferir:**')
         for trecho, msg in flags:
             bloco.append('- ⚠ `%s` → %s' % (trecho, msg))
     if nao_cat:
-        bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (classifique e adicione ao `CA-dicionario.json` antes de fechar o laudo): ' + ', '.join(nao_cat))
+        bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (nem no dicionário nem na base CAEPI — verificar e catalogar): ' + ', '.join(nao_cat))
+    if stale:
+        bloco.append('\n**⏰ Base CAEPI com %d dias** (build %s) — re-baixe o RelatorioCA do MTE e rode `build_caepi_index.py`.' % (age, caepi.build_date))
     new = body.rstrip() + '\n\n' + '\n'.join(bloco) + '\n'
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new)
 
-    if fixes:
-        print('🔧 check_epi: %d classificação(ões) por C.A./regra:' % len(fixes))
-        for trecho, msg in fixes:
-            print('  - %s → %s' % (trecho, msg))
-    if flags:
-        print('🚩 check_epi: %d a confirmar pelo C.A.:' % len(flags))
-        for trecho, msg in flags:
-            print('  - %s → %s' % (trecho, msg))
+    for trecho, msg in fixes:
+        print('🔧 %s → %s' % (trecho, msg))
+    for trecho, msg in flags:
+        print('🚩 %s → %s' % (trecho, msg))
     if nao_cat:
-        print('📇 C.A. não catalogados (adicionar ao dicionário): %s' % ', '.join(nao_cat))
+        print('📇 não catalogados: %s' % ', '.join(nao_cat))
+    if stale:
+        print('⏰ CAEPI desatualizado (%d dias)' % age)
     sys.exit(2 if flags else 0)
 
 
