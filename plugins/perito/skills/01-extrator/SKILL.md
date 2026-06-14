@@ -72,6 +72,7 @@ Não depende de você obedecer regra em prosa — é a rede que impede a cagada 
 **EPIs (Parte 3a+3b):** treinamento e controle de entrega ← Parte 3b. **Separar o período UMA vez (a redatora não refaz):**
 - *EPIs — período imprescrito:* entregas ABAIXO da divisória da Parte 3a.
 - *Histórico anterior:* entregas ACIMA — resumir, não descartar.
+- **Descrição = NOME DO PRODUTO verbatim da ficha** (ex.: "CREME PROT PELE G3...", "PROTETOR AUDITIVO SILICONE PLUGUE") — **NUNCA** substituir pelo agente/anexo ("Ruído (An.1)", "Químico dérmico (An.13)"). A classificação por agente é do `check_epi.py` (bloco 🔧); renomear a descrição apaga o dado e quebra o cálculo de cobertura.
 - Exceções (ergonomia = todo período; ata que manda avaliar tudo; data de extinção) resolvidas aqui.
 - Propagar o alerta de origem da ficha (PDF digital × OCR). Reproduzir a CONFERÊNCIA OBRIGATÓRIA como checklist.
 

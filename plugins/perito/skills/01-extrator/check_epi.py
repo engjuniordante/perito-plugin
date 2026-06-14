@@ -80,7 +80,7 @@ class Caepi:
     def get(self, ca):
         if not self.con:
             return None
-        sel = 'agente, validade_iso, validade_br, situacao'
+        sel = 'agente, validade_iso, validade_br, situacao, equipamento'
         if self.has_vu:
             sel += ', vida_util_meses'
         try:
@@ -89,9 +89,10 @@ class Caepi:
             return None
         if not r:
             return None
-        d = {'agente': r[0], 'validade_iso': r[1], 'validade_br': r[2], 'situacao': r[3]}
+        d = {'agente': r[0], 'validade_iso': r[1], 'validade_br': r[2], 'situacao': r[3],
+             'equipamento': r[4]}
         if self.has_vu:
-            d['vida_util_meses'] = r[4]
+            d['vida_util_meses'] = r[5]
         return d
 
     def age_days(self):
@@ -265,10 +266,23 @@ def _is_protetor_aud(desc_l):
             and 'solar' not in desc_l)
 
 
+def _agent_of(ca, cadict, caepi):
+    """Agente classificado pelo C.A. (dicionário → CAEPI). Mesma ordem do process()."""
+    if ca and ca in cadict and cadict[ca].get('agente'):
+        return cadict[ca]['agente']
+    if ca and caepi is not None:
+        hit = caepi.get(ca)
+        if hit and hit.get('agente'):
+            return hit['agente']
+    return None
+
+
 def cobertura(lines, cadict, caepi=None):
-    """Σ(qtd × vida útil) por agente (creme→An.13, protetor auditivo→Ruído). Só as entregas
-    do imprescrito (abaixo da divisória ▼, se houver). Vida útil: dicionário ou coluna do
-    CAEPI. Retorna (resultados, faltou_vu, tem_divisoria)."""
+    """Σ(qtd × vida útil) por agente, SÓ na tabela do imprescrito (entre ▼ e ▲). Classifica
+    pelo AGENTE do C.A. (não pelo texto da descrição, que pode ter sido renomeado):
+      - Ruído (An.1) → protetor auditivo → vida útil por C.A. (dicionário/CAEPI).
+      - Creme/pomada (desc OU equipamento do CAEPI) → An.13, 1 mês/unidade.
+    Luva/conjunto/demais = perito. Retorna (resultados, faltou_vu, tem_divisoria)."""
     tem_divisoria = any('▼' in l for l in lines)
     in_impr = not tem_divisoria  # sem divisória → considera todas
     buckets, faltou_vu = {}, []
@@ -276,8 +290,15 @@ def cobertura(lines, cadict, caepi=None):
         if '▼' in raw:
             in_impr = True
             continue
+        if '▲' in raw:                      # fim do imprescrito → parar de contar
+            in_impr = False
+            continue
         if not in_impr:
-            continue  # entregas anteriores ao imprescrito
+            continue
+        s = raw.strip()
+        if s.startswith('#') or s.startswith('>'):  # próxima seção/nota → fim da tabela
+            in_impr = False
+            continue
         ll = raw.lower()
         if not is_epi_line(ll, raw):
             continue
@@ -288,16 +309,26 @@ def cobertura(lines, cadict, caepi=None):
         if not mq:
             continue
         qtd = int(mq.group(1))
-        is_creme = 'creme' in ll or 'pomada' in ll
-        if not (is_creme or _is_protetor_aud(ll)):
-            continue  # luva/conjunto/etc → perito decide
-        ca = extract_ca(raw)
-        vu, _ = _vida_util(ca, ll, cadict, caepi)
-        if vu is None:
-            faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
+        if qtd > 500:                       # quantidade irreal = parse errado → ignorar
             continue
-        agente = AN13 if is_creme else 'Ruído (An.1)'
-        b = buckets.setdefault(agente, [0, 0])
+        ca = extract_ca(raw)
+        agente = _agent_of(ca, cadict, caepi)
+        equip = ''
+        if ca and caepi is not None:
+            hit = caepi.get(ca)
+            equip = (hit.get('equipamento') or '').lower() if hit else ''
+        is_creme = 'creme' in ll or 'pomada' in ll or 'creme' in equip or 'pomada' in equip
+        if is_creme:
+            bucket, vu = AN13, 1.0
+        elif agente == 'Ruído (An.1)':
+            bucket = 'Ruído (An.1)'
+            vu, _ = _vida_util(ca, ll, cadict, caepi)
+            if vu is None:
+                faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
+                continue
+        else:
+            continue  # luva/conjunto/demais → perito decide
+        b = buckets.setdefault(bucket, [0.0, 0])
         b[0] += qtd * vu
         b[1] += 1
     res = ['%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)' % (a, n, ('%g' % round(m, 1)))
@@ -344,9 +375,11 @@ def main():
 
     with open(path, encoding='utf-8') as f:
         text = f.read()
-    new_lines, fixes, flags, nao_cat = process(text.splitlines(), cadict, caepi)
-    cob_res, faltou_vu, _ = cobertura(text.splitlines(), cadict, caepi)
-    body = strip_old_block('\n'.join(new_lines))
+    stripped = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
+    src_lines = stripped.splitlines()
+    new_lines, fixes, flags, nao_cat = process(src_lines, cadict, caepi)
+    cob_res, faltou_vu, _ = cobertura(src_lines, cadict, caepi)
+    body = '\n'.join(new_lines)
 
     age = caepi.age_days()
     stale = age is not None and age > 90
