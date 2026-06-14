@@ -1,6 +1,6 @@
 ---
 name: perito-atualiza-base
-description: Use quando o perito disser "atualiza base", "corrigir na base", "salvar essa correção", "atualizar texto-padrão", "registrar mudança", ou quando ele colar um trecho corrigido de um laudo revisado para registrar na base de conhecimento. Grava UMA correção pontual no arquivo .md correto do segundo cérebro. NÃO usar para lotes de laudos (isso é a Skill Povoar Base).
+description: Use quando o perito disser "atualiza base", "corrigir na base", "salvar essa correção", "atualizar texto-padrão", "registrar mudança", "cataloga esse CA", "classifiquei errado esse EPI", ou quando ele colar um trecho corrigido de um laudo revisado para registrar na base de conhecimento. Grava UMA correção pontual no arquivo correto do segundo cérebro (texto-padrão .md OU a classificação de EPI por C.A. em CA-dicionario.json). NÃO usar para lotes de laudos (isso é a Skill Povoar Base).
 ---
 
 # Atualiza Base — Skill 5
@@ -48,6 +48,7 @@ Mapeamento de destino — **ler APENAS o arquivo alvo**, nunca varrer a base int
 | Argumento novo | `08-Textos-Padrao/[agente].md` | `## Argumentos` |
 | Padrão de setor/função | `05-Setores-e-Funcoes/[setor].md` | seção pertinente |
 | Padrão de EPI / vida útil de CA | `04-EPIs/analise-epi-padrao.md` | seção pertinente |
+| **Classificação de EPI por C.A.** (agente/anexo que o C.A. protege; correção de classificação ou C.A. novo) | `04-EPIs/CA-dicionario.json` | entrada por C.A. — **ver seção "CA-dicionário" abaixo** |
 | Ergonomia | `03-Ergonomia/[tema].md` | seção pertinente |
 | Vocabulário técnico | `08-Textos-Padrao/_bloco-vocabulario-tecnico.md` | — |
 | Resposta-padrão a quesito recorrente | `08-Textos-Padrao/_bloco-respostas-quesitos.md` | bloco pertinente |
@@ -84,6 +85,29 @@ Ler **SOMENTE** o `.md` identificado. Verificar:
   - O **diff** (antes → depois) da seção alterada
   - O **caminho exato** do arquivo gravado
   - Se foi acréscimo, a procedência registrada
+
+## CA-dicionário — `04-EPIs/CA-dicionario.json`
+
+Fonte **primária** da classificação de EPI por agente. O guard `check_epi.py` (Extrator) e o `build_laudo.py` (Redator) leem este arquivo e classificam o EPI **pelo C.A., ignorando o nome comercial**. Cada correção de C.A. que o perito faz vira regra permanente — é o que faz o sistema "aprender": corrige um C.A. uma vez, nunca mais erra nele.
+
+**Gatilhos:** o perito diz "o CA 35339 é químico, não solar", "classifiquei errado esse EPI", "cataloga esse CA", ou o guard reportou `📇 CA não catalogado` e o perito informa a classe correta.
+
+**Estrutura (JSON, não prosa):** chave = número do C.A. (só dígitos). Valor:
+```json
+{
+  "_meta": { "descricao": "CA→agente. O C.A. é a chave; o nome comercial NÃO classifica.", "atualizado": "AAAA-MM-DD" },
+  "35339": {
+    "agente": "Químico dérmico (An.13)",
+    "anexo": "13",
+    "desc": "Creme de proteção G3 Luz Negra",
+    "nota": "'Luz Negra' é marca — não é protetor solar"
+  }
+}
+```
+- **`agente`** (obrigatório) = string exata que vai pra coluna AGENTE do laudo (ex.: `Ruído (An.1)`, `Químico dérmico (An.13)`, `Umidade (An.10)`, `Radiação não-ionizante (An.7)`).
+- `anexo` / `desc` / `nota` = opcionais (humanos).
+
+**Como gravar:** ler o JSON, **adicionar/substituir só a entrada do C.A.** (preservar as demais), regravar UTF-8 indentado, atualizar `_meta.atualizado`. Mostrar ao perito a entrada gravada (diff) + caminho. **Nunca** reescrever o arquivo inteiro perdendo entradas. C.A. já existente com classe diferente → mostrar os dois e confirmar antes de sobrepor.
 
 ## Regras
 

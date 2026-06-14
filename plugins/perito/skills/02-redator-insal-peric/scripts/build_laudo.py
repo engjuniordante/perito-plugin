@@ -162,8 +162,9 @@ def find_table(doc, needle):
     return None
 
 # ---------------- main ----------------
-def build(template_path, data_path, out_path):
+def build(template_path, data_path, out_path, ca_dict_path=None):
     data = json.load(open(data_path, encoding='utf-8'))
+    cadict = _load_ca_dict(ca_dict_path or data.get('ca_dicionario_path'))
     doc = docx.Document(template_path)
     warnings = []
 
@@ -197,9 +198,9 @@ def build(template_path, data_path, out_path):
                 set_cell_text(row.cells[ci], str(val), bold=False)
         t0._tbl.remove(tmpl)
 
-    # guard determinístico de EPI ANTES de montar a tabela: auto-corrige creme->An.13
-    # (regra absoluta) e flaga o que só o C.A. resolve. Muta data['epi']['linhas'].
-    epi_fixes, epi_flags = epi_guard(data.get('epi', {}).get('linhas') or [])
+    # guard determinístico de EPI ANTES de montar a tabela: C.A.=chave (lookup no
+    # dicionário), creme->An.13 (regra absoluta), flaga o resto. Muta as linhas.
+    epi_fixes, epi_flags, epi_naocat = epi_guard(data.get('epi', {}).get('linhas') or [], cadict)
 
     # tabela de EPI (resumo por agente) — tolerante: cada linha preenche TODAS as células
     # (desc, agente, ca, v1, v2, v3); campo faltante -> '' (nunca deixa {{EPI_*}} residual).
@@ -257,13 +258,15 @@ def build(template_path, data_path, out_path):
         print('\n⚠ AVISOS (corrija o JSON e rode de novo):')
         for w in warnings: print('  -', w)
     if epi_fixes:
-        print('\n🔧 EPI — CORRIGIDO AUTOMATICAMENTE (creme/pomada = An.13, regra absoluta):')
+        print('\n🔧 EPI — CLASSIFICADO POR C.A./REGRA (C.A.=chave; nome comercial não classifica):')
         for trecho, msg in epi_fixes:
             print('  - %s → %s' % (trecho, msg))
     if epi_flags:
-        print('\n🚩 EPI — CONFERIR CLASSIFICAÇÃO PELO C.A. (classificação por nome comercial é proibida):')
+        print('\n🚩 EPI — CONFERIR CLASSIFICAÇÃO PELO C.A.:')
         for trecho, msg in epi_flags:
             print('  - %s → %s' % (trecho, msg))
+    if epi_naocat:
+        print('\n📇 EPI — C.A. NÃO CATALOGADOS (adicione ao CA-dicionario.json): %s' % ', '.join(epi_naocat))
     if not warnings and not epi_flags:
         if epi_fixes:
             print('\n✅ DOCUMENTO GERADO — creme(s) auto-corrigido(s) para An.13 (acima); nada mais pendente.')
@@ -317,29 +320,63 @@ _EPI_UMID = ('umidade', 'an.10', 'an. 10', 'anexo 10')
 _EPI_MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo', 'facial',
              'solda', 'soldad', 'capuz')
 
-def epi_guard(linhas):
-    """linhas = [[desc, agente, ca, ...], ...]. MUTA as linhas: auto-corrige creme/
-    pomada para An.13 (regra absoluta). Devolve (fixes, flags) = [(trecho, msg)]."""
-    fixes, flags = [], []
+def _load_ca_dict(path):
+    if not path:
+        return {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            raw = json.load(f)
+    except Exception:
+        return {}
+    out = {}
+    for k, v in raw.items():
+        if str(k).startswith('_'):
+            continue
+        key = re.sub(r'\D', '', str(k))
+        if key:
+            out[key] = v
+    return out
+
+
+def epi_guard(linhas, cadict=None):
+    """linhas = [[desc, agente, ca, ...], ...]. C.A. é a CHAVE: lookup no cadict
+    sobrepõe o agente (ignora o nome). Sem C.A. no dicionário: regra absoluta
+    creme/pomada=An.13 (exceto protetor solar). MUTA as linhas.
+    Devolve (fixes, flags, nao_catalogados)."""
+    cadict = cadict or {}
+    fixes, flags, nao_cat = [], [], []
     for row in linhas:
         if len(row) < 2:
             continue
         desc = str(row[0]).lower()
         ag = str(row[1]).lower()
         trecho = ('%s · %s' % (str(row[0]), str(row[1]))).strip(' ·')[:120]
+        ca = re.sub(r'\D', '', str(row[2])) if len(row) > 2 else ''
+
+        # (1) LOOKUP por C.A. — fonte primária, ignora o nome
+        if ca and ca in cadict:
+            agente = cadict[ca].get('agente') or 'Químico dérmico (An.13)'
+            if str(row[1]) != agente:
+                fixes.append((trecho, 'C.A. %s → %s [dicionário]' % (ca, agente)))
+                row[1] = agente
+            continue
+        if ca:
+            nao_cat.append(ca)
+
         has_rad = any(t in ag for t in _EPI_RAD)
         has_quim = any(t in ag for t in _EPI_QUIM)
         is_creme = 'creme' in desc or 'pomada' in desc
-        # (1) AUTO-CORREÇÃO — creme/pomada = sempre An.13
-        if is_creme and (has_rad or not has_quim):
+        is_solar = 'solar' in desc or 'solar' in ag
+        # (2) REGRA ABSOLUTA — creme/pomada = An.13 (exceto protetor solar)
+        if is_creme and not is_solar and (has_rad or not has_quim):
             row[1] = 'Químico dérmico (An.13)'
             fixes.append((trecho, 'creme/pomada → Químico dérmico (An.13) [regra absoluta]'))
             ag = row[1].lower(); has_rad = False; has_quim = True
-        # (2) MARCAÇÃO — só o C.A. resolve
+        # (3) MARCAÇÃO — só o C.A. resolve
         has_umid = any(t in ag for t in _EPI_UMID)
         is_capa = 'capa' in desc or 'impermeáv' in desc or 'impermeav' in desc
         is_mask = any(t in desc for t in _EPI_MASK)
-        if has_rad and not is_mask and not is_creme:
+        if has_rad and not is_mask and not is_creme and not is_solar:
             flags.append((trecho, 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — nome comercial ≠ agente. Confira o C.A.'))
         if is_capa and has_quim and not has_umid:
             flags.append((trecho, 'capa/impermeável como químico — vestimenta impermeável protege UMIDADE (An.10). Confirme.'))
@@ -349,10 +386,10 @@ def epi_guard(linhas):
             if x not in seen:
                 seen.add(x); out.append(x)
         return out
-    return dedup(fixes), dedup(flags)
+    return dedup(fixes), dedup(flags), dedup(nao_cat)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 4:
-        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx>'); sys.exit(1)
-    ok = build(sys.argv[1], sys.argv[2], sys.argv[3])
+    if len(sys.argv) not in (4, 5):
+        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<CA-dicionario.json>]'); sys.exit(1)
+    ok = build(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) == 5 else None)
     sys.exit(0 if ok else 2)
