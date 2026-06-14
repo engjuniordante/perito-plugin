@@ -90,7 +90,9 @@ Ler **SOMENTE** o `.md` identificado. Verificar:
 
 Fonte **primária** da classificação de EPI por agente. O guard `check_epi.py` (Extrator) e o `build_laudo.py` (Redator) leem este arquivo e classificam o EPI **pelo C.A., ignorando o nome comercial**. Cada correção de C.A. que o perito faz vira regra permanente — é o que faz o sistema "aprender": corrige um C.A. uma vez, nunca mais erra nele.
 
-**Gatilhos:** o perito diz "o CA 35339 é químico, não solar", "classifiquei errado esse EPI", "cataloga esse CA", ou o guard reportou `📇 CA não catalogado` e o perito informa a classe correta.
+**Gatilhos:** o perito diz "o CA 35339 é químico, não solar", "classifiquei errado esse EPI", "cataloga esse CA", **"cataloga a vida útil do CA X"** / **"CA X vida útil N meses"**, ou o guard reportou `📇 CA não catalogado` e o perito informa a classe correta.
+
+⛔ **VIDA ÚTIL é caso à parte — SEMPRE gravar, mesmo se o agente já está certo.** O `vida_util_meses` **só existe neste dicionário** (o CAEPI tem agente + validade, **nunca vida útil**). Então, ao receber "cataloga vida útil do CA X", **NÃO responda "já tenho" só porque o CAEPI/dicionário já classifica o agente** — crie/atualize a entrada do C.A. adicionando o campo `vida_util_meses`, preservando o resto. Sem esse campo, a cobertura 📐 do `check_epi.py` não calcula aquele C.A. (A regra "CAEPI cobre o grosso, dicionário só corrige erro" vale para a **classificação**, não para a vida útil.)
 
 **Estrutura (JSON, não prosa):** chave = número do C.A. (só dígitos). Valor:
 ```json
@@ -114,7 +116,7 @@ Fonte **primária** da classificação de EPI por agente. O guard `check_epi.py`
 - **`vida_util_meses`** (opcional, inteiro) = vida útil declarada no boletim do C.A., **em meses**. Quando presente, o `check_epi.py` usa no cálculo automático de cobertura (Σ qtd × vida útil) — **só faz sentido para protetor auditivo** (creme já é 1/mês universal; luva/conjunto = perito). Migrar aqui os valores da tabela "Vida útil declarada por CA" do `analise-epi-padrao.md` (relocação, não duplicar).
 - `anexo` / `desc` / `nota` = opcionais (humanos).
 
-**Como gravar:** ler o JSON, **adicionar/substituir só a entrada do C.A.** (preservar as demais), regravar UTF-8 indentado, atualizar `_meta.atualizado`. Mostrar ao perito a entrada gravada (diff) + caminho. **Nunca** reescrever o arquivo inteiro perdendo entradas. C.A. já existente com classe diferente → mostrar os dois e confirmar antes de sobrepor.
+**Como gravar:** se o JSON ainda não existir, **criá-lo** (com `_meta`). Ler o JSON, **adicionar/MESCLAR só a entrada do C.A.** (preservar as demais E os campos já existentes da própria entrada — ex.: adicionar `vida_util_meses` a um C.A. que já tinha `agente`), regravar UTF-8 indentado, atualizar `_meta.atualizado`. Mostrar ao perito a entrada gravada (diff) + caminho. **Nunca** reescrever o arquivo inteiro perdendo entradas, nem apagar campos ao adicionar outro. C.A. já existente com **classe diferente** → mostrar os dois e confirmar antes de sobrepor; **vida útil** → mesclar direto (não é conflito).
 
 ## Base oficial CAEPI — `04-EPIs/caepi.sqlite`
 
