@@ -358,13 +358,16 @@ def _load_ca_dict(path):
 
 
 def _caepi_lookup(con, ca):
+    """Devolve (known, agente): known=C.A. existe na base (mesmo sem agente NR-15)."""
     if not con or not ca:
-        return None
+        return False, None
     try:
         r = con.execute('SELECT agente FROM ca WHERE ca=?', (ca,)).fetchone()
     except Exception:
-        return None
-    return r[0] if r and r[0] else None
+        return False, None
+    if r is None:
+        return False, None
+    return True, (r[0] or None)
 
 
 def _open_caepi(path):
@@ -393,10 +396,11 @@ def epi_guard(linhas, cadict=None, caepi=None):
 
         # (1) LOOKUP por C.A. — override curado vence; depois CAEPI oficial
         agente = src = None
+        known = False
         if ca and ca in cadict:
-            agente, src = cadict[ca].get('agente'), 'dicionário'
+            agente, src, known = cadict[ca].get('agente'), 'dicionário', True
         elif ca:
-            hit = _caepi_lookup(caepi, ca)
+            known, hit = _caepi_lookup(caepi, ca)
             if hit:
                 agente, src = hit, 'CAEPI'
         if agente:
@@ -404,19 +408,22 @@ def epi_guard(linhas, cadict=None, caepi=None):
                 fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
                 row[1] = agente
             continue
+        # C.A. conhecido na base sem agente NR-15 (botina, óculos, luva mecânica…) =
+        # não-neutralizador → silêncio (NÃO é não catalogado, NÃO aplica heurística).
+        if known:
+            continue
         if ca:
             nao_cat.append(ca)
 
+        # (2) C.A. desconhecido: regra absoluta creme/pomada=An.13 (exceto solar) + flags
         has_rad = any(t in ag for t in _EPI_RAD)
         has_quim = any(t in ag for t in _EPI_QUIM)
         is_creme = 'creme' in desc or 'pomada' in desc
         is_solar = 'solar' in desc or 'solar' in ag
-        # (2) REGRA ABSOLUTA — creme/pomada = An.13 (exceto protetor solar)
         if is_creme and not is_solar and (has_rad or not has_quim):
             row[1] = 'Químico dérmico (An.13)'
             fixes.append((trecho, 'creme/pomada → Químico dérmico (An.13) [regra absoluta]'))
             ag = row[1].lower(); has_rad = False; has_quim = True
-        # (3) MARCAÇÃO — só o C.A. resolve
         has_umid = any(t in ag for t in _EPI_UMID)
         is_capa = 'capa' in desc or 'impermeáv' in desc or 'impermeav' in desc
         is_mask = any(t in desc for t in _EPI_MASK)

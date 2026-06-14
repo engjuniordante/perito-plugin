@@ -148,31 +148,32 @@ def process(lines, cadict, caepi):
         trecho = raw.strip()[:120]
         line = raw
         ca = extract_ca(raw)
+        agente = src = hit = None
+        known = False  # C.A. existe no dicionário OU na base CAEPI (mesmo sem agente NR-15)
         classified = False
 
         # (1) LOOKUP por C.A. — override curado vence; depois CAEPI oficial
         if ca:
-            agente = None
             if ca in cadict:
-                agente = cadict[ca].get('agente')
-                src = 'dicionário'
+                agente, src, known = cadict[ca].get('agente'), 'dicionário', True
             else:
                 hit = caepi.get(ca)
-                if hit and hit.get('agente'):
-                    agente = hit['agente']
-                    src = 'CAEPI'
-            if agente:
-                fixed = set_agent_segment(raw, agente)
-                if fixed is not None:
-                    if fixed != raw:
-                        fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
-                    line = fixed
-                classified = True
+                if hit is not None:
+                    known = True
+                    if hit.get('agente'):
+                        agente, src = hit['agente'], 'CAEPI'
+        if agente:
+            fixed = set_agent_segment(raw, agente)
+            if fixed is not None:
+                if fixed != raw:
+                    fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
+                line = fixed
+            classified = True
 
-        # (2) REGRA ABSOLUTA — creme/pomada = An.13 (exceto solar), se não classificado
-        if not classified:
-            if ca:
-                nao_cat.append(ca)
+        # C.A. conhecido na base SEM agente NR-15 (botina, óculos, luva mecânica…) =
+        # não-neutralizador → silêncio: NÃO é "não catalogado", NÃO aplica heurística.
+        elif not known:
+            # (2) C.A. desconhecido (nem dicionário nem CAEPI): regra absoluta + flags
             l2 = line.lower()
             has_rad = any(t in l2 for t in RAD)
             has_quim = any(t in l2 for t in QUIM)
@@ -183,31 +184,33 @@ def process(lines, cadict, caepi):
                 if fixed is not None:
                     fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
                     line = fixed
+                    agente = AN13
+                    classified = True
                 else:
                     flags.append((trecho, 'creme/pomada deveria ser %s — estrutura não reconhecida, corrija manual.' % AN13))
+            l3 = line.lower()
+            has_rad3 = any(t in l3 for t in RAD)
+            has_quim3 = any(t in l3 for t in QUIM)
+            has_umid3 = any(t in l3 for t in UMID)
+            is_mask3 = any(t in l3 for t in MASK)
+            is_creme3 = 'creme' in l3 or 'pomada' in l3
+            is_solar3 = 'solar' in l3
+            is_capa3 = 'capa' in l3 or 'impermeáv' in l3 or 'impermeav' in l3
+            if has_rad3 and not is_mask3 and not is_creme3 and not is_solar3 and not classified:
+                flags.append((line.strip()[:120], 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'))
+            if is_capa3 and has_quim3 and not has_umid3 and not classified:
+                flags.append((line.strip()[:120], 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'))
+            if ca:
+                nao_cat.append(ca)
 
-        # (3) CA VENCIDO na ENTREGA (NT 146/2015) — linhas da ficha (data + C.A.)
-        if ca:
+        # (3) CA VENCIDO na ENTREGA (NT 146/2015) — só p/ EPI que neutraliza (tem agente)
+        if ca and agente:
             di, dbr = first_date_iso(raw)
             if di:
-                hit = caepi.get(ca)
-                if hit and hit.get('validade_iso') and di > hit['validade_iso']:
+                h = hit if hit is not None else caepi.get(ca)
+                if h and h.get('validade_iso') and di > h['validade_iso']:
                     flags.append((trecho, 'EPI entregue em %s com C.A. %s VENCIDO em %s — indício de aquisição sem CA válido (NT 146/2015). Confirmar.'
-                                  % (dbr, ca, hit['validade_br'])))
-
-        # (4) MARCAÇÃO genérica — sobre a linha já classificada/corrigida
-        l3 = line.lower()
-        has_rad3 = any(t in l3 for t in RAD)
-        has_quim3 = any(t in l3 for t in QUIM)
-        has_umid3 = any(t in l3 for t in UMID)
-        is_mask3 = any(t in l3 for t in MASK)
-        is_creme3 = 'creme' in l3 or 'pomada' in l3
-        is_solar3 = 'solar' in l3
-        is_capa3 = 'capa' in l3 or 'impermeáv' in l3 or 'impermeav' in l3
-        if has_rad3 and not is_mask3 and not is_creme3 and not is_solar3 and not classified:
-            flags.append((line.strip()[:120], 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'))
-        if is_capa3 and has_quim3 and not has_umid3 and not classified:
-            flags.append((line.strip()[:120], 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'))
+                                  % (dbr, ca, h['validade_br'])))
 
         new_lines.append(line)
 
