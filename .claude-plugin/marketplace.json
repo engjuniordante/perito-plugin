@@ -9,7 +9,7 @@
       "name": "perito",
       "source": "./plugins/perito",
       "description": "Pipeline de perícia trabalhista: extrator do processo, redatores de laudo (insalubridade/periculosidade e ergonômico), resposta a impugnações, manutenção da base de conhecimento e alertas de prazos.",
-      "version": "1.0.11",
+      "version": "1.0.12",
       "author": {
         "name": "Antonio Carlos Dante Junior"
       }

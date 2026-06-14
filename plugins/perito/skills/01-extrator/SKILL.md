@@ -25,10 +25,13 @@ Faltou algum? Avise qual e prossiga; o ausente vira `[NÃO LOCALIZADO]`.
 ## Saída
 Um `.md` espelhando **exatamente** seções, ordem e campos do `formulario-pericia.md` — **um campo por linha** (não compactar). Fecha com `## ✅ AUTO-CHECK`, `## ⚠ CAMPOS A VERIFICAR IN LOCO` e `## 🚩 FLAGS`.
 
+**Gravação:** saída inexistente → `Write` direto. Saída já existente (rerun) → `Read` antes de `Edit`/`Write` (escrita sem leitura prévia falha e queima um turno).
+
 ## Arquivos a ler (só estes)
-- `formulario-pericia.md` — estrutura a espelhar (seções que **não** sejam a de agentes).
-- `_esqueleto-agentes.md` — bloco fixo de agentes: **copiar VERBATIM** para a saída, sempre completo (13 anexos NR-15 A–M + Periculosidade), mesmo os não citados pelo NLM. Depois sobrepor Status/Obs/medições só nos agentes com base documental.
-- `04-EPIs/analise-epi-padrao.md` — **só se houver tabela de EPI** (vida útil por CA, para o EPI-resumo).
+⚠ **Localização:** `formulario-pericia.md` e `_esqueleto-agentes.md` ficam na **MESMA pasta deste SKILL.md** (empacotados com a skill) — ler pelo caminho relativo ao diretório da skill. **Não procurar em `base_conhecimento` nem rodar `find`** para achá-los. Só `analise-epi-padrao.md` mora na base do perito.
+- `formulario-pericia.md` *(pasta da skill)* — estrutura a espelhar (seções que **não** sejam a de agentes).
+- `_esqueleto-agentes.md` *(pasta da skill)* — bloco fixo de agentes: **copiar VERBATIM** para a saída, sempre completo (13 anexos NR-15 A–M + Periculosidade), mesmo os não citados pelo NLM. Depois sobrepor Status/Obs/medições só nos agentes com base documental.
+- `base_conhecimento/04-EPIs/analise-epi-padrao.md` — **só se houver tabela de EPI** (vida útil por CA, para o EPI-resumo).
 - **NÃO** abrir template `.docx`, laudos anteriores nem gabaritos de teste — não são insumo do Extrator.
 
 ## Regras de ouro
