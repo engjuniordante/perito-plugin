@@ -146,14 +146,28 @@ def main():
                 })
 
     con = sqlite3.connect(out)
+    # vida_util_meses é dado CURADO (boletim) — preservar entre rebuilds (o export do
+    # MTE não traz vida útil; o rebuild não pode apagar o que o perito catalogou).
+    prev_vu = {}
+    try:
+        for r in con.execute('SELECT ca, vida_util_meses FROM ca WHERE vida_util_meses IS NOT NULL'):
+            prev_vu[r[0]] = r[1]
+    except Exception:
+        pass
     con.execute('DROP TABLE IF EXISTS ca')
     con.execute('DROP TABLE IF EXISTS meta')
     con.execute('''CREATE TABLE ca (
         ca TEXT PRIMARY KEY, validade_iso TEXT, validade_br TEXT,
-        situacao TEXT, equipamento TEXT, agente TEXT, anexo TEXT)''')
+        situacao TEXT, equipamento TEXT, agente TEXT, anexo TEXT,
+        vida_util_meses INTEGER)''')
     con.execute('CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT)')
-    con.executemany('INSERT OR REPLACE INTO ca VALUES (:ca,:validade_iso,:validade_br,:situacao,:equipamento,:agente,:anexo)',
+    con.executemany('INSERT OR REPLACE INTO ca (ca,validade_iso,validade_br,situacao,equipamento,agente,anexo) '
+                    'VALUES (:ca,:validade_iso,:validade_br,:situacao,:equipamento,:agente,:anexo)',
                     [r for _, r in best.values()])
+    for ca_k, vu in prev_vu.items():
+        con.execute('UPDATE ca SET vida_util_meses=? WHERE ca=?', (vu, ca_k))
+    if prev_vu:
+        print('vida útil preservada de rebuild anterior: %d C.A.' % len(prev_vu))
     con.execute('INSERT INTO meta VALUES (?,?)', ('build_date', date.today().isoformat()))
     con.execute('INSERT INTO meta VALUES (?,?)', ('source', src.split('/')[-1]))
     con.execute('INSERT INTO meta VALUES (?,?)', ('n_cas', str(len(best))))

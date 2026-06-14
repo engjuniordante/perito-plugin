@@ -92,7 +92,13 @@ Fonte **primária** da classificação de EPI por agente. O guard `check_epi.py`
 
 **Gatilhos:** o perito diz "o CA 35339 é químico, não solar", "classifiquei errado esse EPI", "cataloga esse CA", **"cataloga a vida útil do CA X"** / **"CA X vida útil N meses"**, ou o guard reportou `📇 CA não catalogado` e o perito informa a classe correta.
 
-⛔ **VIDA ÚTIL é caso à parte — SEMPRE gravar, mesmo se o agente já está certo.** O `vida_util_meses` **só existe neste dicionário** (o CAEPI tem agente + validade, **nunca vida útil**). Então, ao receber "cataloga vida útil do CA X", **NÃO responda "já tenho" só porque o CAEPI/dicionário já classifica o agente** — crie/atualize a entrada do C.A. adicionando o campo `vida_util_meses`, preservando o resto. Sem esse campo, a cobertura 📐 do `check_epi.py` não calcula aquele C.A. (A regra "CAEPI cobre o grosso, dicionário só corrige erro" vale para a **classificação**, não para a vida útil.)
+⛔ **VIDA ÚTIL é caso à parte — SEMPRE gravar, mesmo se o agente já está certo.** A vida útil **nunca vem do export do MTE** (o CAEPI tem agente + validade, **nunca vida útil**) — é sempre o perito que cataloga, do boletim. Então, ao receber "cataloga vida útil do CA X", **NÃO responda "já tenho" só porque o agente já está classificado** — agente e vida útil são coisas diferentes. Sem o `vida_util_meses` gravado, a cobertura 📐 do `check_epi.py` não calcula aquele C.A.
+
+**Onde gravar a vida útil** (o `check_epi.py` lê dos DOIS; o dicionário vence se ambos):
+- **Recomendado — coluna `vida_util_meses` da `caepi.sqlite`** (o agente/validade já estão lá; o `build_caepi_index.py` **preserva** esses valores no rebuild). A coluna já existe; gravar com:
+  `sqlite3 <base>/04-EPIs/caepi.sqlite "UPDATE ca SET vida_util_meses=N WHERE ca='XXXX';"`
+  (se a coluna ainda não existir numa base antiga: `ALTER TABLE ca ADD COLUMN vida_util_meses INTEGER;` antes).
+- **Alternativa — campo `vida_util_meses` no `CA-dicionario.json`** (útil p/ C.A. que nem está no CAEPI). Mesma semântica.
 
 **Estrutura (JSON, não prosa):** chave = número do C.A. (só dígitos). Valor:
 ```json

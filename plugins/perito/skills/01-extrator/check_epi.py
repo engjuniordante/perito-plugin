@@ -66,25 +66,33 @@ class Caepi:
     def __init__(self, path):
         self.con = None
         self.build_date = None
+        self.has_vu = False  # coluna vida_util_meses existe na base?
         if path and os.path.exists(path):
             try:
                 self.con = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
                 row = self.con.execute("SELECT v FROM meta WHERE k='build_date'").fetchone()
                 self.build_date = row[0] if row else None
+                cols = [r[1] for r in self.con.execute('PRAGMA table_info(ca)').fetchall()]
+                self.has_vu = 'vida_util_meses' in cols
             except Exception:
                 self.con = None
 
     def get(self, ca):
         if not self.con:
             return None
+        sel = 'agente, validade_iso, validade_br, situacao'
+        if self.has_vu:
+            sel += ', vida_util_meses'
         try:
-            r = self.con.execute(
-                'SELECT agente, validade_iso, validade_br, situacao FROM ca WHERE ca=?', (ca,)).fetchone()
+            r = self.con.execute('SELECT %s FROM ca WHERE ca=?' % sel, (ca,)).fetchone()
         except Exception:
             return None
         if not r:
             return None
-        return {'agente': r[0], 'validade_iso': r[1], 'validade_br': r[2], 'situacao': r[3]}
+        d = {'agente': r[0], 'validade_iso': r[1], 'validade_br': r[2], 'situacao': r[3]}
+        if self.has_vu:
+            d['vida_util_meses'] = r[4]
+        return d
 
     def age_days(self):
         if not self.build_date:
@@ -233,16 +241,22 @@ def process(lines, cadict, caepi):
 QTY_RE = re.compile(r'(\d+)')
 
 
-def _vida_util(ca, desc_l, cadict):
+def _vida_util(ca, desc_l, cadict, caepi=None):
     if 'creme' in desc_l or 'pomada' in desc_l:
         return 1, 'creme 1/mês'
+    # vida útil só é dado CURADO: dicionário primeiro; senão coluna da base CAEPI.
+    v = None
     if ca and ca in cadict:
         v = cadict[ca].get('vida_util_meses')
-        if v:
-            try:
-                return int(v), 'C.A. %s' % ca
-            except (TypeError, ValueError):
-                return None, None
+    if v is None and ca and caepi is not None:
+        hit = caepi.get(ca)
+        if hit:
+            v = hit.get('vida_util_meses')
+    if v:
+        try:
+            return int(v), 'C.A. %s' % ca
+        except (TypeError, ValueError):
+            return None, None
     return None, None
 
 
@@ -251,9 +265,10 @@ def _is_protetor_aud(desc_l):
             and 'solar' not in desc_l)
 
 
-def cobertura(lines, cadict):
+def cobertura(lines, cadict, caepi=None):
     """Σ(qtd × vida útil) por agente (creme→An.13, protetor auditivo→Ruído). Só as entregas
-    do imprescrito (abaixo da divisória ▼, se houver). Retorna (resultados, faltou_vu, tem_divisoria)."""
+    do imprescrito (abaixo da divisória ▼, se houver). Vida útil: dicionário ou coluna do
+    CAEPI. Retorna (resultados, faltou_vu, tem_divisoria)."""
     tem_divisoria = any('▼' in l for l in lines)
     in_impr = not tem_divisoria  # sem divisória → considera todas
     buckets, faltou_vu = {}, []
@@ -277,7 +292,7 @@ def cobertura(lines, cadict):
         if not (is_creme or _is_protetor_aud(ll)):
             continue  # luva/conjunto/etc → perito decide
         ca = extract_ca(raw)
-        vu, _ = _vida_util(ca, ll, cadict)
+        vu, _ = _vida_util(ca, ll, cadict, caepi)
         if vu is None:
             faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
             continue
@@ -330,7 +345,7 @@ def main():
     with open(path, encoding='utf-8') as f:
         text = f.read()
     new_lines, fixes, flags, nao_cat = process(text.splitlines(), cadict, caepi)
-    cob_res, faltou_vu, _ = cobertura(text.splitlines(), cadict)
+    cob_res, faltou_vu, _ = cobertura(text.splitlines(), cadict, caepi)
     body = strip_old_block('\n'.join(new_lines))
 
     age = caepi.age_days()
