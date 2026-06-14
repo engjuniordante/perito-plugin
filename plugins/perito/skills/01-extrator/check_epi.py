@@ -378,7 +378,7 @@ def main():
     stripped = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
     src_lines = stripped.splitlines()
     new_lines, fixes, flags, nao_cat = process(src_lines, cadict, caepi)
-    cob_res, faltou_vu, _ = cobertura(src_lines, cadict, caepi)
+    cob_res, faltou_vu, tem_div = cobertura(src_lines, cadict, caepi)
     body = '\n'.join(new_lines)
 
     age = caepi.age_days()
@@ -405,6 +405,8 @@ def main():
         bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do imprescrito menos afastamentos, e o boletim do C.A.):**')
         for r in cob_res:
             bloco.append('- %s' % r)
+        if not tem_div:
+            bloco.append('- ⚠ sem divisória ▼ no formulário — cobertura sobre TODA a ficha (inclui histórico anterior ao imprescrito).')
     if faltou_vu:
         bloco.append('\nⓘ Vida útil não cadastrada (cobertura não calculada) p/ C.A./item: ' + ', '.join(faltou_vu)
                      + ' — cataloque `vida_util_meses` no CA-dicionario.json.')
