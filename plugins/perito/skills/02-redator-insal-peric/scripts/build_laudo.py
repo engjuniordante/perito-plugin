@@ -236,6 +236,9 @@ def build(template_path, data_path, out_path):
         if bad in full:
             warnings.append('VAZAMENTO: "%s" presente no documento' % bad)
 
+    # guard determinístico: classificação de EPI por agente (não confia na prosa)
+    epi_flags = epi_classification_flags(data.get('epi', {}).get('linhas') or [])
+
     doc.save(out_path)
 
     # --- relatório autossuficiente: tudo que dispensa reabrir o .docx ---
@@ -252,9 +255,15 @@ def build(template_path, data_path, out_path):
     if warnings:
         print('\n⚠ AVISOS (corrija o JSON e rode de novo):')
         for w in warnings: print('  -', w)
-    else:
+    if epi_flags:
+        print('\n🚩 EPI — CONFERIR CLASSIFICAÇÃO PELO C.A. (classificação por nome comercial é proibida):')
+        for trecho, msg in epi_flags:
+            print('  - %s → %s' % (trecho, msg))
+    if not warnings and not epi_flags:
         print('✅ VALIDAÇÃO OK: sem marcador residual, identidade do perito presente, sem vazamento.')
         print('✅ DOCUMENTO COMPLETO E VÁLIDO — verificação encerrada. NÃO reabra/dumpe o .docx: ele é render determinístico do JSON já conferido.')
+    elif not warnings and epi_flags:
+        print('\n⚠ DOCUMENTO GERADO, mas há classificação(ões) de EPI a confirmar pelo C.A. acima — revise ANTES de assinar.')
     return not warnings
 
 def build_vibracao_table(doc, linhas):
@@ -288,6 +297,45 @@ def build_vibracao_table(doc, linhas):
                 tcPr.append(shd)
     ph._p.addprevious(tbl._tbl)
     ph._p.getparent().remove(ph._p)
+
+# ---------------- guard de classificação de EPI por agente ----------------
+# Mesma regra dura do extrator (check_epi.py): a falha perigosa é classificar o
+# EPI pelo NOME COMERCIAL (creme "Luz Negra" -> UV/An.7), tirando-o do An.13.
+_EPI_RAD = ('radiaç', 'radiac', 'rni', 'não ioniz', 'nao ioniz', 'ultraviolet',
+            'luz negra', 'an.7', 'an. 7', 'anexo 7')
+_EPI_QUIM = ('quím', 'quim', 'an.13', 'an. 13', 'anexo 13', 'dérm', 'derm',
+             'óleo', 'oleo', 'graxa', 'álcali', 'alcali', 'solvente')
+_EPI_UMID = ('umidade', 'an.10', 'an. 10', 'anexo 10')
+_EPI_MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo', 'facial',
+             'solda', 'soldad', 'capuz')
+
+def epi_classification_flags(linhas):
+    """linhas = [[desc, agente, ca, ...], ...]. Devolve [(trecho, msg)]."""
+    flags = []
+    for row in linhas:
+        desc = str(row[0]).lower() if len(row) > 0 else ''
+        ag = str(row[1]).lower() if len(row) > 1 else ''
+        trecho = ('%s · %s' % (str(row[0]) if len(row) > 0 else '',
+                               str(row[1]) if len(row) > 1 else '')).strip(' ·')[:120]
+        has_rad = any(t in ag for t in _EPI_RAD)
+        has_quim = any(t in ag for t in _EPI_QUIM)
+        has_umid = any(t in ag for t in _EPI_UMID)
+        is_creme = 'creme' in desc or 'pomada' in desc
+        is_capa = 'capa' in desc or 'impermeáv' in desc or 'impermeav' in desc
+        is_mask = any(t in desc for t in _EPI_MASK)
+        if is_creme and has_rad:
+            flags.append((trecho, 'creme/pomada em radiação/UV — creme protetor é QUÍMICO DÉRMICO (An.13), nunca An.7. Confira o C.A.'))
+        elif is_creme and not has_quim:
+            flags.append((trecho, 'creme/pomada sem classificação química — creme protetor é An.13. Confirme pelo C.A.'))
+        elif has_rad and not is_mask:
+            flags.append((trecho, 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — nome comercial ≠ agente. Confira o C.A.'))
+        if is_capa and has_quim and not has_umid:
+            flags.append((trecho, 'capa/impermeável como químico — vestimenta impermeável protege UMIDADE (An.10). Confirme.'))
+    seen, out = set(), []
+    for f in flags:
+        if f not in seen:
+            seen.add(f); out.append(f)
+    return out
 
 if __name__ == '__main__':
     if len(sys.argv) != 4:
