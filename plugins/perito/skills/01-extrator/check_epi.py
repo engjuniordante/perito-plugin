@@ -254,7 +254,7 @@ def _vida_util(ca, desc_l, cadict, caepi=None):
             v = hit.get('vida_util_meses')
     if v:
         try:
-            return int(v), 'C.A. %s' % ca
+            return float(v), 'C.A. %s' % ca  # float: aceita espuma (1 dia útil ≈ 0,05 mês)
         except (TypeError, ValueError):
             return None, None
     return None, None
@@ -300,7 +300,7 @@ def cobertura(lines, cadict, caepi=None):
         b = buckets.setdefault(agente, [0, 0])
         b[0] += qtd * vu
         b[1] += 1
-    res = ['%s: %d entregas → ~%d meses cobertos (Σ qtd × vida útil)' % (a, n, m)
+    res = ['%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)' % (a, n, ('%g' % round(m, 1)))
            for a, (m, n) in buckets.items()]
     return res, _dedup_simple(faltou_vu), tem_divisoria
 
