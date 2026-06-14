@@ -23,6 +23,7 @@ import re
 import sqlite3
 import sys
 import unicodedata
+import zipfile
 import zlib
 from datetime import date
 
@@ -105,17 +106,23 @@ def main():
     src, out = sys.argv[1], sys.argv[2]
 
     best = {}  # ca -> (validade_iso, row_dict) — mantém a validade mais recente por C.A.
-    # o export do MTE vem com lixo concatenado no fim do .gz: zlib decodifica o
-    # primeiro membro e ignora o resto (o gzip do stdlib quebra; o gzcat ignora).
-    if src.endswith('.gz'):
+    # aceita os dois formatos de export do MTE:
+    #  - .zip (Kettle): tgg_export_caepi.txt, delimitado por '|'
+    #  - .csv.gz: delimitado por ';' e com LIXO concatenado no fim (zlib pega só o 1º membro)
+    if src.endswith('.zip'):
+        zf = zipfile.ZipFile(src)
+        name = next(n for n in zf.namelist() if n.lower().endswith(('.txt', '.csv')))
+        f = io.TextIOWrapper(zf.open(name), encoding='utf-8', errors='replace', newline='')
+    elif src.endswith('.gz'):
         with open(src, 'rb') as fh:
             data = zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(fh.read())
         f = io.TextIOWrapper(io.BytesIO(data), encoding='utf-8', errors='replace', newline='')
     else:
         f = open(src, 'rt', encoding='utf-8', errors='replace', newline='')
     with f:
-        reader = csv.reader(f, delimiter=';', quotechar='"')
-        header = next(reader, None)
+        first = f.readline()                       # cabeçalho — detecta o delimitador
+        delim = '|' if first.count('|') >= first.count(';') else ';'
+        reader = csv.reader(f, delimiter=delim, quotechar='"')
         n_in = 0
         for row in reader:
             if len(row) < 13:
