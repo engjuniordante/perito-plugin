@@ -230,13 +230,13 @@ Observações sobre os EPIs:
 - Agente(s):
 - Contato dérmico? [ ] Sim  [ ] Não
 - Concentração medida:
-- EPI fornecido:
+- EPI: ver bloco EPI — RESUMO (An.11)
 - Obs:
 
 ### K. POEIRAS MINERAIS (Anexo 12)
 - Status: [ ] Ausente  [ ] Presente
 - Agente(s):
-- EPI fornecido:
+- EPI: ver bloco EPI — RESUMO (An.12)
 - Concentração:
 - Obs:
 
@@ -246,7 +246,7 @@ Observações sobre os EPIs:
 - [ ] Óleos e graxas minerais — Qual:
 - [ ] Álcalis cáusticos — Qual:
 - [ ] Outros:
-- EPI fornecido:
+- EPI: ver bloco EPI — RESUMO (An.13)
 - Obs:
 
 ### M. AGENTES BIOLÓGICOS (Anexo 14)
