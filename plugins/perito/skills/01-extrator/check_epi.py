@@ -41,6 +41,10 @@ MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo', 'facial',
 AN13 = 'Químico dérmico (An.13)'
 CA_NUM_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*(\d{1,6})', re.I)
 DATE_RE = re.compile(r'\b(\d{2})/(\d{2})/(\d{4})\b')
+# Linha da FICHA começa com a data (após bullet): "- 25/02/2023 · …". O 1º campo
+# DEVE começar com a data — exclui linhas do EPI — RESUMO que citam C.A./data
+# embutidos (ex.: "— Umidade An.10: capa [CA 28449, 14/08/2024] · …").
+ROW_START_RE = re.compile(r'^[\s\-–—•·*]*\d{2}/\d{2}/\d{4}')
 # Descrição da ficha NUNCA pode ser o agente/anexo (ex.: "Químico dérmico (An.13)").
 # A descrição é o NOME DO PRODUTO, literal. Se a descrição traz "(An.N)", foi renomeada.
 AGENTE_NA_DESC_RE = re.compile(r'\(\s*an\.?\s*\d', re.I)
@@ -139,7 +143,7 @@ def process(lines, cadict, caepi):
         # processa SÓ as linhas da TABELA de fornecimento (Data · Qtd · Descrição · C.A.).
         # Ignora EPI-RESUMO, observações e flags (citam C.A./agente legitimamente).
         _parts = [p.strip() for p in raw.split(' · ')]
-        if not (len(_parts) >= 3 and DATE_RE.search(_parts[0])):
+        if not (len(_parts) >= 3 and ROW_START_RE.match(_parts[0])):
             continue
         ll = raw.lower()
         trecho = raw.strip()[:120]
@@ -273,7 +277,7 @@ def cobertura(lines, cadict, caepi=None):
         parts = [p.strip() for p in raw.split(' · ')]
         # só linhas da TABELA de fornecimento (Data · Qtd · Descrição · C.A.) — o date-gate
         # já exclui cabeçalhos (#), notas (>), resumo e obs (sem data no 1º campo).
-        if not (len(parts) >= 3 and DATE_RE.search(parts[0])):
+        if not (len(parts) >= 3 and ROW_START_RE.match(parts[0])):
             continue
         mq = QTY_RE.search(parts[1])
         if not mq:
@@ -314,11 +318,47 @@ def _dedup_simple(xs):
     return out
 
 
+# Fronteira de seção (próxima seção depois do EPI — RESUMO). Cobre os 2 formatos:
+# markdown (## / ### / ---) e Notas do iPhone (▶ / ━━━). O bloco do guard NUNCA
+# contém linhas assim → delimita com segurança onde o bloco começa/termina.
+SECTION_BOUNDARY_RE = re.compile(r'^(#{2,}\s|▶\s|━{2,}|-{3,}\s*$)')
+
+
+def _next_boundary(lines, start):
+    for j in range(start, len(lines)):
+        if SECTION_BOUNDARY_RE.match(lines[j]):
+            return j
+    return len(lines)
+
+
+def insert_block(body, block_text):
+    """Injeta o bloco logo APÓS a seção 'EPI — RESUMO' (onde o perito decide a
+    neutralização), antes da próxima seção. Sem essa seção → anexa no fim (fallback)."""
+    lines = body.split('\n')
+    start = next((i for i, ln in enumerate(lines) if 'EPI — RESUMO' in ln), None)
+    if start is None:
+        return body.rstrip() + '\n\n' + block_text + '\n'
+    end = _next_boundary(lines, start + 1)
+    head = '\n'.join(lines[:end]).rstrip()
+    tail = '\n'.join(lines[end:]).strip('\n')
+    if not tail:
+        return head + '\n\n' + block_text + '\n'
+    return head + '\n\n' + block_text + '\n\n' + tail + '\n'
+
+
 def strip_old_block(text):
+    """Remove o bloco anterior ONDE ELE ESTIVER (fim OU meio do arquivo) — do MARK
+    até a próxima fronteira de seção. Idempotência mesmo com o bloco injetado no meio."""
     idx = text.find(MARK)
     if idx == -1:
         return text.rstrip() + '\n'
-    return text[:idx].rstrip() + '\n'
+    lines = text.split('\n')
+    mstart = next((i for i, ln in enumerate(lines) if ln.startswith(MARK)), None)
+    if mstart is None:
+        return text[:idx].rstrip() + '\n'
+    mend = _next_boundary(lines, mstart + 1)
+    kept = lines[:mstart] + lines[mend:]
+    return '\n'.join(kept).rstrip() + '\n'
 
 
 def resolve_paths(args):
@@ -382,7 +422,7 @@ def main():
                      + ' — cataloque `vida_util_meses` no CA-dicionario.json.')
     if stale:
         bloco.append('\n**⏰ Base CAEPI com %d dias** (build %s) — re-baixe o RelatorioCA do MTE e rode `build_caepi_index.py`.' % (age, caepi.build_date))
-    new = body.rstrip() + '\n\n' + '\n'.join(bloco) + '\n'
+    new = insert_block(body, '\n'.join(bloco))
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new)
 
