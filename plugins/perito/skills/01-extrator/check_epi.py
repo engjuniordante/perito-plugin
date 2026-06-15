@@ -353,7 +353,55 @@ def cobertura(lines, cadict, caepi=None):
         b[1] += 1
     res = ['%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)' % (a, n, ('%g' % round(m, 1)))
            for a, (m, n) in buckets.items()]
-    return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria)
+    cov_by_agent = {a: m for a, (m, n) in buckets.items()}
+    return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent
+
+
+def _imprescrito_months(text):
+    """Duração do imprescrito em meses (sem a janela de tolerância — span REAL do período),
+    para o denominador do slot 'cobre X/Y meses'. ~30,44 dias/mês."""
+    m = IMPRESCRITO_RE.search(text)
+    if not m:
+        return None
+    a, b = first_date_iso(m.group(1))[0], first_date_iso(m.group(2))[0]
+    if not (a and b):
+        return None
+    try:
+        return (date.fromisoformat(b) - date.fromisoformat(a)).days / 30.44
+    except ValueError:
+        return None
+
+
+# slot do EPI — RESUMO: "… cobre __/__ meses …". Só casa o vazio (_+) → não sobrescreve
+# número já preenchido (idempotente; preserva edição manual do perito).
+SLOT_RE = re.compile(r'(cobre\s+)_+\s*/\s*_+(\s+meses)', re.I)
+
+
+def _agent_for_resumo_line(line):
+    l = line.lower()
+    if 'ruído' in l or 'ruido' in l or 'an.1)' in l:
+        return 'Ruído (An.1)'
+    if 'an.13' in l or 'óleo' in l or 'oleo' in l or 'álcali' in l or 'alcali' in l or 'creme' in l:
+        return AN13
+    return None
+
+
+def fill_inline_coverage(body, cov_by_agent, impr_months):
+    """Preenche o slot 'cobre __/__ meses' das linhas do EPI — RESUMO: numerador = cobertura
+    calculada do agente; denominador = meses do imprescrito. O checkbox de veredicto fica
+    intocado (decisão do perito). Sem cobertura p/ o agente da linha → deixa o slot em branco."""
+    if not cov_by_agent:
+        return body
+    den = ('%g' % round(impr_months)) if impr_months else '__'
+    out = []
+    for line in body.split('\n'):
+        if SLOT_RE.search(line):
+            ag = _agent_for_resumo_line(line)
+            if ag and ag in cov_by_agent:
+                num = '%g' % round(cov_by_agent[ag], 1)
+                line = SLOT_RE.sub(lambda mm: '%s%s/%s%s' % (mm.group(1), num, den, mm.group(2)), line)
+        out.append(line)
+    return '\n'.join(out)
 
 
 def _dedup_simple(xs):
@@ -434,8 +482,10 @@ def main():
     stripped = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
     src_lines = stripped.splitlines()
     new_lines, fixes, flags, nao_cat = process(src_lines, cadict, caepi)
-    cob_res, faltou_vu, scoped = cobertura(src_lines, cadict, caepi)
+    cob_res, faltou_vu, scoped, cov_by_agent = cobertura(src_lines, cadict, caepi)
     body = '\n'.join(new_lines)
+    # preenche o slot 'cobre __/__ meses' do EPI — RESUMO com o número calculado (onde o perito lê)
+    body = fill_inline_coverage(body, cov_by_agent, _imprescrito_months(body))
 
     age = caepi.age_days()
     stale = age is not None and age > 90
