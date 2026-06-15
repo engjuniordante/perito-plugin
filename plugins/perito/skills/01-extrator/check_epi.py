@@ -255,22 +255,38 @@ def _agent_of(ca, cadict, caepi):
     return None
 
 
+IMPRESCRITO_RE = re.compile(r'per[ií]odo imprescrito.*?(\d{2}/\d{2}/\d{4}).*?(\d{2}/\d{2}/\d{4})', re.I)
+
+
+def _imprescrito_range(text):
+    """Início/fim do imprescrito a partir do campo 'Período imprescrito' do formulário (ISO).
+    Recorta a cobertura pela DATA — não depende do modelo marcar a divisória ▼."""
+    m = IMPRESCRITO_RE.search(text)
+    if not m:
+        return None, None
+    return first_date_iso(m.group(1))[0], first_date_iso(m.group(2))[0]
+
+
 def cobertura(lines, cadict, caepi=None):
-    """Σ(qtd × vida útil) por agente, SÓ na tabela do imprescrito (entre ▼ e ▲). Classifica
+    """Σ(qtd × vida útil) por agente, SÓ nas entregas do imprescrito. Recorte por DATA
+    (campo 'Período imprescrito'); fallback divisória ▼/▲; fallback ficha inteira. Classifica
     pelo AGENTE do C.A. (não pelo texto da descrição, que pode ter sido renomeado):
       - Ruído (An.1) → protetor auditivo → vida útil por C.A. (dicionário/CAEPI).
       - Creme/pomada (desc OU equipamento do CAEPI) → An.13, 1 mês/unidade.
     Luva/conjunto/demais = perito. Retorna (resultados, faltou_vu, tem_divisoria)."""
+    impr_a, impr_b = _imprescrito_range('\n'.join(lines))
     tem_divisoria = any('▼' in l for l in lines)
-    in_impr = not tem_divisoria  # sem divisória → considera todas
+    use_date = impr_a is not None          # preferível: recorta pela DATA do imprescrito
+    in_impr = use_date or (not tem_divisoria)
     buckets, faltou_vu = {}, []
     for raw in lines:
-        if '▼' in raw:
-            in_impr = True
-            continue
-        if '▲' in raw:                      # fim do imprescrito → parar de contar
-            in_impr = False
-            continue
+        if not use_date:
+            if '▼' in raw:
+                in_impr = True
+                continue
+            if '▲' in raw:                  # fim do imprescrito → parar de contar
+                in_impr = False
+                continue
         if not in_impr:
             continue
         ll = raw.lower()
@@ -279,6 +295,10 @@ def cobertura(lines, cadict, caepi=None):
         # já exclui cabeçalhos (#), notas (>), resumo e obs (sem data no 1º campo).
         if not (len(parts) >= 3 and ROW_START_RE.match(parts[0])):
             continue
+        if use_date:                        # recorte por data: só entregas dentro do imprescrito
+            di = first_date_iso(parts[0])[0]
+            if di is None or di < impr_a or (impr_b and di > impr_b):
+                continue
         mq = QTY_RE.search(parts[1])
         if not mq:
             continue
@@ -307,7 +327,7 @@ def cobertura(lines, cadict, caepi=None):
         b[1] += 1
     res = ['%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)' % (a, n, ('%g' % round(m, 1)))
            for a, (m, n) in buckets.items()]
-    return res, _dedup_simple(faltou_vu), tem_divisoria
+    return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria)
 
 
 def _dedup_simple(xs):
@@ -388,7 +408,7 @@ def main():
     stripped = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
     src_lines = stripped.splitlines()
     new_lines, fixes, flags, nao_cat = process(src_lines, cadict, caepi)
-    cob_res, faltou_vu, tem_div = cobertura(src_lines, cadict, caepi)
+    cob_res, faltou_vu, scoped = cobertura(src_lines, cadict, caepi)
     body = '\n'.join(new_lines)
 
     age = caepi.age_days()
@@ -415,8 +435,8 @@ def main():
         bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do imprescrito menos afastamentos, e o boletim do C.A.):**')
         for r in cob_res:
             bloco.append('- %s' % r)
-        if not tem_div:
-            bloco.append('- ⚠ sem divisória ▼ no formulário — cobertura sobre TODA a ficha (inclui histórico anterior ao imprescrito).')
+        if not scoped:
+            bloco.append('- ⚠ sem campo "Período imprescrito" nem divisória ▼ — cobertura sobre TODA a ficha (pode incluir histórico anterior ao imprescrito).')
     if faltou_vu:
         bloco.append('\nⓘ Vida útil não cadastrada (cobertura não calculada) p/ C.A./item: ' + ', '.join(faltou_vu)
                      + ' — cataloque `vida_util_meses` no CA-dicionario.json.')
