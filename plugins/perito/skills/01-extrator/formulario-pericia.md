@@ -140,9 +140,23 @@ Observações sobre os EPIs:
 ### EPI — RESUMO por agente `[interno]` *(pré-cálculo do Extrator — apoio à decisão do perito; o VEREDICTO de neutralização é do perito in loco)*
 > A **cobertura** (Σ qtd × vida útil) é calculada pelo `check_epi.py` — bloco 📐 (só creme e protetor auditivo; demais = perito). Aqui o perito **confronta** com os meses do imprescrito (menos afastamentos) e dá o veredicto. Só entram agentes com EPI que protege; calor e periculosidade não têm EPI neutralizante; **biológico não é elidido por EPI**. **Nunca calcular cobertura em prosa** — usar o 📐 do script.
 
-*(uma linha por agente — formato: Agente — EPI que protege — cobertura — Neutraliza? [perito])*
-- ____ — ____ — ____ — Neutraliza? [ ]
-- ____ — ____ — ____ — Neutraliza? [ ]
+**A) Conta fecha** (cobertura = bloco 📐 do `check_epi.py`):
+- Protetor auditivo (ruído An.1): __ un · CA __ · cobre __/__ meses · [ ]✓ [ ]⚠ gap [ ]✗
+- Creme (óleo/álcali An.13): __ potes · cobre __/__ meses · [ ]✓ [ ]⚠ [ ]✗
+
+**B) Conta + perito decide:**
+- Luva imperm.: __ pares · __ material (látex/nitríl./PVC)
+- Máscara/resp.: __ un · [ ]PFF1 [ ]PFF2 [ ]PFF3 [ ]cartucho VO
+
+**C) Conjunto (falta 1 derruba — perito confirma adequação):**
+- Umidade An.10: bota[ ] avental[ ] luva[ ]
+- Defensivo An.13: conjunto/pulveriz.[ ] bota[ ] luva[ ] resp/PFF2[ ] viseira[ ] touca árabe[ ]
+- Frio An.9: __ peças (japona/calça/luva/balaclava/bota)
+- Solda An.7: lente tonalidade __
+
+Fora do quadro (sem EPI que neutraliza): calor · periculosidade · biológico (luva "proteção bio" NÃO elide — não testada p/ vírus).
+
+> Veredicto final (Neutralizado [ ]Sim [ ]Não + motivo) é marcado por agente na seção abaixo, a partir deste quadro + áudio.
 
 ### NR-6 — Comprovação *(alimenta a tabela NR-6 do laudo; pré-preenchível pela skill na extração)*
 
