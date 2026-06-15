@@ -27,7 +27,7 @@ import os
 import re
 import sqlite3
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 MARK = '## 🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI'
 
@@ -218,12 +218,20 @@ def process(lines, cadict, caepi):
 # Luva/conjuntos/demais = empírico → o perito decide (não entram no cálculo).
 # Sai como SUGESTÃO: o perito confronta com os meses do imprescrito (menos afastamentos).
 QTY_RE = re.compile(r'(\d+)')
+# vida útil por TIPO de protetor auditivo (meses); o dado curado por C.A. (dicionário/CAEPI)
+# sobrepõe sempre. Fallback p/ quando o C.A. não traz vida_util_meses — sem isto o cálculo de
+# ruído nunca aparece para C.A. não-catalogado (queixa real).
+TYPE_VU = [
+    (('espuma', 'descart', 'moldáv', 'moldav'), round(1 / 21, 3), 'espuma 1 dia útil'),
+    (('concha', 'abafador', 'circum'), 12.0, 'concha 12m'),
+    (('plug', 'plugue', 'silicone', 'inser', 'tampão', 'tampao', 'pré-mold', 'pre-mold'), 6.0, 'plug 6m'),
+]
 
 
 def _vida_util(ca, desc_l, cadict, caepi=None):
     if 'creme' in desc_l or 'pomada' in desc_l:
         return 1, 'creme 1/mês'
-    # vida útil só é dado CURADO: dicionário primeiro; senão coluna da base CAEPI.
+    # vida útil CURADA primeiro: dicionário, senão coluna da base CAEPI.
     v = None
     if ca and ca in cadict:
         v = cadict[ca].get('vida_util_meses')
@@ -236,6 +244,10 @@ def _vida_util(ca, desc_l, cadict, caepi=None):
             return float(v), 'C.A. %s' % ca  # float: aceita espuma (1 dia útil ≈ 0,05 mês)
         except (TypeError, ValueError):
             return None, None
+    # fallback por TIPO (plug 6m · concha 12m · espuma 1 dia útil) — o C.A. não traz vida útil
+    for kws, vu, label in TYPE_VU:
+        if any(k in desc_l for k in kws):
+            return vu, label
     return None, None
 
 
@@ -256,15 +268,27 @@ def _agent_of(ca, cadict, caepi):
 
 
 IMPRESCRITO_RE = re.compile(r'per[ií]odo imprescrito.*?(\d{2}/\d{2}/\d{4}).*?(\d{2}/\d{2}/\d{4})', re.I)
+# EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do
+# pacto, quando o contrato é recente e cabe inteiro na prescrição). Essa janela resgata
+# a entrega de admissão sem readmitir histórico de função/período anterior — que, quando
+# a prescrição corta o meio do contrato, fica MESES/ANOS antes de impr_a, fora da janela.
+IMPRESC_GRACE_DAYS = 31
 
 
 def _imprescrito_range(text):
     """Início/fim do imprescrito a partir do campo 'Período imprescrito' do formulário (ISO).
-    Recorta a cobertura pela DATA — não depende do modelo marcar a divisória ▼."""
+    Recorta a cobertura pela DATA — não depende do modelo marcar a divisória ▼.
+    O início vem recuado IMPRESC_GRACE_DAYS para abarcar o EPI de admissão (véspera do pacto)."""
     m = IMPRESCRITO_RE.search(text)
     if not m:
         return None, None
-    return first_date_iso(m.group(1))[0], first_date_iso(m.group(2))[0]
+    ini = first_date_iso(m.group(1))[0]
+    if ini:
+        try:
+            ini = (date.fromisoformat(ini) - timedelta(days=IMPRESC_GRACE_DAYS)).isoformat()
+        except ValueError:
+            pass
+    return ini, first_date_iso(m.group(2))[0]
 
 
 def cobertura(lines, cadict, caepi=None):
@@ -311,6 +335,8 @@ def cobertura(lines, cadict, caepi=None):
         if ca and caepi is not None:
             hit = caepi.get(ca)
             equip = (hit.get('equipamento') or '').lower() if hit else ''
+        if 'solar' in ll and ('creme' in ll or 'pomada' in ll or 'protet' in ll):
+            continue                        # protetor solar não é EPI (NT 146/2015 §4) — fora da cobertura
         is_creme = 'creme' in ll or 'pomada' in ll or 'creme' in equip or 'pomada' in equip
         if is_creme:
             bucket, vu = AN13, 1.0
