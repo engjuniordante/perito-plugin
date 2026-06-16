@@ -68,10 +68,13 @@ def t2_gap_unico():
            "• 07/03/2023 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 01/09/2023 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 01/12/2023 · 1un · PROT AURIC SILICONE · CA 5745"]
-    res, faltou, scoped, cov = ce.cobertura(linhas(("09/03/2022", "31/12/2023"), ent), {}, FAKE)
+    res, faltou, scoped, cov, gaps = ce.cobertura(linhas(("09/03/2022", "31/12/2023"), ent), {}, FAKE)
     g = gaps_de(res)
     check(len(g) >= 1 and any("07/03/2023" in x for x in g),
           "período descoberto detectado terminando em 07/03/2023")
+    st = gaps.get("Ruído (An.1)") or ""
+    check("⚠" in st and "ver 📐" in st,
+          "status do slot marca o gatilho (⚠ … ver 📐): %r" % st)
 
 
 # T3 — vários gaps curtos (cada <30d) que somados passam de 1 mês → alerta agregado
@@ -82,7 +85,7 @@ def t3_morte_por_mil_cortes():
            "• 10/04/2023 · 1un · CREME PROT LUVEX · CA 11070",
            "• 30/05/2023 · 1un · CREME PROT LUVEX · CA 11070",
            "• 20/07/2023 · 1un · CREME PROT LUVEX · CA 11070"]
-    res, faltou, scoped, cov = ce.cobertura(linhas(("01/01/2023", "31/07/2023"), ent), {}, FAKE)
+    res, faltou, scoped, cov, gaps = ce.cobertura(linhas(("01/01/2023", "31/07/2023"), ent), {}, FAKE)
     g = gaps_de(res)
     check(any("TOTAL" in x for x in g), "gaps curtos somados disparam alerta de TOTAL")
 
@@ -94,8 +97,10 @@ def t4_split_sem_falso_positivo():
            "• 01/11/2022 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 01/05/2023 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 20/10/2023 · 1un · PROT AURIC SILICONE · CA 5745"]
-    res, faltou, scoped, cov = ce.cobertura(linhas(("01/06/2022", "31/12/2023"), ent), {}, FAKE)
+    res, faltou, scoped, cov, gaps = ce.cobertura(linhas(("01/06/2022", "31/12/2023"), ent), {}, FAKE)
     check(len(gaps_de(res)) == 0, "nenhum gap de abertura falso (entrega pré-janela herda cobertura)")
+    check(gaps.get("Ruído (An.1)") == "contínuo, sem gap",
+          "status do slot = 'contínuo, sem gap' quando não há gap material: %r" % gaps.get("Ruído (An.1)"))
 
 
 # T5 — cobertura é CONTÍNUA (janela − buracos), não a soma Σ que inflava
@@ -106,7 +111,7 @@ def t5_cobertura_continua():
            "• 07/03/2023 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 01/09/2023 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 01/12/2023 · 1un · PROT AURIC SILICONE · CA 5745"]
-    res, faltou, scoped, cov = ce.cobertura(linhas(("09/03/2022", "31/12/2023"), ent), {}, FAKE)
+    res, faltou, scoped, cov, gaps = ce.cobertura(linhas(("09/03/2022", "31/12/2023"), ent), {}, FAKE)
     ruido = cov.get("Ruído (An.1)")
     # janela ~21,8 meses; Σ seria 5×6=30. Contínua tem de ser ≤ janela (e não a soma).
     check(ruido is not None and ruido <= 22.0 and ruido > 17.0,
@@ -131,7 +136,7 @@ def t7_sem_epi_continuo():
     print("T7 — sem creme/protetor: sem gap, sem crash")
     ent = ["• 01/01/2023 · 1un · BOTINA BICO ACO · CA 12217",
            "• 01/01/2023 · 1un · CAPACETE · CA 29638"]
-    res, faltou, scoped, cov = ce.cobertura(linhas(("01/01/2023", "31/12/2023"), ent), {}, FAKE)
+    res, faltou, scoped, cov, gaps = ce.cobertura(linhas(("01/01/2023", "31/12/2023"), ent), {}, FAKE)
     check(len(gaps_de(res)) == 0, "nenhum período descoberto inventado")
 
 
@@ -160,6 +165,7 @@ def t8_idempotencia_arquivo():
                 sys.argv = old_argv
         txt = open(path, encoding="utf-8").read()
         check(txt.count(ce.MARK) == 1, "bloco 🚩 VERIFICAÇÃO aparece 1× após 2 runs")
+        check(txt.count("(ver 📐)") == 1, "status de gap no slot do RESUMO aparece 1× (idempotente)")
     finally:
         os.unlink(path)
 

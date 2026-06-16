@@ -386,7 +386,7 @@ def cobertura(lines, cadict, caepi=None):
         impr_a_d += timedelta(days=IMPRESC_GRACE_DAYS)
     impr_b_d = date.fromisoformat(impr_b) if impr_b else None
     window_days = (impr_b_d - impr_a_d).days if (impr_a_d and impr_b_d) else None
-    res, cov_by_agent = [], {}
+    res, cov_by_agent, gaps_by_agent = [], {}, {}
     for a, (m, n) in buckets.items():
         wins = _clipped_windows(events.get(a, []), impr_a_d, impr_b_d)
         if window_days and window_days > 0:
@@ -394,6 +394,7 @@ def cobertura(lines, cadict, caepi=None):
             # sobreconta e mascara o gap: 138/37 parecia super-coberto). É o número honesto do slot.
             covered = max(0.0, (window_days - sum(d for _, _, d in wins))) / 30.44
             cov_by_agent[a] = covered
+            gaps_by_agent[a] = _gap_status(wins)   # gatilho p/ o slot do RESUMO (mesma régua do 📐)
             res.append('%s: %d entregas · cobertura contínua ~%.1f de ~%.1f meses do imprescrito'
                        % (a, n, covered, window_days / 30.44))
         else:                                  # sem janela (modo ▼) → não dá p/ continuidade; Σ de fallback
@@ -401,7 +402,7 @@ def cobertura(lines, cadict, caepi=None):
             res.append('%s: %d entregas → ~%s meses (Σ qtd × vida útil — sem janela p/ continuidade)'
                        % (a, n, ('%g' % round(m, 1))))
         res.extend(_coverage_gaps(a, wins))
-    return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent
+    return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent, gaps_by_agent
 
 
 def _clipped_windows(events, win_lo, win_hi):
@@ -436,24 +437,51 @@ def _clipped_windows(events, win_lo, win_hi):
     return wins
 
 
-def _coverage_gaps(agente, wins, window_floor=15, material=30):
-    """Display dos PERÍODOS DESCOBERTOS a partir das janelas clipadas (_clipped_windows).
-      window_floor (15d): janela mínima p/ EXIBIR — absorve jitter de reposição/estimativa de vida
-        útil (atraso isolado de 2 semanas não vira ruído).
-      material (30d): só alerta se a MAIOR janela OU o TOTAL somado atingir ~1 mês — vários gaps
-        curtos que somados pesam NÃO passam batido; um buraco isolado mantém a régua do mês."""
-    wins = [w for w in wins if w[2] >= window_floor]
+# Régua de materialidade de gap — FONTE ÚNICA (usada pela prova 📐 E pelo flag do slot do
+# EPI — RESUMO, p/ decisão e auditoria NUNCA divergirem).
+#   WINDOW_FLOOR (15d): janela mínima p/ contar — absorve jitter de reposição/estimativa de vida útil.
+#   MATERIAL (30d): só alerta se a MAIOR janela OU o TOTAL somado atingir ~1 mês.
+WINDOW_FLOOR = 15
+MATERIAL = 30
+
+
+def _material_windows(wins):
+    """Janelas que CONTAM pela régua de materialidade (≥ WINDOW_FLOOR e, no conjunto, atingindo
+    MATERIAL isolada ou somada). [] = imaterial. Base comum do 📐 e do flag do slot."""
+    wins = [w for w in wins if w[2] >= WINDOW_FLOOR]
     if not wins:
         return []
     total = sum(d for _, _, d in wins)
-    if max(d for _, _, d in wins) < material and total < material:
+    if max(d for _, _, d in wins) < MATERIAL and total < MATERIAL:
         return []                                        # nada atinge ~1 mês (isolado nem somado) → imaterial
+    return wins
+
+
+def _gap_status(wins):
+    """Status curto de gap p/ o slot 'cobre X/Y meses' do EPI — RESUMO (ao lado do checkbox do
+    perito), com a MESMA régua do 📐. 'contínuo, sem gap' se imaterial; senão
+    '⚠ N janela(s) ~X.Xm (ver 📐)'. As datas exatas ficam no 📐 — aqui é só o gatilho."""
+    mats = _material_windows(wins)
+    if not mats:
+        return 'contínuo, sem gap'
+    n = len(mats)
+    total_m = sum(d for _, _, d in mats) / 30.44
+    return '⚠ %d janela%s ~%.1fm (ver 📐)' % (n, '' if n == 1 else 's', total_m)
+
+
+def _coverage_gaps(agente, wins):
+    """Display dos PERÍODOS DESCOBERTOS a partir das janelas clipadas (_clipped_windows),
+    pela régua ÚNICA de materialidade (_material_windows — mesma do flag do slot)."""
+    wins = _material_windows(wins)
+    if not wins:
+        return []
+    total = sum(d for _, _, d in wins)
     if len(wins) == 1:
         a, b, d = wins[0]
         return ['⚠ %s — PERÍODO DESCOBERTO: %s → %s (~%d dias / ~%.1f meses sem reposição)'
                 % (agente, a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), d, d / 30.44)]
     out = ['⚠ %s — DESCOBERTO ~%.1f meses no TOTAL, em %d janelas (cada ≥%dd) no imprescrito:'
-           % (agente, total / 30.44, len(wins), window_floor)]
+           % (agente, total / 30.44, len(wins), WINDOW_FLOOR)]
     for a, b, d in wins[:5]:
         out.append('   • %s → %s (~%d dias)' % (a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), d))
     if len(wins) > 5:
@@ -490,12 +518,15 @@ def _agent_for_resumo_line(line):
     return None
 
 
-def fill_inline_coverage(body, cov_by_agent, impr_months):
+def fill_inline_coverage(body, cov_by_agent, gaps_by_agent, impr_months):
     """Preenche o slot 'cobre __/__ meses' das linhas do EPI — RESUMO: numerador = cobertura
-    calculada do agente; denominador = meses do imprescrito. O checkbox de veredicto fica
-    intocado (decisão do perito). Sem cobertura p/ o agente da linha → deixa o slot em branco."""
+    calculada do agente; denominador = meses do imprescrito; e ANEXA o status de gap
+    (gaps_by_agent) logo após 'meses', ao lado do checkbox — DECISÃO CARREGA O GATILHO. O
+    checkbox de veredicto fica intocado (decisão do perito). SLOT_RE só casa o vazio (_+) →
+    idempotente: re-run não duplica número nem status; preserva edição manual."""
     if not cov_by_agent:
         return body
+    gaps_by_agent = gaps_by_agent or {}
     den = ('%g' % round(impr_months)) if impr_months else '__'
     out = []
     for line in body.split('\n'):
@@ -503,7 +534,11 @@ def fill_inline_coverage(body, cov_by_agent, impr_months):
             ag = _agent_for_resumo_line(line)
             if ag and ag in cov_by_agent:
                 num = '%g' % round(cov_by_agent[ag], 1)
-                line = SLOT_RE.sub(lambda mm: '%s%s/%s%s' % (mm.group(1), num, den, mm.group(2)), line)
+                status = gaps_by_agent.get(ag)
+                line = SLOT_RE.sub(
+                    lambda mm: '%s%s/%s%s%s' % (mm.group(1), num, den, mm.group(2),
+                                                (' · ' + status if status else '')),
+                    line)
         out.append(line)
     return '\n'.join(out)
 
@@ -626,10 +661,10 @@ def main():
     stripped = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
     src_lines = stripped.splitlines()
     new_lines, fixes, flags, nao_cat = process(src_lines, cadict, caepi)
-    cob_res, faltou_vu, scoped, cov_by_agent = cobertura(src_lines, cadict, caepi)
+    cob_res, faltou_vu, scoped, cov_by_agent, gaps_by_agent = cobertura(src_lines, cadict, caepi)
     body = '\n'.join(new_lines)
     # preenche o slot 'cobre __/__ meses' do EPI — RESUMO com o número calculado (onde o perito lê)
-    body = fill_inline_coverage(body, cov_by_agent, _imprescrito_months(body))
+    body = fill_inline_coverage(body, cov_by_agent, gaps_by_agent, _imprescrito_months(body))
     # injeta o resumo de período descoberto na seção FLAGS (a skill monta o FLAGS antes
     # deste guard calcular o gap; aqui o dado é cravado de forma determinística)
     _gap_lines = [l.lstrip() for l in cob_res if l.lstrip().startswith('⚠')]
