@@ -385,37 +385,30 @@ def cobertura(lines, cadict, caepi=None):
     for a, (m, n) in buckets.items():
         res.append('%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)'
                    % (a, n, ('%g' % round(m, 1))))
-        for g in _coverage_gaps(events.get(a, []), impr_a_d, impr_b_d):
-            res.append('⚠ %s — PERÍODO DESCOBERTO: %s' % (a, g))
+        res.extend(_coverage_gaps(events.get(a, []), impr_a_d, impr_b_d, a))
     cov_by_agent = {a: m for a, (m, n) in buckets.items()}
     return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent
 
 
-def _gap_str(a, b):
-    dias = (b - a).days
-    return '%s → %s (~%d dias / ~%.1f meses sem reposição)' % (
-        a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), dias, dias / 30.44)
-
-
-# grace_days = tolerância: reposição deve vir em até N dias do FIM da vida útil (vida útil acaba
-# dia X → nova entrega devida em X+1). 30 dias = só vira alerta quando houve o MÊS INTEIRO sem
-# proteção — gap incontestavelmente material; atraso de reposição menor não pesa no laudo.
-def _coverage_gaps(events, win_lo, win_hi, grace_days=30):
+def _coverage_gaps(events, win_lo, win_hi, agente, window_floor=15, material=30):
     """events = [(date, qtd, vu_meses)] — INCLUI entregas em lookback antes da janela, p/ herdar
     cobertura. Detecta DESCONTINUIDADE temporal — janelas em que a cobertura expirou antes da
-    próxima entrega, o que a soma Σ(qtd×vu) NÃO enxerga (138 meses somados escondem um buraco de
-    2 meses no meio) — e REPORTA só o trecho dentro de [win_lo, win_hi] (imprescrito). Modelo
-    conservador: cada entrega cobre [data, data + qtd×vida útil]. Cobre abertura, meio e cauda.
-    Clipar à janela evita falso-positivo quando o imprescrito corta o MEIO do contrato (uma
-    entrega anterior à janela ainda cobre o início). Sustenta 'EPI não elide de forma contínua'."""
+    próxima entrega, o que a soma Σ(qtd×vu) NÃO enxerga (138 meses somados escondem buracos) — e
+    REPORTA só dentro de [win_lo, win_hi] (imprescrito). Cada entrega cobre [data, data+qtd×vida].
+    Cobre abertura, meio e cauda; clipa à janela (evita falso-positivo quando o imprescrito corta
+    o MEIO do contrato).
+      window_floor (15d): janela mínima p/ CONTAR — absorve jitter de reposição/estimativa de
+        vida útil (atraso isolado de 2 semanas não vira ruído).
+      material (30d): só alerta se a MAIOR janela OU o TOTAL somado atingir ~1 mês. Assim vários
+        gaps curtos que somados pesam NÃO passam batido, e um buraco isolado mantém a régua do
+        mês inteiro. Sustenta 'EPI não elide de forma contínua'."""
     if not events:
         return []
     evs = sorted(events, key=lambda e: e[0])
-    raw = []
-    cover_end = None
+    raw, cover_end = [], None
     for di, qtd, vu in evs:
         if cover_end is not None and di > cover_end:
-            raw.append((cover_end, di))                 # buraco entre o fim da cobertura e a próxima entrega
+            raw.append((cover_end, di))                  # buraco entre o fim da cobertura e a próxima entrega
         ce = di + timedelta(days=int(round(qtd * vu * 30.44)))
         if cover_end is None or ce > cover_end:
             cover_end = ce
@@ -423,16 +416,32 @@ def _coverage_gaps(events, win_lo, win_hi, grace_days=30):
         raw.append((win_lo, evs[0][0]))
     if win_hi and cover_end and cover_end < win_hi:      # cobertura acaba antes do fim → cauda
         raw.append((cover_end, win_hi))
-    out = []
-    for a, b in raw:                                     # clipa cada gap à janela [win_lo, win_hi]
+    wins = []
+    for a, b in raw:                                     # clipa à janela e descarta sub-jitter
         if win_lo and a < win_lo:
             a = win_lo
         if win_hi and b > win_hi:
             b = win_hi
-        if (b - a).days > grace_days:
-            out.append((a, b))
-    out.sort()
-    return [_gap_str(a, b) for a, b in out]
+        d = (b - a).days
+        if d >= window_floor:
+            wins.append((a, b, d))
+    if not wins:
+        return []
+    total = sum(d for _, _, d in wins)
+    if max(d for _, _, d in wins) < material and total < material:
+        return []                                        # nada atinge ~1 mês (isolado nem somado) → imaterial
+    wins.sort()
+    if len(wins) == 1:
+        a, b, d = wins[0]
+        return ['⚠ %s — PERÍODO DESCOBERTO: %s → %s (~%d dias / ~%.1f meses sem reposição)'
+                % (agente, a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), d, d / 30.44)]
+    out = ['⚠ %s — DESCOBERTO ~%.1f meses no TOTAL, em %d janelas (cada ≥%dd) no imprescrito:'
+           % (agente, total / 30.44, len(wins), window_floor)]
+    for a, b, d in wins[:5]:
+        out.append('   • %s → %s (~%d dias)' % (a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), d))
+    if len(wins) > 5:
+        out.append('   • (+%d janelas menores)' % (len(wins) - 5))
+    return out
 
 
 def _imprescrito_months(text):
