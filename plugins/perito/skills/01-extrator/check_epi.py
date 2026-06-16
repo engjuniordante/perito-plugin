@@ -267,7 +267,10 @@ def _agent_of(ca, cadict, caepi):
     return None
 
 
-IMPRESCRITO_RE = re.compile(r'per[ií]odo imprescrito.*?(\d{2}/\d{2}/\d{4}).*?(\d{2}/\d{2}/\d{4})', re.I)
+# Exige o ':' do CAMPO ("Período imprescrito ★: de … até …") — assim a regex NÃO casa a
+# prosa "dentro do período imprescrito (admissão … autuação DD/MM/AAAA)", que não tem ':'
+# depois de "imprescrito" e pescava a data da AUTUAÇÃO como fim do imprescrito.
+IMPRESCRITO_RE = re.compile(r'per[ií]odo imprescrito[^\n:]*:[^\n]*?(\d{2}/\d{2}/\d{4})[^\n]*?(\d{2}/\d{2}/\d{4})', re.I)
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do
 # pacto, quando o contrato é recente e cabe inteiro na prescrição). Essa janela resgata
 # a entrega de admissão sem readmitir histórico de função/período anterior — que, quando
@@ -299,10 +302,19 @@ def cobertura(lines, cadict, caepi=None):
       - Creme/pomada (desc OU equipamento do CAEPI) → An.13, 1 mês/unidade.
     Luva/conjunto/demais = perito. Retorna (resultados, faltou_vu, tem_divisoria)."""
     impr_a, impr_b = _imprescrito_range('\n'.join(lines))
+    # lookback p/ detecção de gap: uma entrega até ~500 dias ANTES do imprescrito pode ainda
+    # estar cobrindo o início (ex.: concha 12m), sobretudo quando a prescrição corta o meio do
+    # contrato. Coletada como EVENTO de gap (herda cobertura), mas NÃO entra na soma Σ.
+    gaplo = None
+    if impr_a:
+        try:
+            gaplo = (date.fromisoformat(impr_a) - timedelta(days=500)).isoformat()
+        except ValueError:
+            gaplo = impr_a
     tem_divisoria = any('▼' in l for l in lines)
     use_date = impr_a is not None          # preferível: recorta pela DATA do imprescrito
     in_impr = use_date or (not tem_divisoria)
-    buckets, faltou_vu = {}, []
+    buckets, faltou_vu, events = {}, [], {}
     for raw in lines:
         if not use_date:
             if '▼' in raw:
@@ -319,9 +331,14 @@ def cobertura(lines, cadict, caepi=None):
         # já exclui cabeçalhos (#), notas (>), resumo e obs (sem data no 1º campo).
         if not (len(parts) >= 3 and ROW_START_RE.match(parts[0])):
             continue
-        if use_date:                        # recorte por data: só entregas dentro do imprescrito
-            di = first_date_iso(parts[0])[0]
-            if di is None or di < impr_a or (impr_b and di > impr_b):
+        di = first_date_iso(parts[0])[0]
+        in_sum = True                       # entra na SOMA Σ só se dentro do imprescrito
+        if use_date:
+            if di is None:
+                continue
+            if di < impr_a or (impr_b and di > impr_b):
+                in_sum = False              # fora do imprescrito → não soma (mas pode virar evento de gap)
+            if gaplo and di < gaplo:         # antes até do lookback → não cobre o início, ignora de vez
                 continue
         mq = QTY_RE.search(parts[1])
         if not mq:
@@ -344,17 +361,75 @@ def cobertura(lines, cadict, caepi=None):
             bucket = 'Ruído (An.1)'
             vu, _ = _vida_util(ca, ll, cadict, caepi)
             if vu is None:
-                faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
+                if in_sum:
+                    faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
                 continue
         else:
             continue  # luva/conjunto/demais → perito decide
-        b = buckets.setdefault(bucket, [0.0, 0])
-        b[0] += qtd * vu
-        b[1] += 1
-    res = ['%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)' % (a, n, ('%g' % round(m, 1)))
-           for a, (m, n) in buckets.items()]
+        if in_sum:
+            b = buckets.setdefault(bucket, [0.0, 0])
+            b[0] += qtd * vu
+            b[1] += 1
+        if di:                              # evento de gap (inclui o lookback pré-janela p/ herdar cobertura)
+            try:
+                events.setdefault(bucket, []).append((date.fromisoformat(di), qtd, vu))
+            except ValueError:
+                pass
+    # impr_a vem recuado IMPRESC_GRACE_DAYS (p/ capturar EPI de admissão no FILTRO); para a
+    # ÂNCORA do gap de abertura, desfaz o recuo → início REAL do imprescrito.
+    impr_a_d = date.fromisoformat(impr_a) if impr_a else None
+    if impr_a_d:
+        impr_a_d += timedelta(days=IMPRESC_GRACE_DAYS)
+    impr_b_d = date.fromisoformat(impr_b) if impr_b else None
+    res = []
+    for a, (m, n) in buckets.items():
+        res.append('%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)'
+                   % (a, n, ('%g' % round(m, 1))))
+        for g in _coverage_gaps(events.get(a, []), impr_a_d, impr_b_d):
+            res.append('⚠ %s — PERÍODO DESCOBERTO: %s' % (a, g))
     cov_by_agent = {a: m for a, (m, n) in buckets.items()}
     return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent
+
+
+def _gap_str(a, b):
+    dias = (b - a).days
+    return '%s → %s (~%d dias / ~%.1f meses sem reposição)' % (
+        a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), dias, dias / 30.44)
+
+
+def _coverage_gaps(events, win_lo, win_hi, grace_days=31):
+    """events = [(date, qtd, vu_meses)] — INCLUI entregas em lookback antes da janela, p/ herdar
+    cobertura. Detecta DESCONTINUIDADE temporal — janelas em que a cobertura expirou antes da
+    próxima entrega, o que a soma Σ(qtd×vu) NÃO enxerga (138 meses somados escondem um buraco de
+    2 meses no meio) — e REPORTA só o trecho dentro de [win_lo, win_hi] (imprescrito). Modelo
+    conservador: cada entrega cobre [data, data + qtd×vida útil]. Cobre abertura, meio e cauda.
+    Clipar à janela evita falso-positivo quando o imprescrito corta o MEIO do contrato (uma
+    entrega anterior à janela ainda cobre o início). Sustenta 'EPI não elide de forma contínua'."""
+    if not events:
+        return []
+    evs = sorted(events, key=lambda e: e[0])
+    raw = []
+    cover_end = None
+    for di, qtd, vu in evs:
+        if cover_end is not None and di > cover_end:
+            raw.append((cover_end, di))                 # buraco entre o fim da cobertura e a próxima entrega
+        ce = di + timedelta(days=int(round(qtd * vu * 30.44)))
+        if cover_end is None or ce > cover_end:
+            cover_end = ce
+    if win_lo and evs[0][0] > win_lo:                    # nenhuma entrega no/antes do início → abertura
+        raw.append((win_lo, evs[0][0]))
+    if win_hi and cover_end and cover_end < win_hi:      # cobertura acaba antes do fim → cauda
+        raw.append((cover_end, win_hi))
+    out = []
+    for a, b in raw:                                     # clipa cada gap à janela [win_lo, win_hi]
+        if win_lo and a < win_lo:
+            a = win_lo
+        if win_hi and b > win_hi:
+            b = win_hi
+        if (b - a).days > grace_days:
+            out.append((a, b))
+    out.sort()
+    return [_gap_str(a, b) for a, b in out]
 
 
 def _imprescrito_months(text):
