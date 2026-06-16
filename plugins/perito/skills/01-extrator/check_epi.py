@@ -397,7 +397,10 @@ def _gap_str(a, b):
         a.strftime('%d/%m/%Y'), b.strftime('%d/%m/%Y'), dias, dias / 30.44)
 
 
-def _coverage_gaps(events, win_lo, win_hi, grace_days=31):
+# grace_days = tolerância: reposição deve vir em até N dias do FIM da vida útil (vida útil acaba
+# dia X → nova entrega devida em X+1). 30 dias = só vira alerta quando houve o MÊS INTEIRO sem
+# proteção — gap incontestavelmente material; atraso de reposição menor não pesa no laudo.
+def _coverage_gaps(events, win_lo, win_hi, grace_days=30):
     """events = [(date, qtd, vu_meses)] — INCLUI entregas em lookback antes da janela, p/ herdar
     cobertura. Detecta DESCONTINUIDADE temporal — janelas em que a cobertura expirou antes da
     próxima entrega, o que a soma Σ(qtd×vu) NÃO enxerga (138 meses somados escondem um buraco de
