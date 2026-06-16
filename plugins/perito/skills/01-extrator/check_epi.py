@@ -355,17 +355,21 @@ def cobertura(lines, cadict, caepi=None):
         if 'solar' in ll and ('creme' in ll or 'pomada' in ll or 'protet' in ll):
             continue                        # protetor solar não é EPI (NT 146/2015 §4) — fora da cobertura
         is_creme = 'creme' in ll or 'pomada' in ll or 'creme' in equip or 'pomada' in equip
+        # protetor auditivo: pelo C.A. (agente) OU por palavra-chave (auric/auditiv). Sem esse
+        # fallback, um protetor com C.A. ausente/não catalogado SUMIA da cobertura de ruído e o
+        # gap dele não era detectado. ("protet" sozinho pescaria protetor facial An.7 — evitar.)
+        is_prot = (agente == 'Ruído (An.1)') or ('auric' in ll or 'auditiv' in ll)
+        if not (is_creme or is_prot):
+            continue  # luva/conjunto/demais → perito decide
         if is_creme:
             bucket, vu = AN13, 1.0
-        elif agente == 'Ruído (An.1)':
+        else:
             bucket = 'Ruído (An.1)'
             vu, _ = _vida_util(ca, ll, cadict, caepi)
             if vu is None:
                 if in_sum:
                     faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
                 continue
-        else:
-            continue  # luva/conjunto/demais → perito decide
         if in_sum:
             b = buckets.setdefault(bucket, [0.0, 0])
             b[0] += qtd * vu
@@ -381,27 +385,31 @@ def cobertura(lines, cadict, caepi=None):
     if impr_a_d:
         impr_a_d += timedelta(days=IMPRESC_GRACE_DAYS)
     impr_b_d = date.fromisoformat(impr_b) if impr_b else None
-    res = []
+    window_days = (impr_b_d - impr_a_d).days if (impr_a_d and impr_b_d) else None
+    res, cov_by_agent = [], {}
     for a, (m, n) in buckets.items():
-        res.append('%s: %d entregas → ~%s meses cobertos (Σ qtd × vida útil)'
-                   % (a, n, ('%g' % round(m, 1))))
-        res.extend(_coverage_gaps(events.get(a, []), impr_a_d, impr_b_d, a))
-    cov_by_agent = {a: m for a, (m, n) in buckets.items()}
+        wins = _clipped_windows(events.get(a, []), impr_a_d, impr_b_d)
+        if window_days and window_days > 0:
+            # cobertura CONTÍNUA = janela − soma de TODOS os buracos (não a Σ qtd×vida, que
+            # sobreconta e mascara o gap: 138/37 parecia super-coberto). É o número honesto do slot.
+            covered = max(0.0, (window_days - sum(d for _, _, d in wins))) / 30.44
+            cov_by_agent[a] = covered
+            res.append('%s: %d entregas · cobertura contínua ~%.1f de ~%.1f meses do imprescrito'
+                       % (a, n, covered, window_days / 30.44))
+        else:                                  # sem janela (modo ▼) → não dá p/ continuidade; Σ de fallback
+            cov_by_agent[a] = m
+            res.append('%s: %d entregas → ~%s meses (Σ qtd × vida útil — sem janela p/ continuidade)'
+                       % (a, n, ('%g' % round(m, 1))))
+        res.extend(_coverage_gaps(a, wins))
     return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent
 
 
-def _coverage_gaps(events, win_lo, win_hi, agente, window_floor=15, material=30):
-    """events = [(date, qtd, vu_meses)] — INCLUI entregas em lookback antes da janela, p/ herdar
-    cobertura. Detecta DESCONTINUIDADE temporal — janelas em que a cobertura expirou antes da
-    próxima entrega, o que a soma Σ(qtd×vu) NÃO enxerga (138 meses somados escondem buracos) — e
-    REPORTA só dentro de [win_lo, win_hi] (imprescrito). Cada entrega cobre [data, data+qtd×vida].
-    Cobre abertura, meio e cauda; clipa à janela (evita falso-positivo quando o imprescrito corta
-    o MEIO do contrato).
-      window_floor (15d): janela mínima p/ CONTAR — absorve jitter de reposição/estimativa de
-        vida útil (atraso isolado de 2 semanas não vira ruído).
-      material (30d): só alerta se a MAIOR janela OU o TOTAL somado atingir ~1 mês. Assim vários
-        gaps curtos que somados pesam NÃO passam batido, e um buraco isolado mantém a régua do
-        mês inteiro. Sustenta 'EPI não elide de forma contínua'."""
+def _clipped_windows(events, win_lo, win_hi):
+    """TODOS os buracos de cobertura (qualquer tamanho ≥1d) clipados a [win_lo, win_hi]. events
+    inclui lookback pré-janela (herda cobertura). Cada entrega cobre [data, data+qtd×vida útil];
+    o buraco é o intervalo entre o fim de uma cobertura e a próxima entrega. Cobre abertura, meio
+    e cauda. Clipar evita falso-positivo quando o imprescrito corta o MEIO do contrato. Base tanto
+    da cobertura contínua (janela − Σ buracos) quanto do display de períodos descobertos."""
     if not events:
         return []
     evs = sorted(events, key=lambda e: e[0])
@@ -417,20 +425,29 @@ def _coverage_gaps(events, win_lo, win_hi, agente, window_floor=15, material=30)
     if win_hi and cover_end and cover_end < win_hi:      # cobertura acaba antes do fim → cauda
         raw.append((cover_end, win_hi))
     wins = []
-    for a, b in raw:                                     # clipa à janela e descarta sub-jitter
+    for a, b in raw:                                     # clipa à janela [win_lo, win_hi]
         if win_lo and a < win_lo:
             a = win_lo
         if win_hi and b > win_hi:
             b = win_hi
-        d = (b - a).days
-        if d >= window_floor:
-            wins.append((a, b, d))
+        if (b - a).days > 0:
+            wins.append((a, b, (b - a).days))
+    wins.sort()
+    return wins
+
+
+def _coverage_gaps(agente, wins, window_floor=15, material=30):
+    """Display dos PERÍODOS DESCOBERTOS a partir das janelas clipadas (_clipped_windows).
+      window_floor (15d): janela mínima p/ EXIBIR — absorve jitter de reposição/estimativa de vida
+        útil (atraso isolado de 2 semanas não vira ruído).
+      material (30d): só alerta se a MAIOR janela OU o TOTAL somado atingir ~1 mês — vários gaps
+        curtos que somados pesam NÃO passam batido; um buraco isolado mantém a régua do mês."""
+    wins = [w for w in wins if w[2] >= window_floor]
     if not wins:
         return []
     total = sum(d for _, _, d in wins)
     if max(d for _, _, d in wins) < material and total < material:
         return []                                        # nada atinge ~1 mês (isolado nem somado) → imaterial
-    wins.sort()
     if len(wins) == 1:
         a, b, d = wins[0]
         return ['⚠ %s — PERÍODO DESCOBERTO: %s → %s (~%d dias / ~%.1f meses sem reposição)'
@@ -567,6 +584,18 @@ def inject_flags_epi(body, summary):
     return '\n'.join(lines)
 
 
+def _plugin_version():
+    """Versão do plugin (de ../../.claude-plugin/plugin.json) — ecoada a cada run p/ o operador
+    ver se está na última versão (o update no Cowork é MANUAL; sem isso, roda-se versão velha sem
+    perceber). Silencioso fora do layout do plugin (ex.: o squad do OS não tem plugin.json)."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, '..', '..', '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
+            return 'v' + json.load(f).get('version', '?')
+    except Exception:
+        return None
+
+
 def resolve_paths(args):
     caepi_p = dicio_p = None
     for a in args:
@@ -585,6 +614,9 @@ def main():
         print('uso: python3 check_epi.py <form.md> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]')
         sys.exit(1)
     path = sys.argv[1]
+    _v = _plugin_version()
+    if _v:
+        print('🔖 perito %s — confirme que é a última versão antes de confiar na extração' % _v)
     caepi_p, dicio_p = resolve_paths(sys.argv[2:])
     cadict = load_dict(dicio_p)
     caepi = Caepi(caepi_p)
