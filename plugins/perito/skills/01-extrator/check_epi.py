@@ -542,6 +542,31 @@ def strip_old_block(text):
     return '\n'.join(kept).rstrip() + '\n'
 
 
+# --- linha de EPI dentro da seção FLAGS PARA O PERITO (determinística) ---
+# A skill monta o FLAGS ANTES deste guard rodar → o modelo não tem o período descoberto
+# (calculado aqui) na hora de preencher. Então o guard, dono do fato, injeta/atualiza a linha
+# de EPI dentro do FLAGS. Idempotente: remove a anterior e reinsere logo após o cabeçalho.
+FLAGS_HEADER = '🚩 FLAGS PARA O PERITO'
+FLAGS_EPI_MARK = '↳ EPI (guard):'
+
+
+def inject_flags_epi(body, summary):
+    lines = body.split('\n')
+    lines = [l for l in lines if not l.lstrip().startswith(FLAGS_EPI_MARK)]   # idempotência
+    if not summary:
+        return '\n'.join(lines)                  # sem gap → só limpa a linha antiga (se houver)
+    h = next((i for i, l in enumerate(lines) if FLAGS_HEADER in l), None)
+    if h is None:
+        return '\n'.join(lines)                  # formulário sem seção FLAGS → no-op
+    j = h                                        # insere após o separador ━ que fecha o cabeçalho (se houver)
+    for k in range(h + 1, min(h + 4, len(lines))):
+        if lines[k].strip() and set(lines[k].strip()) <= {'━'}:
+            j = k
+            break
+    lines.insert(j + 1, '%s %s' % (FLAGS_EPI_MARK, summary))
+    return '\n'.join(lines)
+
+
 def resolve_paths(args):
     caepi_p = dicio_p = None
     for a in args:
@@ -573,6 +598,12 @@ def main():
     body = '\n'.join(new_lines)
     # preenche o slot 'cobre __/__ meses' do EPI — RESUMO com o número calculado (onde o perito lê)
     body = fill_inline_coverage(body, cov_by_agent, _imprescrito_months(body))
+    # injeta o resumo de período descoberto na seção FLAGS (a skill monta o FLAGS antes
+    # deste guard calcular o gap; aqui o dado é cravado de forma determinística)
+    _gap_lines = [l.lstrip() for l in cob_res if l.lstrip().startswith('⚠')]
+    _gap_summary = ('; '.join(g.lstrip('⚠').strip().rstrip(':').strip() for g in _gap_lines)
+                    if _gap_lines else None)
+    body = inject_flags_epi(body, _gap_summary)
 
     age = caepi.age_days()
     stale = age is not None and age > 90
