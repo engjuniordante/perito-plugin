@@ -167,7 +167,7 @@ def process(lines, cadict, caepi):
                         agente, src = hit['agente'], 'CAEPI'
         if agente:
             # SÓ reporta no bloco 🔧 — NUNCA reescreve a linha (a Descrição da ficha é intocável).
-            fixes.append((trecho, 'C.A. %s → %s [%s]' % (ca, agente, src)))
+            fixes.append((ca or '—', _parts[-2][:80], agente, src))
             classified = True
 
         # C.A. conhecido na base SEM agente NR-15 (botina, óculos, luva mecânica…) =
@@ -179,7 +179,7 @@ def process(lines, cadict, caepi):
             is_creme = 'creme' in ll or 'pomada' in ll
             is_solar = 'solar' in ll
             if is_creme and not is_solar and (has_rad or not has_quim):
-                fixes.append((trecho, 'creme/pomada → %s [regra absoluta]' % AN13))
+                fixes.append((ca or '—', _parts[-2][:80], AN13, 'regra absoluta'))
                 agente = AN13
                 classified = True
             has_umid = any(t in ll for t in UMID)
@@ -498,9 +498,11 @@ def main():
 
     bloco = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n']
     if fixes:
-        bloco.append('**🔧 Classificado pelo C.A. (referência — a Descrição da ficha NÃO é alterada; use no quadro-resumo):**')
-        for trecho, msg in fixes:
-            bloco.append('- `%s` → %s' % (trecho, msg))
+        bloco.append('**🔧 Classificado pelo C.A. — use no quadro-resumo (ignora o nome comercial; a Descrição da ficha NÃO é alterada):**\n')
+        bloco.append('| C.A. | Descrição (ficha) | Agente que protege | Fonte |')
+        bloco.append('| :--- | :--- | :--- | :---: |')
+        for ca, desc, agente, src in fixes:
+            bloco.append('| %s | %s | %s | %s |' % (ca, desc, agente, src))
     if flags:
         bloco.append('\n**🚩 Conferir:**')
         for trecho, msg in flags:
@@ -522,8 +524,8 @@ def main():
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new)
 
-    for trecho, msg in fixes:
-        print('🔧 %s → %s' % (trecho, msg))
+    for ca, desc, agente, src in fixes:
+        print('🔧 C.A. %s → %s [%s]' % (ca, agente, src))
     for trecho, msg in flags:
         print('🚩 %s → %s' % (trecho, msg))
     if nao_cat:
