@@ -315,6 +315,96 @@ def _imprescrito_range(text):
     return ini, _clamp_impr_end(text, first_date_iso(m.group(2))[0])
 
 
+# ---- afastamentos: descontados da exposição (não há exposição durante a ausência) ----
+AFAST_HEADER_RE = re.compile(r'▶\s*AFASTAMENTOS', re.I)
+DE_LINE_RE = re.compile(r'^\s*de\s*:', re.I)
+FULLDATE_RE = re.compile(r'\d{2}/\d{2}/\d{4}')
+TOTAL_EXCL_RE = re.compile(r'total\s+exclu[ií]do\s*:\s*~?\s*(\d+)\s*dias', re.I)
+
+
+def _afastamentos(text):
+    """Períodos de afastamento do bloco ▶ AFASTAMENTOS, PRESOS À SEÇÃO (do header ao próximo
+    boundary) — imune ao 'De:/até:' de COVID do agente M, que fica fora da seção. Para cada linha
+    'De:', as 2 primeiras datas = (início, fim). Retorna (intervalos, ok): ok=False se alguma linha
+    'De:' tiver data ilegível/incompleta → o chamador NÃO desconta (degrada pro manual) e avisa.
+    Sem seção / sem linha 'De:' → ([], True) = no-op (a maioria dos processos)."""
+    lines = text.split('\n')
+    h = next((i for i, l in enumerate(lines) if AFAST_HEADER_RE.search(l)), None)
+    if h is None:
+        return [], True
+    end = _next_boundary(lines, h + 1)
+    out, ok = [], True
+    for l in lines[h + 1:end]:
+        if not DE_LINE_RE.match(l):
+            continue                       # ignora 'Total excluído:' e linhas soltas
+        ds = FULLDATE_RE.findall(l)
+        if len(ds) < 2:
+            ok = False                     # linha de afastamento sem as 2 datas → suspeita
+            continue
+        try:
+            ini, fim = (date.fromisoformat(first_date_iso(ds[0])[0]),
+                        date.fromisoformat(first_date_iso(ds[1])[0]))
+        except (ValueError, TypeError):
+            ok = False
+            continue
+        if (fim - ini).days > 0:
+            out.append((ini, fim))
+    return _merge_intervals(out), ok
+
+
+def _merge_intervals(ivs):
+    """Funde intervalos sobrepostos/adjacentes → soma de dias nunca conta em dobro."""
+    if not ivs:
+        return []
+    ivs = sorted(ivs)
+    merged = [ivs[0]]
+    for a, b in ivs[1:]:
+        la, lb = merged[-1]
+        if a <= lb:
+            merged[-1] = (la, max(lb, b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+def _afastamento_days_in(afast, a, b):
+    """Total de dias de afastamento clipados à janela [a, b] — denominador de EXPOSIÇÃO."""
+    if not (a and b):
+        return 0
+    total = 0
+    for ini, fim in afast:
+        lo, hi = max(ini, a), min(fim, b)
+        if (hi - lo).days > 0:
+            total += (hi - lo).days
+    return total
+
+
+def _subtract_intervals(wins, afast):
+    """Tira de cada janela de gap a sobreposição com os afastamentos (pode partir/encurtar/zerar).
+    Gap descoberto que sobra = período SEM cobertura E COM exposição. Determinístico."""
+    if not afast:
+        return wins
+    out = []
+    for a, b, _ in wins:
+        segs = [(a, b)]
+        for ini, fim in afast:
+            nxt = []
+            for s, e in segs:
+                if fim <= s or ini >= e:          # sem sobreposição
+                    nxt.append((s, e)); continue
+                if ini > s:
+                    nxt.append((s, ini))           # pedaço antes do afastamento
+                if fim < e:
+                    nxt.append((fim, e))           # pedaço depois do afastamento
+            segs = nxt
+        for s, e in segs:
+            d = (e - s).days
+            if d > 0:
+                out.append((s, e, d))
+    out.sort()
+    return out
+
+
 def cobertura(lines, cadict, caepi=None):
     """Σ(qtd × vida útil) por agente, SÓ nas entregas do imprescrito. Recorte por DATA
     (campo 'Período imprescrito'); fallback divisória ▼/▲; fallback ficha inteira. Classifica
@@ -322,7 +412,8 @@ def cobertura(lines, cadict, caepi=None):
       - Ruído (An.1) → protetor auditivo → vida útil por C.A. (dicionário/CAEPI).
       - Creme/pomada (desc OU equipamento do CAEPI) → An.13, 1 mês/unidade.
     Luva/conjunto/demais = perito. Retorna (resultados, faltou_vu, tem_divisoria)."""
-    impr_a, impr_b = _imprescrito_range('\n'.join(lines))
+    text = '\n'.join(lines)
+    impr_a, impr_b = _imprescrito_range(text)
     # lookback p/ detecção de gap: uma entrega até ~500 dias ANTES do imprescrito pode ainda
     # estar cobrindo o início (ex.: concha 12m), sobretudo quando a prescrição corta o meio do
     # contrato. Coletada como EVENTO de gap (herda cobertura), mas NÃO entra na soma Σ.
@@ -407,22 +498,43 @@ def cobertura(lines, cadict, caepi=None):
         impr_a_d += timedelta(days=IMPRESC_GRACE_DAYS)
     impr_b_d = date.fromisoformat(impr_b) if impr_b else None
     window_days = (impr_b_d - impr_a_d).days if (impr_a_d and impr_b_d) else None
+    # Afastamentos: durante a ausência NÃO há exposição → descontados da janela (denominador de
+    # EXPOSIÇÃO) E das janelas de gap. Se a leitura do bloco for suspeita (afast_ok=False), NÃO
+    # desconta (degrada pro manual) e avisa — nunca subtrai número duvidoso em silêncio.
+    afast, afast_ok = _afastamentos(text)
+    afast = afast if afast_ok else []
+    afast_days = _afastamento_days_in(afast, impr_a_d, impr_b_d) if window_days else 0
+    expo_days = (window_days - afast_days) if window_days else None
+    den_label = 'exposição (imprescrito − afastamento)' if afast else 'imprescrito'
     res, cov_by_agent, gaps_by_agent = [], {}, {}
     for a, (m, n) in buckets.items():
-        wins = _clipped_windows(events.get(a, []), impr_a_d, impr_b_d)
-        if window_days and window_days > 0:
-            # cobertura CONTÍNUA = janela − soma de TODOS os buracos (não a Σ qtd×vida, que
-            # sobreconta e mascara o gap: 138/37 parecia super-coberto). É o número honesto do slot.
-            covered = max(0.0, (window_days - sum(d for _, _, d in wins))) / 30.44
+        wins = _subtract_intervals(_clipped_windows(events.get(a, []), impr_a_d, impr_b_d), afast)
+        if expo_days and expo_days > 0:
+            # cobertura CONTÍNUA = exposição − soma dos buracos (já sem os trechos de afastamento).
+            covered = max(0.0, (expo_days - sum(d for _, _, d in wins))) / 30.44
             cov_by_agent[a] = covered
             gaps_by_agent[a] = _gap_status(wins)   # gatilho p/ o slot do RESUMO (mesma régua do 📐)
-            res.append('%s: %d entregas · cobertura contínua ~%.1f de ~%.1f meses do imprescrito'
-                       % (a, n, covered, window_days / 30.44))
+            res.append('%s: %d entregas · cobertura contínua ~%.1f de ~%.1f meses de %s'
+                       % (a, n, covered, expo_days / 30.44, den_label))
         else:                                  # sem janela (modo ▼) → não dá p/ continuidade; Σ de fallback
             cov_by_agent[a] = m
             res.append('%s: %d entregas → ~%s meses (Σ qtd × vida útil — sem janela p/ continuidade)'
                        % (a, n, ('%g' % round(m, 1))))
         res.extend(_coverage_gaps(a, wins))
+    # Frase clara da conta + ECO dos períodos descontados (perito confere contra a ficha/PPP).
+    if afast and buckets and window_days:
+        res.append('Exposição = ~%.1fm imprescrito − ~%.1fm afastamento (%d período%s) = ~%.1fm'
+                   % (window_days / 30.44, afast_days / 30.44, len(afast),
+                      '' if len(afast) == 1 else 's', max(0, expo_days) / 30.44))
+        res.append('afastamentos descontados: '
+                   + ' · '.join('%s–%s' % (i.strftime('%d/%m/%Y'), f.strftime('%d/%m/%Y'))
+                                for i, f in afast))
+        mt = TOTAL_EXCL_RE.search(text)        # autoconferência vs "Total excluído" (modelo)
+        if mt and abs(afast_days - int(mt.group(1))) > 15:
+            res.append('⚠ soma do guard (%dd) ≠ "Total excluído" do formulário (%dd) — confira o bloco AFASTAMENTOS'
+                       % (afast_days, int(mt.group(1))))
+    if not afast_ok:
+        res.append('⚠ bloco AFASTAMENTOS com data ilegível/incompleta — NÃO descontado automaticamente; confira e abata manualmente')
     return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent, gaps_by_agent
 
 
@@ -511,8 +623,9 @@ def _coverage_gaps(agente, wins):
 
 
 def _imprescrito_months(text):
-    """Duração do imprescrito em meses (sem a janela de tolerância — span REAL do período),
-    para o denominador do slot 'cobre X/Y meses'. ~30,44 dias/mês."""
+    """Meses de EXPOSIÇÃO para o denominador do slot 'cobre X/Y meses' = span do imprescrito
+    (clampado ao fim do contrato) MENOS os afastamentos. Mesma régua do denominador da
+    cobertura() → o slot e o 📐 nunca divergem. ~30,44 dias/mês."""
     m = IMPRESCRITO_RE.search(text)
     if not m:
         return None
@@ -521,9 +634,14 @@ def _imprescrito_months(text):
     if not (a and b):
         return None
     try:
-        return (date.fromisoformat(b) - date.fromisoformat(a)).days / 30.44
+        ad, bd = date.fromisoformat(a), date.fromisoformat(b)
     except ValueError:
         return None
+    days = (bd - ad).days
+    afast, afast_ok = _afastamentos(text)
+    if afast_ok and afast:                # desconta a ausência (só se a leitura foi confiável)
+        days -= _afastamento_days_in(afast, ad, bd)
+    return max(0, days) / 30.44
 
 
 # slot do EPI — RESUMO: "… cobre __/__ meses …". Só casa o vazio (_+) → não sobrescreve

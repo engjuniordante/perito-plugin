@@ -214,12 +214,56 @@ def t10_clamp_fim_contrato():
     check(meses2 is not None and meses2 > 58.0, "sem campo de contrato → sem clamp (~60m): %.1f" % (meses2 or -1))
 
 
+# T11 — desconto automático de afastamento (exposição = imprescrito − afastamento)
+def t11_desconto_afastamento():
+    print("T11 — desconto automático de afastamento (Opção 1, à prova de erro)")
+    ent = ["• 09/03/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+           "• 01/09/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+           "• 02/01/2024 · 1un · PROT AURIC SILICONE · CA 5745"]
+    afast_block = ["▶ AFASTAMENTOS / PERÍODOS EXCLUIR",
+                   "De: 08/01/2024  até: 31/01/2024  motivo: B31",
+                   "De: 01/02/2024  até: 10/10/2024  motivo: limbo",
+                   "Total excluído: ~276 dias"]
+    base = (["Período imprescrito: ★ de 17/09/2020 até 17/09/2025",
+             "Período trabalhado: de 15/09/2008 até 11/10/2024"] + afast_block
+            + ["TABELA DE FORNECIMENTO DE EPIs"] + ent + ["▶ OBSERVAÇÕES GERAIS"])
+    res, faltou, scoped, cov, gaps = ce.cobertura(base, {}, FAKE)
+    expo_line = next((x for x in res if "de exposição" in x), "")
+    import re as _re
+    den = float(_re.search(r"de ~([\d.]+) meses de exposição", expo_line).group(1)) if expo_line else 0
+    check("de exposição" in expo_line and 39.0 <= den <= 41.0,
+          "denominador = exposição ~40m (não o imprescrito ~49): %.1f" % den)
+    fr = next((x for x in res if x.startswith("Exposição =")), "")
+    check("imprescrito" in fr and "afastamento" in fr and "2 períodos" in fr,
+          "frase clara da conta presente: %r" % fr)
+    check(any("afastamentos descontados:" in x and "08/01/2024" in x and "01/02/2024" in x for x in res),
+          "eco dos períodos descontados presente")
+    check(gaps_de(res) and not any("11/10/2024" in x for x in res),
+          "janela dentro do afastamento sumiu do gap (não há /11/10/2024): %r" % res)
+    cobertura_m = cov.get("Ruído (An.1)", 0)
+    check(abs((cobertura_m + 27.7) - den) < 1.5, "cobertura + gap ≈ exposição (reconcilia): %.1f + 27.7 vs %.1f" % (cobertura_m, den))
+    # ANTI-COVID: De:/até: de COVID na seção do agente M NÃO é lido como afastamento
+    covid = (["Período imprescrito: ★ de 17/09/2020 até 17/09/2025",
+              "TABELA DE FORNECIMENTO DE EPIs"] + ent
+             + ["▶ OBSERVAÇÕES GERAIS", "M. AGENTES BIOLÓGICOS",
+                "[ ] Período de COVID-19 (pandemia) — De: 01/03/2020  até: 31/12/2021"])
+    af, ok = ce._afastamentos("\n".join(covid))
+    check(af == [] and ok, "COVID De:/até: fora da seção AFASTAMENTOS NÃO é descontado: %r" % af)
+    # data ilegível → não desconta + avisa
+    ruim = ["▶ AFASTAMENTOS / PERÍODOS EXCLUIR", "De: 08/01/2024  até: (ilegível)  motivo: x", "▶ FIM"]
+    _, ok2 = ce._afastamentos("\n".join(ruim))
+    check(not ok2, "linha De: com data ilegível → ok=False (degrada pro manual)")
+    # sem bloco AFASTAMENTOS → no-op
+    af2, ok3 = ce._afastamentos("\n".join(["Período imprescrito: ★ de 17/09/2020 até 11/10/2024"]))
+    check(af2 == [] and ok3, "sem bloco AFASTAMENTOS → ([], True) = no-op")
+
+
 def main():
     print("== Teste de regressão do guard de EPI ==")
     for t in (t1_creme_regra_absoluta, t2_gap_unico, t3_morte_por_mil_cortes,
               t4_split_sem_falso_positivo, t5_cobertura_continua, t6_inject_flags,
               t7_sem_epi_continuo, t8_idempotencia_arquivo, t9_nr6_frequencia,
-              t10_clamp_fim_contrato):
+              t10_clamp_fim_contrato, t11_desconto_afastamento):
         t()
     print()
     if FALHAS:
