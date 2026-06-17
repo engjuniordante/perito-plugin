@@ -271,6 +271,26 @@ def _agent_of(ca, cadict, caepi):
 # prosa "dentro do período imprescrito (admissão … autuação DD/MM/AAAA)", que não tem ':'
 # depois de "imprescrito" e pescava a data da AUTUAÇÃO como fim do imprescrito.
 IMPRESCRITO_RE = re.compile(r'per[ií]odo imprescrito[^\n:]*:[^\n]*?(\d{2}/\d{2}/\d{4})[^\n]*?(\d{2}/\d{2}/\d{4})', re.I)
+# "Período trabalhado: de DD/MM/AAAA até DD/MM/AAAA" — a 2ª data é o fim do contrato (demissão).
+# Exige o ':' do campo (mesma defesa do IMPRESCRITO_RE contra prosa). Sem 2ª data (contrato em
+# curso / campo incompleto) → não casa → sem clamp.
+PERIODO_TRAB_RE = re.compile(r'per[ií]odo trabalhado[^\n:]*:[^\n]*?(\d{2}/\d{2}/\d{4})[^\n]*?(\d{2}/\d{2}/\d{4})', re.I)
+
+
+def _contract_end(text):
+    """Fim do período trabalhado (demissão) em ISO, ou None. A cobertura/gap de EPI NÃO pode se
+    estender além do fim do contrato — não há exposição depois que o trabalhador saiu."""
+    m = PERIODO_TRAB_RE.search(text)
+    return first_date_iso(m.group(2))[0] if m else None
+
+
+def _clamp_impr_end(text, impr_b_iso):
+    """Recorta o fim do imprescrito ao fim do contrato quando este vem ANTES (a prescrição
+    quinquenal vai até a data da ação, mas a exposição acaba na demissão). Contrato ativo → intacto."""
+    ce = _contract_end(text)
+    return ce if (impr_b_iso and ce and ce < impr_b_iso) else impr_b_iso
+
+
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do
 # pacto, quando o contrato é recente e cabe inteiro na prescrição). Essa janela resgata
 # a entrega de admissão sem readmitir histórico de função/período anterior — que, quando
@@ -291,7 +311,8 @@ def _imprescrito_range(text):
             ini = (date.fromisoformat(ini) - timedelta(days=IMPRESC_GRACE_DAYS)).isoformat()
         except ValueError:
             pass
-    return ini, first_date_iso(m.group(2))[0]
+    # fim recortado ao fim do contrato (sem exposição após a demissão)
+    return ini, _clamp_impr_end(text, first_date_iso(m.group(2))[0])
 
 
 def cobertura(lines, cadict, caepi=None):
@@ -496,6 +517,7 @@ def _imprescrito_months(text):
     if not m:
         return None
     a, b = first_date_iso(m.group(1))[0], first_date_iso(m.group(2))[0]
+    b = _clamp_impr_end(text, b)          # denominador não conta meses após a demissão
     if not (a and b):
         return None
     try:
@@ -541,6 +563,40 @@ def fill_inline_coverage(body, cov_by_agent, gaps_by_agent, impr_months):
                     line)
         out.append(line)
     return '\n'.join(out)
+
+
+# Linha NR-6 "Frequência regular de fornecimento": casa SÓ os dois checkboxes vazios
+# ([ ]Sim [ ]Não) → idempotente (re-run vê o [X] e não mexe; preserva edição do perito).
+# group(1) leva tudo até o "— "; group(2)=espaço entre Sim/Não; group(3)=" · obs:"; o resto
+# (placeholder eventual do Step 2) é descartado.
+NR6_FREQ_RE = re.compile(
+    r'(Frequência regular de fornecimento[^\n]*?—\s*)\[ \]Sim(\s+)\[ \]Não(\s*·\s*obs:)[^\n]*$',
+    re.I | re.M)
+
+
+def fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent):
+    """Crava a linha NR-6 'Frequência regular de fornecimento' a partir da cobertura do guard
+    (mesma fonte do slot 'cobre X/Y meses'): janela descoberta material → [X]Não + resumo do gap;
+    cobertura contínua → [X]Sim. SEM dado de cobertura (sem protetor/creme na ficha) → não toca
+    (perito decide). Step 2 NÃO preenche esta linha — deixa intacta do template; o guard a crava.
+    Idempotente: só age quando os DOIS checkboxes estão vazios."""
+    if not cov_by_agent:
+        return body
+    gaps_by_agent = gaps_by_agent or {}
+    gapped = {ag: st for ag, st in gaps_by_agent.items() if st and st.lstrip().startswith('⚠')}
+    if gapped:
+        mark_sim, mark_nao = ' ', 'X'
+        obs = 'gap na ficha — ' + '; '.join(
+            '%s: %s' % (ag, st.lstrip('⚠ ').strip()) for ag, st in gapped.items())
+    else:
+        mark_sim, mark_nao = 'X', ' '
+        obs = 'cobertura contínua na ficha do imprescrito (ver 📐) — confirmar adequação in loco'
+
+    def repl(m):
+        return '%s[%s]Sim%s[%s]Não%s %s' % (
+            m.group(1), mark_sim, m.group(2), mark_nao, m.group(3), obs)
+
+    return NR6_FREQ_RE.sub(repl, body, count=1)
 
 
 def _dedup_simple(xs):
@@ -665,6 +721,9 @@ def main():
     body = '\n'.join(new_lines)
     # preenche o slot 'cobre __/__ meses' do EPI — RESUMO com o número calculado (onde o perito lê)
     body = fill_inline_coverage(body, cov_by_agent, gaps_by_agent, _imprescrito_months(body))
+    # crava a linha NR-6 'Frequência regular de fornecimento' a partir da MESMA cobertura/gaps:
+    # gap material → [X]Não; contínuo → [X]Sim; sem ficha de protetor/creme → intacta (perito)
+    body = fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent)
     # injeta o resumo de período descoberto na seção FLAGS (a skill monta o FLAGS antes
     # deste guard calcular o gap; aqui o dado é cravado de forma determinística)
     _gap_lines = [l.lstrip() for l in cob_res if l.lstrip().startswith('⚠')]

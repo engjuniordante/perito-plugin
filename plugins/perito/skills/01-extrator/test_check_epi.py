@@ -170,11 +170,56 @@ def t8_idempotencia_arquivo():
         os.unlink(path)
 
 
+# T9 — guard crava a linha NR-6 "Frequência regular" a partir da cobertura (idempotente)
+def t9_nr6_frequencia():
+    print("T9 — guard preenche a linha NR-6 'Frequência regular'")
+    # corpo MULTI-LINHA (a linha NR-6 NÃO é a última) — pega o bug do regex sem re.M, em que
+    # '.*$' só casava se a linha fosse o fim do texto (passava em linha única e falhava no real).
+    body = ("▶ COMPROVAÇÃO NR-6\n"
+            "• Frequência regular de fornecimento (🔄) — [ ]Sim [ ]Não · obs:\n"
+            "• Adequado ao risco ambiental (👤) — [ ]Sim [ ]Não · obs:\n"
+            "▶ OBSERVAÇÕES GERAIS\n")
+    line = "• Frequência regular de fornecimento (🔄) — [ ]Sim [ ]Não · obs:"
+    cov = {"Ruído (An.1)": 31.1}
+    gap = {"Ruído (An.1)": "⚠ 4 janelas ~17.6m (ver 📐)"}
+    b1 = ce.fill_nr6_frequencia(body, cov, gap)
+    freq = next(l for l in b1.splitlines() if "Frequência regular" in l)
+    check("[X]Não" in freq and "[ ]Sim" in freq, "gap material → [X]Não / [ ]Sim: %r" % freq)
+    check("ver 📐" in freq, "obs traz o resumo do gap")
+    check("[ ]Sim [ ]Não" in b1, "linha 'Adequado ao risco' (👤) fica intacta — só a frequência muda")
+    check(ce.fill_nr6_frequencia(b1, cov, gap) == b1, "2ª passada não duplica nem altera")
+    b3 = ce.fill_nr6_frequencia(line, {"Ruído (An.1)": 48.0}, {"Ruído (An.1)": "contínuo, sem gap"})
+    check("[X]Sim" in b3 and "[ ]Não" in b3, "contínuo → [X]Sim: %r" % b3)
+    check(ce.fill_nr6_frequencia(body, {}, {}) == body, "sem cobertura → corpo intacto")
+
+
+# T10 — janela de cobertura recortada ao FIM DO CONTRATO (não à data da ação)
+def t10_clamp_fim_contrato():
+    print("T10 — clamp da janela ao fim do contrato (sem exposição pós-demissão)")
+    ent = ["• 09/03/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+           "• 01/09/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+           "• 02/01/2024 · 1un · PROT AURIC SILICONE · CA 5745"]
+    base = ["Período imprescrito: ★ de 17/09/2020 até 17/09/2025",
+            "Período trabalhado: de 15/09/2008 até 11/10/2024",
+            "TABELA DE FORNECIMENTO DE EPIs"] + ent + ["▶ OBSERVAÇÕES GERAIS"]
+    meses = ce._imprescrito_months("\n".join(base))
+    check(meses is not None and 47.0 < meses < 50.0,
+          "denominador recortado ao contrato (~49m, não ~60): %.1f" % (meses or -1))
+    res, faltou, scoped, cov, gaps = ce.cobertura(base, {}, FAKE)
+    check(gaps_de(res) and not any("/2025" in x for x in res),
+          "nenhuma data de gap após o fim do contrato (zero /2025): %r" % res)
+    check(any("11/10/2024" in x for x in res), "a cauda do gap termina no fim do contrato (11/10/2024)")
+    semtrab = [l for l in base if not l.startswith("Período trabalhado")]
+    meses2 = ce._imprescrito_months("\n".join(semtrab))
+    check(meses2 is not None and meses2 > 58.0, "sem campo de contrato → sem clamp (~60m): %.1f" % (meses2 or -1))
+
+
 def main():
     print("== Teste de regressão do guard de EPI ==")
     for t in (t1_creme_regra_absoluta, t2_gap_unico, t3_morte_por_mil_cortes,
               t4_split_sem_falso_positivo, t5_cobertura_continua, t6_inject_flags,
-              t7_sem_epi_continuo, t8_idempotencia_arquivo):
+              t7_sem_epi_continuo, t8_idempotencia_arquivo, t9_nr6_frequencia,
+              t10_clamp_fim_contrato):
         t()
     print()
     if FALHAS:
