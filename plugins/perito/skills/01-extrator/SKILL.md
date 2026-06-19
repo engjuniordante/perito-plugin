@@ -22,24 +22,35 @@ Ler **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.m
 
 Faltou algum? Avise qual e prossiga; o ausente vira `[NÃO LOCALIZADO]`.
 
-## Saída
-Um `.md` espelhando **exatamente** seções, ordem e campos do `formulario-pericia.md` — **um campo por linha** (não compactar). Fecha com `## ✅ AUTO-CHECK`, `## ⚠ CAMPOS A VERIFICAR IN LOCO` e `## 🚩 FLAGS`.
+## Fluxo — 2 fases (o SCRIPT faz o braçal; VOCÊ faz só a análise)
 
-**Onde gravar:** na pasta `config.caminhos.formularios_campo` (default `Formularios-Campo` se o config não tiver o campo), **dentro da raiz do projeto conectado** — criar a pasta se não existir. **Nunca** gravar dentro da pasta da skill / do gerador de laudo (é código do plugin: some no `/plugin update` e no sandbox efêmero). Nome do arquivo: `Formulario-Campo-<Reclamante>-<nº processo>.md`.
-**Como gravar:** saída inexistente → `Write` direto. Saída já existente (rerun) → `Read` antes de `Edit`/`Write` (escrita sem leitura prévia falha e queima um turno).
+> **Por que assim:** re-digitar as ~340 linhas do formulário (ficha de EPI, 13 agentes, quesitos, identificação) é o que torrava token. Isso agora é determinístico no `montar_formulario.py`. Você entra **só** na camada que exige julgamento (Status/Obs dos agentes, flags, fechamento). Economia de ~85-90% do output, sem perder a análise.
 
-**⛔ Passo final OBRIGATÓRIO — guard determinístico de EPI:** depois de gravar o `.md`, rodar `python3 <pasta desta skill>/check_epi.py <arquivo gravado> <base_conhecimento>` (a base sai do `perito-config.json`; o script resolve sozinho `04-EPIs/caepi.sqlite` e `04-EPIs/CA-dicionario.json`). O script edita o próprio formulário — **C.A. é a chave, o nome NÃO classifica**:
-- **(1) LOOKUP por C.A.:** `CA-dicionario.json` (override curado, vence) → `caepi.sqlite` (base oficial do MTE). Achou → reescreve o agente, **ignorando o nome do produto**.
-- **(2) REGRA ABSOLUTA** (C.A. fora de ambos): creme/pomada → `Químico dérmico (An.13)`, **exceto "protetor solar"** (não é EPI — NT 146/2015 §4).
-- **(3) CA VENCIDO (NT 146/2015):** nas linhas da ficha com **data + C.A.**, compara a **entrega × validade do C.A.**; entrega > validade → 🚩 (indício de aquisição sem CA válido; perito decide). CA vencido **hoje** é irrelevante.
-- **(4)** crava o bloco `🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI`: 🔧 classificado · 🚩 conferir · 📇 C.A. não catalogados · **📐 cobertura** (Σ qtd × vida útil — creme e protetor auditivo, só entregas do imprescrito) · ⏰ aviso se o índice CAEPI tiver >90 dias.
+**Onde gravar:** pasta `config.caminhos.formularios_campo` (default `Formularios-Campo`), **na raiz do projeto conectado** — criar se não existir. Nome: `Formulario-Campo-<Reclamante>-<nº processo>.md`. **Nunca** gravar na pasta da skill (some no `/plugin update`).
 
-Não depende de você obedecer regra em prosa — é a rede que impede a cagada de sair no formulário. Reproduzir o resultado do script na resposta (não reabrir o `.md` — o script já editou). Saiu `🚩`/`📇`/`⏰` → avisar o perito.
+### Fase 1 — script monta o esqueleto (você NÃO redige)
+1. Salve os 5 outputs do NLM **VERBATIM** num bundle: `Write` em `<formularios_campo>/_bundle-<nº>.md` com o texto colado **como veio** (não consolidar, não reescrever — cópia crua; já vêm em `▶ subseções`).
+2. Rode UM comando:
+   `python3 <pasta desta skill>/montar_formulario.py <_bundle.md> -o <Formularios-Campo>/Formulario-Campo-<Reclamante>-<nº>.md --base <base_conhecimento>`
+   - O script CRAVA, determinístico e fiel: TIPO (pedido da Inicial), PROCESSO, PARTICIPANTES (só Reclamante), EMPRESA/ambiente, IDENTIFICAÇÃO (todas as funções), ESCOPO, **ficha de EPI (só imprescrito, descrição verbatim)**, NR-6 (do NLM), **QUESITOS na íntegra**, e o bloco fixo dos 13 agentes + periculosidade.
+   - E roda o **guard `check_epi.py` por dentro** (C.A. é a chave, o nome NÃO classifica): 🔧 classifica por C.A. (dicionário→CAEPI→regra absoluta creme=An.13) · 📐 cobertura (Σ qtd×vida útil, creme e protetor auditivo) · 🚩 CA vencido/conferir · 📇 não catalogados · ⏰ base >90d.
+   - **Reproduza o resultado 🔧/🚩/📇/📐 do script na resposta.** Não reabra o `.md` para conferir o que o script já fez.
+
+### Fase 2 — você adiciona SÓ a camada analítica (via `Edit` no form gerado)
+⛔ **NUNCA re-digite estrutura** (ficha, quesitos, processo, identificação — o script já fez, fiel). `Read` o form gerado e faça `Edit`s pontuais só para acrescentar:
+- **Status/Obs dos agentes** com base documental (pré-triagem 3b / Inicial / PPP): marcar `[Presente — fonte/pág — confirmar in loco]` + Obs curta (indício, roteamento de anexo). Medições **em branco** (salvo PPP/PGR com valor citado → preencher + fonte). Sem base → deixar em branco (avaliar in loco). Regras de roteamento: ver Mapeamento abaixo (óleos/graxas/hidrocarbonetos → **An.13**; poeira → **An.12**; gases c/ LT → **An.11**).
+- **PERICULOSIDADE:** marcar anexo conforme pré-triagem/objeto (abastecimento/comboio/pipa/combustível → **An.2 Inflamáveis** `[Presente — confirmar in loco]`; eletricidade → An.4).
+- **Observações sobre os EPIs:** as **4 flags de EPI** (ver Mapeamento) — EPI≠agente, entrega fora do imprescrito, EPI indicado mas não entregue, contestação×ficha.
+- **DOCUMENTOS COLETADOS `[interno]`:** marcar conforme status ambiental (PPP/PGR/PPRA/LTCAT).
+- **AFASTAMENTOS:** se o NLM disse que não há >15 dias, substituir o bloco em branco por **uma linha** ("Não há registro de afastamento previdenciário > 15 dias nas fontes juntadas.") + o ★ último dia.
+- Fechar com `## ✅ AUTO-CHECK`, `## ⚠ CAMPOS A VERIFICAR IN LOCO`, `## 🚩 FLAGS PARA O PERITO` (modelo abaixo).
+
+A descrição da ficha é **intocável** (nome do produto verbatim — o guard bloqueia agente na descrição). A classificação por agente vive só no bloco 🔧/EPI-RESUMO.
 
 ## Arquivos a ler (só estes)
-⚠ **Localização:** `formulario-pericia.md` fica na **MESMA pasta deste SKILL.md** (empacotado com a skill) — ler pelo caminho relativo ao diretório da skill. **Não procurar em `base_conhecimento` nem rodar `find`.** É a **ÚNICA** leitura de estrutura — o bloco de agentes (13 anexos NR-15 A–M + Periculosidade) já está **embutido** nele.
-- `formulario-pericia.md` *(pasta da skill)* — estrutura a espelhar, **incluindo a seção de AGENTES** já embutida: mantê-la completa na saída e só sobrepor Status/Obs/medições nos agentes com base documental.
-- **NÃO** ler `check_epi.py` (caixa-preta — o que ele faz está descrito na Saída), nem `analise-epi-padrao.md` (a cobertura agora é calculada pelo `check_epi.py`, não em prosa), nem template `.docx`/laudos anteriores/gabaritos.
+- O **template** `formulario-pericia.md` está **embutido no `montar_formulario.py`** — você **NÃO** precisa lê-lo nem espelhá-lo (o script gera o form inteiro). Ele segue na pasta como referência humana.
+- Na **Fase 2**, `Read` o **form GERADO** (em `Formularios-Campo/`) para fazer os `Edit`s da camada analítica.
+- **NÃO** ler `check_epi.py`/`montar_formulario.py` (caixa-preta), nem `analise-epi-padrao.md` (cobertura é do `check_epi.py`), nem template `.docx`/laudos anteriores/gabaritos. **Não rodar `find`.**
 
 ## Regras de ouro
 1. **Formato Notas-do-iPhone:** sem tabelas markdown (`|`) — usar listas/bullets (`·` e `—`). Tabela quebra no Notas.
@@ -48,6 +59,7 @@ Não depende de você obedecer regra em prosa — é a rede que impede a cagada 
 4. Campos `[interno]`/`[subsídio]` ficam no formulário, marcados (não vão ao laudo).
 
 ## Mapeamento NLM → formulário
+> ⚙️ **Os campos MECÂNICOS abaixo (TIPO, PROCESSO, PARTICIPANTES, EMPRESA, IDENTIFICAÇÃO, ESCOPO, EPIs/ficha, NR-6, QUESITOS) já são cravados pelo `montar_formulario.py`** — as regras aqui são a referência de COMO ele faz (e o que conferir). Na Fase 2 você só intervém nos **agentes (Status/Obs)**, **periculosidade**, **flags de EPI**, **documentos coletados** e **fechamento**.
 
 **TIPO DE LAUDO ★ (Parte 1 — PEDIDO da Inicial):** marcar o `[ ]` correspondente e indicar o template. Fonte canônica = "Dos Pedidos" da Inicial. **NÃO detectar pela ata** (modelo padrão). Não ampliar por agente que aparece em PPP/PGR/contestação mas não foi pleiteado. Inicial ausente → `[NÃO LOCALIZADO — confirmar o pedido na Inicial]`; pedido ambíguo → "Insal+Peric" + sinalizar.
 
