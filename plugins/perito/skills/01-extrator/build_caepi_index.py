@@ -60,7 +60,14 @@ def derive(equip, texto):
     if 'AUDITIV' in e or 'AURICULAR' in e or 'ABAFADOR' in e:
         return 'Ruído (An.1)', '1'
     # 2) máscara/lente/viseira/facial de solda -> radiação não-ionizante (An.7)
-    if ('SOLDA' in t) and any(k in e for k in ('MASCARA', 'LENTE', 'VISEIRA', 'FACIAL', 'ESCUDO')):
+    #    CUIDADO (bug pego no teste real): 'FACIAL' NÃO pode casar dentro de 'SEMIFACIAL'
+    #    (respirador) e 'SOLDA' casa com 'solda térmica em seu perímetro' (fabricação da
+    #    máscara, não proteção). Sem o guard, ~200 respiradores PFF caíam em An.7.
+    is_respirador_like = any(k in e for k in (
+        'RESPIRADOR', 'SEMIFACIAL', 'PFF', 'FILTRANTE PARA PARTICULAS', 'PURIFICADOR DE AR'))
+    solda_face_equip = any(k in e for k in ('MASCARA', 'LENTE', 'VISEIRA', 'ESCUDO')) \
+        or ('FACIAL' in e and 'SEMIFACIAL' not in e)
+    if ('SOLDA' in t) and solda_face_equip and not is_respirador_like:
         return 'Radiação não-ionizante (An.7)', '7'
     # 3) creme/pomada
     if 'CREME' in e or 'POMADA' in e:
@@ -146,28 +153,14 @@ def main():
                 })
 
     con = sqlite3.connect(out)
-    # vida_util_meses é dado CURADO (boletim) — preservar entre rebuilds (o export do
-    # MTE não traz vida útil; o rebuild não pode apagar o que o perito catalogou).
-    prev_vu = {}
-    try:
-        for r in con.execute('SELECT ca, vida_util_meses FROM ca WHERE vida_util_meses IS NOT NULL'):
-            prev_vu[r[0]] = r[1]
-    except Exception:
-        pass
     con.execute('DROP TABLE IF EXISTS ca')
     con.execute('DROP TABLE IF EXISTS meta')
     con.execute('''CREATE TABLE ca (
         ca TEXT PRIMARY KEY, validade_iso TEXT, validade_br TEXT,
-        situacao TEXT, equipamento TEXT, agente TEXT, anexo TEXT,
-        vida_util_meses INTEGER)''')
+        situacao TEXT, equipamento TEXT, agente TEXT, anexo TEXT)''')
     con.execute('CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT)')
-    con.executemany('INSERT OR REPLACE INTO ca (ca,validade_iso,validade_br,situacao,equipamento,agente,anexo) '
-                    'VALUES (:ca,:validade_iso,:validade_br,:situacao,:equipamento,:agente,:anexo)',
+    con.executemany('INSERT OR REPLACE INTO ca VALUES (:ca,:validade_iso,:validade_br,:situacao,:equipamento,:agente,:anexo)',
                     [r for _, r in best.values()])
-    for ca_k, vu in prev_vu.items():
-        con.execute('UPDATE ca SET vida_util_meses=? WHERE ca=?', (vu, ca_k))
-    if prev_vu:
-        print('vida útil preservada de rebuild anterior: %d C.A.' % len(prev_vu))
     con.execute('INSERT INTO meta VALUES (?,?)', ('build_date', date.today().isoformat()))
     con.execute('INSERT INTO meta VALUES (?,?)', ('source', src.split('/')[-1]))
     con.execute('INSERT INTO meta VALUES (?,?)', ('n_cas', str(len(best))))

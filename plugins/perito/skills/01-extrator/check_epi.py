@@ -3,24 +3,29 @@
 """
 check_epi.py — guarda determinístico da classificação de EPI no formulário de campo.
 
-O C.A. é a CHAVE PRIMÁRIA; o nome comercial NUNCA classifica. Edita o próprio .md:
+Lê a TABELA de fichas de EPI do formulário do extrator (Markdown:
+`| Data de Entrega | Quantidade | Descrição do EPI | C.A. |`) e classifica cada
+entrega PELO C.A. — nunca pelo nome comercial, que engana (ex.: creme "Luz Negra"
+não é UV/radiação; é químico dérmico An.13). Crava no próprio .md um bloco
+autoritativo de VERIFICAÇÃO que alimenta o quadro-resumo de EPI.
 
   1) LOOKUP por C.A. (prioridade):
      a. CA-dicionario.json (override curado do perito) — vence tudo.
      b. caepi.sqlite (base OFICIAL do MTE) — agente/anexo derivado da fonte.
-     Achou → reescreve o agente da linha, IGNORANDO o nome do produto.
   2) REGRA ABSOLUTA (C.A. fora de a/b): creme/pomada = Químico dérmico (An.13).
      Exceção: "protetor solar" (não é EPI — NT 146/2015 §4).
-  3) CA VENCIDO (NT 146/2015): em linhas da ficha com DATA + C.A., compara a data da
-     ENTREGA com a VALIDADE do C.A. (caepi). entrega > validade → 🚩 (indício de
-     aquisição sem CA válido; o perito decide). CA vencido HOJE é irrelevante.
+  3) CA VENCIDO (NT 146/2015): compara a data da ENTREGA (col. 1) com a VALIDADE
+     do C.A. (caepi). entrega > validade → 🚩 (indício de aquisição sem CA válido;
+     o perito decide). CA vencido HOJE é irrelevante.
   4) MARCA 🚩 o que só o C.A. resolve e lista 📇 C.A. não catalogados.
   5) Avisa se o índice CAEPI tiver > 90 dias (re-baixar do MTE).
 
 Lookup no script (não na prosa) = à prova do modelo contornar. sqlite3/stdlib, zero pip.
+Idempotente: re-rodar substitui o bloco anterior. NÃO dá veredicto de neutralização
+(isso é do perito, in loco) — só classifica o agente pelo C.A.
 
 uso: python3 check_epi.py <form.md> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]
-  (qualquer ordem; um diretório resolve <dir>/04-EPIs/caepi.sqlite e .../CA-dicionario.json)
+  Sem extras, resolve sozinho a partir de ../assets/04-EPIs/ ao lado deste script.
 """
 import json
 import os
@@ -32,25 +37,52 @@ from datetime import date, timedelta
 MARK = '## 🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI'
 
 RAD = ('radiaç', 'radiac', 'rni', 'não ioniz', 'nao ioniz', 'ultraviolet',
-       'luz negra', 'an.7', 'an. 7', 'anexo 7', 'anexo nº 7', 'anexo n 7')
-QUIM = ('quím', 'quim', 'an.13', 'an. 13', 'anexo 13', 'anexo nº 13', 'dérm',
-        'derm', 'óleo', 'oleo', 'graxa', 'álcali', 'alcali', 'solvente')
+       'luz negra', 'an.7', 'an. 7', 'anexo 7')
+QUIM = ('quím', 'quim', 'an.13', 'an. 13', 'anexo 13', 'dérm', 'derm', 'óleo',
+        'oleo', 'graxa', 'álcali', 'alcali', 'solvente')
 UMID = ('umidade', 'an.10', 'an. 10', 'anexo 10')
-MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo', 'facial',
+MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo',
         'solda', 'soldad', 'capuz')
 AN13 = 'Químico dérmico (An.13)'
-CA_NUM_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*(\d{1,6})', re.I)
+AN11 = 'Químico inalável (An.11)'
+AN7 = 'Radiação não-ionizante (An.7)'
+AN1 = 'Ruído (An.1)'
+IMPLAUSIBLE_EPI_HINTS = (
+    'cinto', 'capacete', 'sapato', 'botina', 'calcado', 'calçado'
+)
+# C.A. = "CA <dígitos>" (exige o rótulo CA antes do número) — evita pegar números soltos
+# da descrição ou "NBR 15292" (NBR não é C.A.). Mesma regra do plugin perito.
+CA_TOKEN_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*([0-9][0-9./\s-]{0,20})', re.I)
 DATE_RE = re.compile(r'\b(\d{2})/(\d{2})/(\d{4})\b')
-# Linha da FICHA começa com a data (após bullet): "- 25/02/2023 · …". O 1º campo
-# DEVE começar com a data — exclui linhas do EPI — RESUMO que citam C.A./data
-# embutidos (ex.: "— Umidade An.10: capa [CA 28449, 14/08/2024] · …").
+# Linha da FICHA começa com a data (após bullet): "• 25/02/2023 · …". O 1º campo DEVE
+# começar com a data — exclui cabeçalho, divisória ▼ e linhas do EPI — RESUMO.
 ROW_START_RE = re.compile(r'^[\s\-–—•·*]*\d{2}/\d{2}/\d{4}')
 # Descrição da ficha NUNCA pode ser o agente/anexo (ex.: "Químico dérmico (An.13)").
 # A descrição é o NOME DO PRODUTO, literal. Se a descrição traz "(An.N)", foi renomeada.
 AGENTE_NA_DESC_RE = re.compile(r'\(\s*an\.?\s*\d', re.I)
 
 
-# ---------------- fontes de classificação por C.A. ----------------
+# Rótulos de override do dicionário que significam "PERITO DIZ: SEM agente NR-15"
+# — correção de FALSO-POSITIVO (ex.: luva de tecido/helanca = risco mecânico; a base
+# chutou An.10). Tratados como agente vazio E AUTORITATIVO: silencia no quadro 🔧 (como
+# óculos/botina) e NÃO cai no CAEPI por baixo. Vence a base, igual a um override de agente.
+SEM_AGENTE_NR15 = {
+    '', '-', '—', 'sem agente nr-15', 'sem agente nr-15 (mecânico/geral)',
+    'sem agente nr-15 (mecanico/geral)', 'epi geral sem agente nr-15 definido',
+    'mecânico', 'mecanico', 'não é epi', 'nao e epi',
+}
+
+
+def cadict_agente(cadict, ca):
+    """(agente, overridden) do CA-dicionario. overridden=True quando o C.A. está no
+    dicionário (vence o CAEPI). agente=None quando o perito catalogou 'sem agente NR-15'
+    — sinaliza ao guard pra silenciar o item E não buscar agente no CAEPI."""
+    if ca and ca in cadict:
+        ag = (cadict[ca].get('agente') or '').strip()
+        return (None if ag.lower() in SEM_AGENTE_NR15 else ag), True
+    return None, False
+
+
 def load_dict(path):
     if not path or not os.path.exists(path):
         return {}
@@ -73,7 +105,9 @@ class Caepi:
     def __init__(self, path):
         self.con = None
         self.build_date = None
-        self.has_vu = False  # coluna vida_util_meses existe na base?
+        self.has_vu = False
+        self.has_status = False
+        self.has_conf = False
         if path and os.path.exists(path):
             try:
                 self.con = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
@@ -81,6 +115,8 @@ class Caepi:
                 self.build_date = row[0] if row else None
                 cols = [r[1] for r in self.con.execute('PRAGMA table_info(ca)').fetchall()]
                 self.has_vu = 'vida_util_meses' in cols
+                self.has_status = 'status' in cols
+                self.has_conf = 'confianca' in cols and 'anexo_sec' in cols
             except Exception:
                 self.con = None
 
@@ -90,6 +126,10 @@ class Caepi:
         sel = 'agente, validade_iso, validade_br, situacao, equipamento'
         if self.has_vu:
             sel += ', vida_util_meses'
+        if self.has_status:
+            sel += ', status'
+        if self.has_conf:
+            sel += ', confianca, anexo_sec'
         try:
             r = self.con.execute('SELECT %s FROM ca WHERE ca=?' % sel, (ca,)).fetchone()
         except Exception:
@@ -98,8 +138,13 @@ class Caepi:
             return None
         d = {'agente': r[0], 'validade_iso': r[1], 'validade_br': r[2], 'situacao': r[3],
              'equipamento': r[4]}
+        i = 5
         if self.has_vu:
-            d['vida_util_meses'] = r[5]
+            d['vida_util_meses'] = r[i]; i += 1
+        if self.has_status:
+            d['status'] = r[i]; i += 1
+        if self.has_conf:
+            d['confianca'] = r[i]; d['anexo_sec'] = r[i + 1]; i += 2
         return d
 
     def age_days(self):
@@ -111,13 +156,40 @@ class Caepi:
             return None
 
 
+def split_row(line):
+    """Linha da ficha (formato Notas) -> células. Campos separados por ' · ':
+    "• 25/02/2023 · 1un · DESCRIÇÃO · CA 26149"."""
+    return [c.strip() for c in line.split(' · ')]
+
+
+def is_data_row(cells):
+    """Linha de DADOS da ficha: ≥3 campos e o 1º começa com a data. O date-gate exclui
+    sozinho cabeçalho, separador, divisória ▼ e linhas do EPI — RESUMO (sem data no início)."""
+    return len(cells) >= 3 and bool(ROW_START_RE.match(cells[0]))
+
+
+def _normalize_ca_token(token):
+    raw = (token or '').strip()
+    if not raw:
+        return None
+    if re.search(r'\d{4,}\s*/\s*\d{4,}', raw):
+        return None
+    head = raw.split('/')[0]
+    parts = re.findall(r'\d+', head)
+    if not parts:
+        return None
+    if '.' in head and len(parts) >= 2 and len(parts[-1]) == 3 and len(''.join(parts)) <= 6:
+        return ''.join(parts)
+    return parts[0]
+
+
 def extract_ca(line):
-    m = CA_NUM_RE.search(line)
-    return m.group(1) if m else None
+    m = CA_TOKEN_RE.search(line)
+    return _normalize_ca_token(m.group(1)) if m else None
 
 
-def first_date_iso(line):
-    m = DATE_RE.search(line)
+def first_date_iso(s):
+    m = DATE_RE.search(s)
     if not m:
         return None, None
     d, mo, y = m.groups()
@@ -127,79 +199,113 @@ def first_date_iso(line):
         return None, None
 
 
-def is_epi_line(ll, raw):
-    if 'creme' in ll or 'pomada' in ll or 'capa' in ll:
-        return True
-    if CA_NUM_RE.search(raw):
-        return True
-    return False
+def classify_no_ca(desc):
+    """C.A. desconhecido: só a regra absoluta de creme é determinística; o resto flaga."""
+    d = desc.lower()
+    is_creme = 'creme' in d or 'pomada' in d
+    is_solar = 'solar' in d
+    has_rad = any(t in d for t in RAD)
+    has_quim = any(t in d for t in QUIM)
+    has_umid = any(t in d for t in UMID)
+    is_mask = any(t in d for t in MASK)
+    is_capa = 'capa' in d or 'impermeáv' in d or 'impermeav' in d
+    if is_creme and not is_solar and (has_rad or not has_quim):
+        return AN13, 'regra absoluta', None
+    flag = None
+    if has_rad and not is_mask and not is_creme and not is_solar:
+        flag = 'descrição cita radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'
+    elif is_capa and has_quim and not has_umid:
+        flag = 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'
+    return None, None, flag
+
+
+def _caepi_src(hit):
+    """Rótulo da coluna Fonte p/ classificação vinda do CAEPI. Confiança não-alta = chute
+    automático que o perito deve conferir → '⚠ CAEPI' (+ alternativa An.X quando a base
+    aponta um anexo secundário). Confiança alta (auditivo/creme/solda) → 'CAEPI' liso.
+    O ⚠ some sozinho quando o perito cataloga o C.A. (vira Fonte 'dicionário')."""
+    conf = (hit.get('confianca') or '').lower()
+    if not conf or conf == 'alta':
+        return 'CAEPI'
+    sec = (hit.get('anexo_sec') or '').strip()
+    return '⚠ CAEPI — pode ser An.%s, confira' % sec if sec else '⚠ CAEPI — confira o contexto'
+
+
+def _normalize_hit_agente(agente, desc, equipamento):
+    d = (desc or '').lower()
+    eq = (equipamento or '').lower()
+    txt = d + ' ' + eq
+    if any(k in txt for k in ('auric', 'auditiv', 'abafador', 'concha', 'plug', 'plugue')):
+        return AN1, None
+    if ('creme' in txt or 'pomada' in txt) and 'solar' not in txt:
+        return AN13, None
+    if any(k in txt for k in ('lente', 'viseira', 'escudo', 'solda', 'protetor facial')):
+        return AN7, None
+    if any(k in txt for k in ('mascara', 'máscara', 'respir')) and agente == AN7:
+        return AN11, 'CAEPI classificou como An.7, mas a descrição é respiratória; revisar catalogação do C.A.'
+    if 'luva' in txt and any(k in txt for k in ('acid', 'solvent', 'quim', 'quím', 'nitril', 'latex', 'látex', 'pvc')):
+        return AN13, None
+    if agente in (AN7, AN11, AN13, 'Umidade (An.10)', 'Frio (An.9)') and any(k in d for k in IMPLAUSIBLE_EPI_HINTS):
+        return None, 'classificação do CAEPI parece implausível para a descrição do item; revisar o C.A. antes de usar.'
+    return agente, None
 
 
 def process(lines, cadict, caepi):
-    new_lines, fixes, flags = [], [], []
-    nao_cat = []
+    classified, flags, nao_cat = [], [], []
     for raw in lines:
-        new_lines.append(raw)            # a linha NUNCA é modificada
-        # processa SÓ as linhas da TABELA de fornecimento (Data · Qtd · Descrição · C.A.).
-        # Ignora EPI-RESUMO, observações e flags (citam C.A./agente legitimamente).
-        _parts = [p.strip() for p in raw.split(' · ')]
-        if not (len(_parts) >= 3 and ROW_START_RE.match(_parts[0])):
+        cells = split_row(raw)
+        if not is_data_row(cells):
             continue
-        ll = raw.lower()
-        trecho = raw.strip()[:120]
+        data_cell, desc = cells[0], cells[-2]
         ca = extract_ca(raw)
-        # ⛔ Descrição renomeada para o AGENTE — proibido (vaza pro laudo; o perito lê a ficha).
-        if AGENTE_NA_DESC_RE.search(_parts[-2]):
-            flags.append((trecho, 'DESCRIÇÃO DA FICHA SUBSTITUÍDA PELO AGENTE — restaure o NOME DO PRODUTO (literal da ficha). O agente vai só nesta verificação 🔧, NUNCA na coluna Descrição.'))
-        agente = src = hit = None
-        known = False  # C.A. existe no dicionário OU na base CAEPI (mesmo sem agente NR-15)
-        classified = False
 
-        # (1) LOOKUP por C.A. — override curado vence; depois CAEPI oficial
+        # ⛔ Descrição renomeada para o AGENTE — proibido (vaza pro laudo; o perito lê a ficha)
+        if AGENTE_NA_DESC_RE.search(desc):
+            flags.append((desc[:80] + (' [C.A. %s]' % ca if ca else ''),
+                          'DESCRIÇÃO DA FICHA SUBSTITUÍDA PELO AGENTE — restaure o NOME DO PRODUTO (literal da ficha). O agente vai só nesta verificação 🔧, NUNCA na coluna Descrição.'))
+        agente = src = None
+        hit = None
+        known = False
+
         if ca:
-            if ca in cadict:
-                agente, src, known = cadict[ca].get('agente'), 'dicionário', True
+            ov_ag, overridden = cadict_agente(cadict, ca)
+            if overridden:
+                agente, src, known = ov_ag, 'dicionário', True
             else:
                 hit = caepi.get(ca)
                 if hit is not None:
                     known = True
                     if hit.get('agente'):
-                        agente, src = hit['agente'], 'CAEPI'
-        if agente:
-            # SÓ reporta no bloco 🔧 — NUNCA reescreve a linha (a Descrição da ficha é intocável).
-            fixes.append((ca or '—', _parts[-2][:80], agente, src))
-            classified = True
+                        agente, flag = _normalize_hit_agente(hit['agente'], desc, hit.get('equipamento') or '')
+                        src = _caepi_src(hit) if agente else None
+                        if flag:
+                            flags.append((desc[:80] + (' [C.A. %s]' % ca if ca else ''), flag))
+                    elif hit.get('status') == 'revisar':
+                        # base canônica marcou o C.A. como ambíguo (sem agente NR-15 seguro).
+                        # NÃO ficar em silêncio: pedir contexto/override ao perito. Já
+                        # 'nao_correlacionar'/'nao_epi' seguem silenciosos (EPI mecânico/geral).
+                        flags.append((desc[:80] + (' [C.A. %s]' % ca if ca else ''),
+                                      'classificação NR-15 incerta na base (status: revisar) — definir agente pelo contexto e, se recorrente, fixar no CA-dicionario.json (skill de atualização da base).'))
 
-        # C.A. conhecido na base SEM agente NR-15 (botina, óculos, luva mecânica…) =
-        # não-neutralizador → silêncio: NÃO é "não catalogado", NÃO aplica heurística.
-        elif not known:
-            # (2) C.A. desconhecido (nem dicionário nem CAEPI): regra absoluta + flags
-            has_rad = any(t in ll for t in RAD)
-            has_quim = any(t in ll for t in QUIM)
-            is_creme = 'creme' in ll or 'pomada' in ll
-            is_solar = 'solar' in ll
-            if is_creme and not is_solar and (has_rad or not has_quim):
-                fixes.append((ca or '—', _parts[-2][:80], AN13, 'regra absoluta'))
-                agente = AN13
-                classified = True
-            has_umid = any(t in ll for t in UMID)
-            is_mask = any(t in ll for t in MASK)
-            is_capa = 'capa' in ll or 'impermeáv' in ll or 'impermeav' in ll
-            if has_rad and not is_mask and not is_creme and not is_solar and not classified:
-                flags.append((trecho, 'EPI em radiação/UV sem ser máscara/lente/escudo de solda — confira o C.A.'))
-            if is_capa and has_quim and not has_umid and not classified:
-                flags.append((trecho, 'capa/impermeável como químico — protege UMIDADE (An.10). Confirme.'))
-            if ca:
+        if not agente and not known:
+            agente, src, flag = classify_no_ca(desc)
+            if flag:
+                flags.append((desc[:80] + (' [C.A. %s]' % ca if ca else ''), flag))
+            if not agente and ca:
                 nao_cat.append(ca)
 
-        # (3) CA VENCIDO na ENTREGA (NT 146/2015) — só p/ EPI que neutraliza (tem agente)
+        if agente:
+            classified.append((ca or '—', desc[:80], agente, src))
+
+        # CA vencido (NT 146/2015) — só p/ EPI que neutraliza (tem agente) e com data
         if ca and agente:
-            di, dbr = first_date_iso(raw)
+            di, dbr = first_date_iso(data_cell)
             if di:
                 h = hit if hit is not None else caepi.get(ca)
                 if h and h.get('validade_iso') and di > h['validade_iso']:
-                    flags.append((trecho, 'EPI entregue em %s com C.A. %s VENCIDO em %s — indício de aquisição sem CA válido (NT 146/2015). Confirmar.'
-                                  % (dbr, ca, h['validade_br'])))
+                    flags.append((desc[:60] + ' [C.A. %s]' % ca,
+                                  'entregue em %s com C.A. VENCIDO em %s — indício de aquisição sem CA válido (NT 146/2015). Confirmar.'
+                                  % (dbr, h['validade_br'])))
 
     def dedup(xs):
         seen, out = set(), []
@@ -207,67 +313,59 @@ def process(lines, cadict, caepi):
             if x not in seen:
                 seen.add(x); out.append(x)
         return out
-    return new_lines, dedup(fixes), dedup(flags), dedup(nao_cat)
+    return dedup(classified), dedup(flags), dedup(nao_cat)
 
 
-# ---------- cobertura (item 6.1.1 NR-6): qtd × vida útil — determinística ----------
-# Calcula a soma de meses cobertos por agente, para os EPI cuja vida útil é regra estável:
-#   - creme/pomada: 1 unidade ≈ 1 mês (universal).
-#   - protetor auditivo: vida útil POR C.A. (boletim) — lida do CA-dicionario.json
-#     (campo "vida_util_meses"). Sem o campo → não calcula esse item (lista em ⓘ).
-# Luva/conjuntos/demais = empírico → o perito decide (não entram no cálculo).
-# Sai como SUGESTÃO: o perito confronta com os meses do imprescrito (menos afastamentos).
+# ---- cobertura por TIPO (item 6.1.1 NR-6) — determinística, só na tabela do imprescrito ----
 QTY_RE = re.compile(r'(\d+)')
-# vida útil por TIPO de protetor auditivo (meses); o dado curado por C.A. (dicionário/CAEPI)
-# sobrepõe sempre. Fallback p/ quando o C.A. não traz vida_util_meses — sem isto o cálculo de
-# ruído nunca aparece para C.A. não-catalogado (queixa real).
+# vida útil por TIPO de protetor auditivo (meses); per-C.A. (dicionário/CAEPI) sobrepõe.
 TYPE_VU = [
     (('espuma', 'descart', 'moldáv', 'moldav'), round(1 / 21, 3), 'espuma 1 dia útil'),
     (('concha', 'abafador', 'circum'), 12.0, 'concha 12m'),
     (('plug', 'plugue', 'silicone', 'inser', 'tampão', 'tampao', 'pré-mold', 'pre-mold'), 6.0, 'plug 6m'),
 ]
+CERTIFIABLE_HINTS = (
+    'botina', 'sapato', 'calcado', 'calçado', 'oculos', 'óculos', 'protetor', 'auric',
+    'capacete', 'luva', 'mascara', 'máscara', 'respir', 'avental', 'perneira', 'lente',
+    'viseira', 'creme', 'capuz', 'mangote', 'jaleco', 'respirador'
+)
+NON_CERTIFIABLE_HINTS = (
+    'camisa', 'camiseta', 'calca', 'calça', 'calca jeans', 'calça jeans', 'palmilha',
+    'carneira', 'paraf', 'parafuso', 'peca', 'peça'
+)
 
 
-def _vida_util(ca, desc_l, cadict, caepi=None):
-    if 'creme' in desc_l or 'pomada' in desc_l:
-        return 1, 'creme 1/mês'
-    # vida útil CURADA primeiro: dicionário, senão coluna da base CAEPI.
-    v = None
-    if ca and ca in cadict:
-        v = cadict[ca].get('vida_util_meses')
-    if v is None and ca and caepi is not None:
-        hit = caepi.get(ca)
-        if hit:
-            v = hit.get('vida_util_meses')
-    if v:
+def _vida_util(ca, txt, cadict, caepi):
+    if ca and ca in cadict and cadict[ca].get('vida_util_meses'):
         try:
-            return float(v), 'C.A. %s' % ca  # float: aceita espuma (1 dia útil ≈ 0,05 mês)
+            return float(cadict[ca]['vida_util_meses'])
         except (TypeError, ValueError):
-            return None, None
-    # fallback por TIPO (plug 6m · concha 12m · espuma 1 dia útil) — o C.A. não traz vida útil
-    for kws, vu, label in TYPE_VU:
-        if any(k in desc_l for k in kws):
-            return vu, label
-    return None, None
-
-
-def _is_protetor_aud(desc_l):
-    return (('protet' in desc_l or 'auric' in desc_l or 'auditiv' in desc_l)
-            and 'solar' not in desc_l)
-
-
-def _agent_of(ca, cadict, caepi):
-    """Agente classificado pelo C.A. (dicionário → CAEPI). Mesma ordem do process()."""
-    if ca and ca in cadict and cadict[ca].get('agente'):
-        return cadict[ca]['agente']
-    if ca and caepi is not None:
+            pass
+    if ca and caepi is not None and getattr(caepi, 'has_vu', False):
         hit = caepi.get(ca)
-        if hit and hit.get('agente'):
-            return hit['agente']
+        if hit and hit.get('vida_util_meses'):
+            try:
+                return float(hit['vida_util_meses'])
+            except (TypeError, ValueError):
+                pass
+    if 'creme' in txt or 'pomada' in txt:
+        return 1.0
+    for kws, vu, _ in TYPE_VU:
+        if any(k in txt for k in kws):
+            return vu
     return None
 
 
-# Exige o ':' do CAMPO ("Período imprescrito ★: de … até …") — assim a regex NÃO casa a
+def _is_certifiable(desc, ca):
+    if ca:
+        return True
+    d = (desc or '').lower()
+    if any(tok in d for tok in NON_CERTIFIABLE_HINTS):
+        return False
+    return any(tok in d for tok in CERTIFIABLE_HINTS)
+
+
+# Exige o ':' do CAMPO ("Período imprescrito: ★ de … até …") — assim a regex NÃO casa a
 # prosa "dentro do período imprescrito (admissão … autuação DD/MM/AAAA)", que não tem ':'
 # depois de "imprescrito" e pescava a data da AUTUAÇÃO como fim do imprescrito.
 IMPRESCRITO_RE = re.compile(r'per[ií]odo imprescrito[^\n:]*:[^\n]*?(\d{2}/\d{2}/\d{4})[^\n]*?(\d{2}/\d{2}/\d{4})', re.I)
@@ -289,8 +387,6 @@ def _clamp_impr_end(text, impr_b_iso):
     quinquenal vai até a data da ação, mas a exposição acaba na demissão). Contrato ativo → intacto."""
     ce = _contract_end(text)
     return ce if (impr_b_iso and ce and ce < impr_b_iso) else impr_b_iso
-
-
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do
 # pacto, quando o contrato é recente e cabe inteiro na prescrição). Essa janela resgata
 # a entrega de admissão sem readmitir histórico de função/período anterior — que, quando
@@ -405,13 +501,13 @@ def _subtract_intervals(wins, afast):
     return out
 
 
-def cobertura(lines, cadict, caepi=None):
+def cobertura(lines, cadict, caepi):
     """Σ(qtd × vida útil) por agente, SÓ nas entregas do imprescrito. Recorte por DATA
-    (campo 'Período imprescrito'); fallback divisória ▼/▲; fallback ficha inteira. Classifica
-    pelo AGENTE do C.A. (não pelo texto da descrição, que pode ter sido renomeado):
-      - Ruído (An.1) → protetor auditivo → vida útil por C.A. (dicionário/CAEPI).
-      - Creme/pomada (desc OU equipamento do CAEPI) → An.13, 1 mês/unidade.
-    Luva/conjunto/demais = perito. Retorna (resultados, faltou_vu, tem_divisoria)."""
+    (campo 'Período imprescrito'); fallback divisória ▼/▲; fallback ficha inteira.
+    Vida útil por TIPO (plug 6m · concha 12m · espuma 1 dia útil · creme 1/mês) + override por C.A.
+    Classifica pelo AGENTE do C.A. (não pela descrição, que pode ter sido renomeada). Ruído e creme;
+    luva/conjunto = perito. Retorna (resultados, faltou_vu)."""
+    buckets, faltou, events = {}, [], {}
     text = '\n'.join(lines)
     impr_a, impr_b = _imprescrito_range(text)
     # lookback p/ detecção de gap: uma entrega até ~500 dias ANTES do imprescrito pode ainda
@@ -423,70 +519,71 @@ def cobertura(lines, cadict, caepi=None):
             gaplo = (date.fromisoformat(impr_a) - timedelta(days=500)).isoformat()
         except ValueError:
             gaplo = impr_a
-    tem_divisoria = any('▼' in l for l in lines)
+    tem_div = any('▼' in l for l in lines)
     use_date = impr_a is not None          # preferível: recorta pela DATA do imprescrito
-    in_impr = use_date or (not tem_divisoria)
-    buckets, faltou_vu, events = {}, [], {}
+    in_impr = use_date or (not tem_div)    # date mode: filtra por linha; ▼ mode: alterna; nenhum: tudo
     for raw in lines:
         if not use_date:
             if '▼' in raw:
                 in_impr = True
                 continue
-            if '▲' in raw:                  # fim do imprescrito → parar de contar
+            if '▲' in raw:
                 in_impr = False
                 continue
         if not in_impr:
             continue
-        ll = raw.lower()
-        parts = [p.strip() for p in raw.split(' · ')]
-        # só linhas da TABELA de fornecimento (Data · Qtd · Descrição · C.A.) — o date-gate
-        # já exclui cabeçalhos (#), notas (>), resumo e obs (sem data no 1º campo).
-        if not (len(parts) >= 3 and ROW_START_RE.match(parts[0])):
+        cells = split_row(raw)
+        # só linhas de DADOS da tabela (is_data_row exclui cabeçalho/separador/divisória
+        # e linhas do EPI — RESUMO; o bloco 🔧 anterior já foi removido por strip_old_block)
+        if not is_data_row(cells):
             continue
-        di = first_date_iso(parts[0])[0]
-        in_sum = True                       # entra na SOMA Σ só se dentro do imprescrito
+        di = first_date_iso(cells[0])[0]
+        in_sum = True                      # entra na SOMA Σ só se dentro do imprescrito
         if use_date:
             if di is None:
                 continue
             if di < impr_a or (impr_b and di > impr_b):
-                in_sum = False              # fora do imprescrito → não soma (mas pode virar evento de gap)
-            if gaplo and di < gaplo:         # antes até do lookback → não cobre o início, ignora de vez
+                in_sum = False             # fora do imprescrito → não soma (mas pode virar evento de gap)
+            if gaplo and di < gaplo:        # antes até do lookback → não cobre o início, ignora de vez
                 continue
-        mq = QTY_RE.search(parts[1])
+        mq = QTY_RE.search(cells[1])
         if not mq:
             continue
         qtd = int(mq.group(1))
-        if qtd > 500:                       # quantidade irreal = parse errado → ignorar
+        if qtd > 500:                      # quantidade irreal = parse errado → ignorar
             continue
+        desc = cells[-2]
         ca = extract_ca(raw)
-        agente = _agent_of(ca, cadict, caepi)
-        equip = ''
+        agente, equip = None, ''
+        ov_ag, overridden = cadict_agente(cadict, ca)
+        if overridden:
+            agente = ov_ag
         if ca and caepi is not None:
             hit = caepi.get(ca)
-            equip = (hit.get('equipamento') or '').lower() if hit else ''
-        if 'solar' in ll and ('creme' in ll or 'pomada' in ll or 'protet' in ll):
-            continue                        # protetor solar não é EPI (NT 146/2015 §4) — fora da cobertura
-        is_creme = 'creme' in ll or 'pomada' in ll or 'creme' in equip or 'pomada' in equip
-        # protetor auditivo: pelo C.A. (agente) OU por palavra-chave (auric/auditiv). Sem esse
-        # fallback, um protetor com C.A. ausente/não catalogado SUMIA da cobertura de ruído e o
-        # gap dele não era detectado. ("protet" sozinho pescaria protetor facial An.7 — evitar.)
-        is_prot = (agente == 'Ruído (An.1)') or ('auric' in ll or 'auditiv' in ll)
+            if hit:
+                if not overridden:                 # override (inclui 'sem agente') vence o CAEPI
+                    agente = hit.get('agente')
+                equip = (hit.get('equipamento') or '').lower()
+        txt = desc.lower() + ' ' + equip
+        if 'solar' in txt and ('creme' in txt or 'pomada' in txt or 'protet' in txt):
+            continue                       # protetor solar não é EPI (NT 146/2015 §4) — fora da cobertura
+        is_creme = 'creme' in txt or 'pomada' in txt
+        # "protet" sozinho pesca "Protetor facial" (An.7) — exigir auric/auditiv;
+        # o agente Ruído (do C.A.) continua sendo o caminho autoritativo.
+        is_prot = (agente == 'Ruído (An.1)') or any(k in txt for k in ('auric', 'auditiv'))
         if not (is_creme or is_prot):
-            continue  # luva/conjunto/demais → perito decide
-        if is_creme:
-            bucket, vu = AN13, 1.0
-        else:
-            bucket = 'Ruído (An.1)'
-            vu, _ = _vida_util(ca, ll, cadict, caepi)
-            if vu is None:
-                if in_sum:
-                    faltou_vu.append(ca or (parts[2][:30] if len(parts) > 2 else ll[:30]))
-                continue
+            continue
+        vu = _vida_util(ca, txt, cadict, caepi)
+        if vu is None:
+            if in_sum:
+                faltou.append(ca or desc[:30])
+            continue
+        bucket = AN13 if is_creme else 'Ruído (An.1)'
         if in_sum:
             b = buckets.setdefault(bucket, [0.0, 0])
             b[0] += qtd * vu
             b[1] += 1
-        if di:                              # evento de gap (inclui o lookback pré-janela p/ herdar cobertura)
+        if di:                             # evento de gap (inclui o lookback pré-janela p/ herdar cobertura)
             try:
                 events.setdefault(bucket, []).append((date.fromisoformat(di), qtd, vu))
             except ValueError:
@@ -500,7 +597,7 @@ def cobertura(lines, cadict, caepi=None):
     window_days = (impr_b_d - impr_a_d).days if (impr_a_d and impr_b_d) else None
     # Afastamentos: durante a ausência NÃO há exposição → descontados da janela (denominador de
     # EXPOSIÇÃO) E das janelas de gap. Se a leitura do bloco for suspeita (afast_ok=False), NÃO
-    # desconta (degrada pro manual) e avisa — nunca subtrai número duvidoso em silêncio.
+    # desconta (degrada pro manual, como antes) e avisa — nunca subtrai número duvidoso em silêncio.
     afast, afast_ok = _afastamentos(text)
     afast = afast if afast_ok else []
     afast_days = _afastamento_days_in(afast, impr_a_d, impr_b_d) if window_days else 0
@@ -521,7 +618,9 @@ def cobertura(lines, cadict, caepi=None):
             res.append('%s: %d entregas → ~%s meses (Σ qtd × vida útil — sem janela p/ continuidade)'
                        % (a, n, ('%g' % round(m, 1))))
         res.extend(_coverage_gaps(a, wins))
-    # Frase clara da conta + ECO dos períodos descontados (perito confere contra a ficha/PPP).
+
+    # Frase clara da conta + ECO dos períodos descontados (perito confere contra a ficha/PPP) —
+    # só quando houve desconto e há cobertura a contextualizar.
     if afast and buckets and window_days:
         res.append('Exposição = ~%.1fm imprescrito − ~%.1fm afastamento (%d período%s) = ~%.1fm'
                    % (window_days / 30.44, afast_days / 30.44, len(afast),
@@ -529,13 +628,24 @@ def cobertura(lines, cadict, caepi=None):
         res.append('afastamentos descontados: '
                    + ' · '.join('%s–%s' % (i.strftime('%d/%m/%Y'), f.strftime('%d/%m/%Y'))
                                 for i, f in afast))
-        mt = TOTAL_EXCL_RE.search(text)        # autoconferência vs "Total excluído" (modelo)
-        if mt and abs(afast_days - int(mt.group(1))) > 15:
-            res.append('⚠ soma do guard (%dd) ≠ "Total excluído" do formulário (%dd) — confira o bloco AFASTAMENTOS'
-                       % (afast_days, int(mt.group(1))))
+        # autoconferência: a soma do guard vs a linha "Total excluído: N dias" (preenchida pelo
+        # modelo, caminho independente). Divergência > 15d = bandeira pro perito.
+        mt = TOTAL_EXCL_RE.search(text)
+        if mt:
+            decl = int(mt.group(1))
+            if abs(afast_days - decl) > 15:
+                res.append('⚠ soma do guard (%dd) ≠ "Total excluído" do formulário (%dd) — confira o bloco AFASTAMENTOS'
+                           % (afast_days, decl))
     if not afast_ok:
         res.append('⚠ bloco AFASTAMENTOS com data ilegível/incompleta — NÃO descontado automaticamente; confira e abata manualmente')
-    return res, _dedup_simple(faltou_vu), (use_date or tem_divisoria), cov_by_agent, gaps_by_agent
+
+    def dedup(xs):
+        seen, out = set(), []
+        for x in xs:
+            if x and x not in seen:
+                seen.add(x); out.append(x)
+        return out
+    return res, dedup(faltou), (use_date or tem_div), cov_by_agent, gaps_by_agent
 
 
 def _clipped_windows(events, win_lo, win_hi):
@@ -624,8 +734,8 @@ def _coverage_gaps(agente, wins):
 
 def _imprescrito_months(text):
     """Meses de EXPOSIÇÃO para o denominador do slot 'cobre X/Y meses' = span do imprescrito
-    (clampado ao fim do contrato) MENOS os afastamentos. Mesma régua do denominador da
-    cobertura() → o slot e o 📐 nunca divergem. ~30,44 dias/mês."""
+    (clampado ao fim do contrato) MENOS os afastamentos. ~30,44 dias/mês. Mesma régua do
+    denominador da cobertura() → o slot e o 📐 nunca divergem."""
     m = IMPRESCRITO_RE.search(text)
     if not m:
         return None
@@ -644,9 +754,15 @@ def _imprescrito_months(text):
     return max(0, days) / 30.44
 
 
-# slot do EPI — RESUMO: "… cobre __/__ meses …". Só casa o vazio (_+) → não sobrescreve
-# número já preenchido (idempotente; preserva edição manual do perito).
-SLOT_RE = re.compile(r'(cobre\s+)_+\s*/\s*_+(\s+meses)', re.I)
+# slot do EPI — RESUMO: "… cobre __/__ meses …" OU um valor já preenchido. O guard é a fonte
+# autoritativa da cobertura do quadro-resumo; portanto ele DEVE sobrescrever números/stati
+# anteriores para impedir divergência entre o slot e o bloco 📐.
+# O grupo de status (⚠…) termina em caractere NÃO-espaço (`[^·\n\s]`) p/ NÃO engolir o espaço
+# antes do "· [ ]✓" seguinte — senão a função não seria idempotente (re-rodar drenava 1 espaço,
+# fazendo o validador acusar divergência falsa entre o slot do guard e o recálculo).
+SLOT_RE = re.compile(
+    r'(cobre\s+)(?:_+|[\d.,]+)\s*/\s*(?:_+|[\d.,]+)(\s+meses)(?:\s+·\s+(?:⚠[^·\n]*[^·\n\s]|cont[ií]nuo,\s*sem\s*gap))?',
+    re.I)
 
 
 def _agent_for_resumo_line(line):
@@ -662,8 +778,8 @@ def fill_inline_coverage(body, cov_by_agent, gaps_by_agent, impr_months):
     """Preenche o slot 'cobre __/__ meses' das linhas do EPI — RESUMO: numerador = cobertura
     calculada do agente; denominador = meses do imprescrito; e ANEXA o status de gap
     (gaps_by_agent) logo após 'meses', ao lado do checkbox — DECISÃO CARREGA O GATILHO. O
-    checkbox de veredicto fica intocado (decisão do perito). SLOT_RE só casa o vazio (_+) →
-    idempotente: re-run não duplica número nem status; preserva edição manual."""
+    checkbox de veredicto fica intocado (decisão do perito). O guard sobrescreve sempre o
+    trecho 'cobre X/Y meses · status' para impedir drift entre resumo e bloco 📐."""
     if not cov_by_agent:
         return body
     gaps_by_agent = gaps_by_agent or {}
@@ -683,12 +799,216 @@ def fill_inline_coverage(body, cov_by_agent, gaps_by_agent, impr_months):
     return '\n'.join(out)
 
 
-# Linha NR-6 "Frequência regular de fornecimento": casa SÓ os dois checkboxes vazios
-# ([ ]Sim [ ]Não) → idempotente (re-run vê o [X] e não mexe; preserva edição do perito).
-# group(1) leva tudo até o "— "; group(2)=espaço entre Sim/Não; group(3)=" · obs:"; o resto
-# (placeholder eventual do Step 2) é descartado.
+# ---- EPI — RESUMO: quantidade·CA·material por slot (guard autoritativo, v1.34) ----
+# O Step 2 (script) deixa os slots vazios (`__un · CA__`, `__potes`, `__pares · __material`…);
+# o guard consolida as entregas do IMPRESCRITO por item e crava quantidade/CA/(material|PFF).
+# NÃO toca o segmento "cobre X/Y meses" (dono = fill_inline_coverage) — o regex de A) só
+# substitui o trecho ANTES de " · cobre". Idempotente: recomputa do zero e o regex casa tanto o
+# placeholder quanto um valor já preenchido. Quem NÃO tem entrega no slot fica com o placeholder.
+
+def _resumo_entregas(lines, cadict, caepi):
+    """Entregas do imprescrito → [(ca, desc, qtd, agente, txt_lower)]. Recorte por DATA (igual
+    cobertura): campo 'Período imprescrito'; fallback divisória ▼/▲; fallback ficha inteira."""
+    text = '\n'.join(lines)
+    impr_a, impr_b = _imprescrito_range(text)
+    tem_div = any('▼' in l for l in lines)
+    use_date = impr_a is not None
+    in_impr = use_date or (not tem_div)
+    out = []
+    for raw in lines:
+        if not use_date:
+            if '▼' in raw:
+                in_impr = True; continue
+            if '▲' in raw:
+                in_impr = False; continue
+        if not in_impr:
+            continue
+        cells = split_row(raw)
+        if not is_data_row(cells):
+            continue
+        if use_date:
+            di = first_date_iso(cells[0])[0]
+            if di is None or di < impr_a or (impr_b and di > impr_b):
+                continue
+        mq = QTY_RE.search(cells[1])
+        qtd = int(mq.group(1)) if mq else 1
+        if qtd > 500:                                   # quantidade irreal = parse errado
+            continue
+        desc = cells[-2]
+        ca = extract_ca(raw)
+        agente, equip = None, ''
+        ov_ag, overridden = cadict_agente(cadict, ca)
+        if overridden:
+            agente = ov_ag
+        if ca and caepi is not None:
+            hit = caepi.get(ca)
+            if hit:
+                if not overridden:                 # override (inclui 'sem agente') vence o CAEPI
+                    agente = hit.get('agente')
+                equip = (hit.get('equipamento') or '').lower()
+        out.append((ca, desc, qtd, agente, desc.lower() + ' ' + equip))
+    return out
+
+
+def _resumo_short(desc):
+    return re.sub(r'\s+', ' ', desc).strip()[:24]
+
+
+def _resumo_group(items, unit='un'):
+    """Agrupa por C.A.: soma qtd, guarda 1 desc curta. Mantém ordem de 1ª aparição.
+    → 'Σqtd<unit> CA <ca> (<short>) + … [+ Σqtd<unit> <short> sem CA]'."""
+    order, agg = [], {}
+    for ca, desc, qtd, ag, txt in items:
+        key = ca if (ca and ca != '—') else None
+        if key not in agg:
+            agg[key] = [0, _resumo_short(desc)]
+            order.append(key)
+        agg[key][0] += qtd
+    parts = []
+    for key in order:
+        q, short = agg[key]
+        if key:
+            parts.append('%d%s CA %s%s' % (q, unit, key, (' (%s)' % short if short else '')))
+        else:
+            parts.append('%d%s %s sem CA' % (q, unit, short or 'item'))
+    return ' + '.join(parts)
+
+
+# Luva "imperm." = só barreira química/umidade (An.10/An.13). Raspa/vaqueta/malha = proteção
+# mecânica (não entram neste slot; aparecem na TABELA EPI completa).
+_IMPERM_KW = ('látex', 'latex', 'nitríl', 'nitril', 'pvc', 'hycron', 'neoprene',
+              'borracha', 'banh', 'tricoflex', 'vinil', 'impermeá', 'impermea')
+
+
+def _resumo_an7_note(items):
+    """Nota seca de discrepância: respirador/PFF que o CAEPI classifica como An.7 (radiação).
+    O perito decide; a prosa de contexto fina vive no CA-dicionario (override curado)."""
+    cas = []
+    for ca, desc, qtd, ag, txt in items:
+        if ca and ca != '—' and ag and 'An.7' in ag and ca not in cas:
+            cas.append(ca)
+    if cas:
+        return ' · ⚠ CA %s = An.7 no CAEPI — perito decide' % '/'.join(cas)
+    return ''
+
+
+# A) slots COM cobertura: substitui só o trecho entre "label: " e " · cobre" (não toca cobertura)
+_RES_PROT_RE = re.compile(r'(•\s*Protetor\s*\(ru[ií]do\):\s*).*?(\s*·\s*cobre)', re.I)
+_RES_CREME_RE = re.compile(r'(•\s*Creme[^:]*:\s*).*?(\s*·\s*cobre)', re.I)
+# B) slots SEM cobertura: substitui o valor até o fim da linha
+_RES_LUVA_RE = re.compile(r'(•\s*Luva\s+imperm\.:\s*).*$', re.I | re.M)
+_RES_MASK_RE = re.compile(r'(•\s*M[aá]scara/resp\.:\s*).*$', re.I | re.M)
+# C) conjunto — marca peça presente na ficha (perito confirma adequação). Só Defensivo An.13 +
+# Umidade An.10 por ora (validados em caso real de pulverização); Solda/Frio = follow-up.
+_RES_DEF_RE = re.compile(r'(•\s*Defensivo An\.13:\s*).*$', re.I | re.M)
+_RES_UMI_RE = re.compile(r'(•\s*Umidade An\.10:\s*).*$', re.I | re.M)
+_RES_FRIO_RE = re.compile(r'(•\s*Frio An\.9:\s*).*$', re.I | re.M)
+
+
+def fill_resumo_items(body, lines, cadict, caepi):
+    """Crava quantidade/CA/material nos slots do EPI — RESUMO a partir das entregas do imprescrito.
+    Idempotente; só preenche slots com entrega; preserva o segmento de cobertura."""
+    entregas = _resumo_entregas(lines, cadict, caepi)
+    if not entregas:
+        return body
+    prot, creme, luva, mask = [], [], [], []
+    for e in entregas:
+        ca, desc, qtd, ag, txt = e
+        if 'solar' in txt and any(k in txt for k in ('creme', 'pomada', 'protet')):
+            continue                                    # protetor solar não é EPI
+        if 'creme' in txt or 'pomada' in txt:
+            creme.append(e)
+        elif ('luva' in txt and any(k in txt for k in _IMPERM_KW)
+              and not any(k in txt for k in ('conjunto', 'macacão', 'macacao'))):
+            luva.append(e)               # luva AVULSA impermeável (conjunto vai pro bloco C)
+        elif any(k in txt for k in ('máscara', 'mascara', 'respirador', 'respiratór',
+                                    'pff', 'semifacial', 'semi-facial')):
+            mask.append(e)
+        elif ag == 'Ruído (An.1)' or 'auric' in txt or 'auditiv' in txt:
+            prot.append(e)
+
+    if prot:
+        body = _RES_PROT_RE.sub(lambda m: m.group(1) + _resumo_group(prot) + m.group(2), body, count=1)
+    if creme:
+        body = _RES_CREME_RE.sub(lambda m: m.group(1) + _resumo_group(creme, unit=' potes') + m.group(2), body, count=1)
+    if luva:
+        mats = [k for k in ('látex', 'latex', 'nitríl', 'nitril', 'pvc', 'vaqueta', 'raspa')
+                if any(k in e[4] for e in luva)]
+        matlabel = (' · ' + ' '.join('[X]%s' % m for m in mats)) if mats else ''
+        fill = _resumo_group(luva) + matlabel
+        body = _RES_LUVA_RE.sub(lambda m: m.group(1) + fill, body, count=1)
+    if mask:
+        pff = [p.upper() for p in ('pff1', 'pff2', 'pff3') if any(p in e[4] for e in mask)]
+        cart = any(('cartucho' in e[4] or 'vapor' in e[4]) for e in mask)
+        marks = ' '.join('[X]%s' % p for p in pff) + (' [X]cartucho VO' if cart else '')
+        marklabel = (' · ' + marks.strip()) if marks.strip() else ''
+        fill = _resumo_group(mask) + marklabel + _resumo_an7_note(mask)
+        body = _RES_MASK_RE.sub(lambda m: m.group(1) + fill, body, count=1)
+
+    # ---- Conjunto C (Defensivo An.13 + Umidade An.10) — marca peça presente + CA ----
+    # Só preenche quando há um item de CONJUNTO na ficha (conjunto/macacão/pulverização/
+    # hidrorepelente) — sinal forte do kit de pulverização/umidade; evita marcar a partir de peça
+    # solta. Mesma luva/bota/resp servem aos dois agentes (perito decide qual aplica).
+    def _find(*kws):
+        for e in entregas:
+            if any(k in e[4] for k in kws):
+                return (e[0] if e[0] and e[0] != '—' else True)   # CA, ou True (achou sem CA)
+        return None
+
+    def _pc(label, *kws):
+        hit = _find(*kws)
+        ca = (' (CA %s)' % hit) if (hit and hit is not True) else ''
+        return '%s[%s]%s' % (label, 'X' if hit else ' ', ca)
+
+    def _pc_luva():
+        for e in entregas:
+            if 'luva' in e[4] and any(k in e[4] for k in _IMPERM_KW) and 'conjunto' not in e[4]:
+                ca = (' (CA %s)' % e[0]) if (e[0] and e[0] != '—') else ''
+                return 'luva[X]%s' % ca
+        return 'luva[ ]'
+
+    if _find('conjunto', 'macacão', 'macacao', 'pulveriz', 'hidrorepel'):
+        defv = ' '.join([
+            _pc('conjunto/pulveriz.', 'conjunto', 'macacão', 'macacao', 'pulveriz', 'hidrorepel'),
+            _pc('bota', 'bota'), _pc_luva(),
+            _pc('resp/PFF2', 'respirador', 'máscara', 'mascara', 'pff', 'respiratór'),
+            _pc('viseira', 'viseira'),
+            _pc('touca árabe', 'touca', 'árabe', 'arabe', 'capuz'),
+        ])
+        body = _RES_DEF_RE.sub(lambda m: m.group(1) + defv, body, count=1)
+        umi = ' '.join([_pc('bota', 'bota'), _pc('avental', 'avental'), _pc_luva()])
+        body = _RES_UMI_RE.sub(lambda m: m.group(1) + umi, body, count=1)
+
+    # Frio An.9 — só com item de frio cold-specific (japona/balaclava). calça/luva/bota só contam
+    # com contexto térmico/frio E excluindo 'altas temperaturas' (que é proteção a CALOR, não frio).
+    _COLD = ('térmic', 'termic', 'frio', 'frigor')
+    if _find('japona', 'balaclava'):
+        def _frio(label, must, need_cold=False):
+            for e in entregas:
+                t = e[4]
+                if must not in t or 'alta' in t:            # 'altas temperaturas' = calor, fora
+                    continue
+                if need_cold and not any(c in t for c in _COLD):
+                    continue
+                ca = (' (CA %s)' % e[0]) if (e[0] and e[0] != '—') else ''
+                return '%s[X]%s' % (label, ca)
+            return '%s[ ]' % label
+        fri = ' '.join([
+            _frio('japona', 'japona'), _frio('calça', 'calça', need_cold=True),
+            _frio('luva', 'luva', need_cold=True), _frio('balaclava', 'balaclava'),
+            _frio('bota', 'bota', need_cold=True),
+        ])
+        body = _RES_FRIO_RE.sub(lambda m: m.group(1) + fri, body, count=1)
+    return body
+
+
+# Linhas NR-6 guard-owned: o guard recalcula e reescreve. group(1) leva tudo até o "— ";
+# group(2)=espaço entre Sim/Não; group(3)=" · obs:"; o resto é descartado.
 NR6_FREQ_RE = re.compile(
-    r'(Frequência regular de fornecimento[^\n]*?—\s*)\[ \]Sim(\s+)\[ \]Não(\s*·\s*obs:)[^\n]*$',
+    r'(Frequ[eê]ncia regular de fornecimento[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
+    re.I | re.M)
+NR6_CA_RE = re.compile(
+    r'(Anota[cç][aã]o do C\.A\., s[oó] EPI certific[aá]vel[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
     re.I | re.M)
 
 
@@ -697,7 +1017,7 @@ def fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent):
     (mesma fonte do slot 'cobre X/Y meses'): janela descoberta material → [X]Não + resumo do gap;
     cobertura contínua → [X]Sim. SEM dado de cobertura (sem protetor/creme na ficha) → não toca
     (perito decide). Step 2 NÃO preenche esta linha — deixa intacta do template; o guard a crava.
-    Idempotente: só age quando os DOIS checkboxes estão vazios."""
+    Idempotente: recalcula a linha inteira a cada run; o guard é o dono desta linha."""
     if not cov_by_agent:
         return body
     gaps_by_agent = gaps_by_agent or {}
@@ -717,12 +1037,60 @@ def fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent):
     return NR6_FREQ_RE.sub(repl, body, count=1)
 
 
-def _dedup_simple(xs):
-    seen, out = set(), []
-    for x in xs:
-        if x and x not in seen:
-            seen.add(x); out.append(x)
-    return out
+def fill_nr6_ca(body):
+    """Crava a linha NR-6 'Anotação do C.A.' com base na ficha.
+
+    Item certificável sem C.A. derruba a linha; item complementar/não-certificável sem C.A.
+    não derruba. O guard é o dono desta linha.
+    """
+    rows = []
+    for raw in body.splitlines():
+        cells = split_row(raw)
+        if not is_data_row(cells):
+            continue
+        rows.append((cells[-2], extract_ca(raw)))
+
+    if not rows:
+        return body
+
+    cert_with_ca = []
+    cert_missing_ca = []
+    noncert_missing_ca = []
+    for desc, ca in rows:
+        if _is_certifiable(desc, ca):
+            if ca:
+                cert_with_ca.append((desc, ca))
+            else:
+                cert_missing_ca.append(desc)
+        elif not ca:
+            noncert_missing_ca.append(desc)
+
+    if not cert_with_ca and not cert_missing_ca:
+        return body
+
+    if cert_missing_ca:
+        mark_sim, mark_nao = ' ', 'X'
+        exemplos = '; '.join(cert_missing_ca[:3])
+        if len(cert_missing_ca) > 3:
+            exemplos += '; ...'
+        obs = ('há EPI certificável sem C.A. informado na ficha; conferir itens como: %s'
+               % exemplos)
+    else:
+        mark_sim, mark_nao = 'X', ' '
+        if noncert_missing_ca:
+            exemplos = '; '.join(noncert_missing_ca[:4])
+            if len(noncert_missing_ca) > 4:
+                exemplos += '; ...'
+            obs = ('C.A.s registrados nos EPIs certificáveis; itens sem C.A. remanescentes '
+                   'aparecem como não-certificáveis/complementares (ex.: %s)' % exemplos)
+        else:
+            obs = 'C.A.s registrados nos EPIs certificáveis da ficha.'
+
+    def repl(m):
+        return '%s[%s]Sim%s[%s]Não%s %s' % (
+            m.group(1), mark_sim, m.group(2), mark_nao, m.group(3), obs)
+
+    return NR6_CA_RE.sub(repl, body, count=1)
 
 
 # Fronteira de seção (próxima seção depois do EPI — RESUMO). Cobre os 2 formatos:
@@ -768,8 +1136,51 @@ def strip_old_block(text):
     return '\n'.join(kept).rstrip() + '\n'
 
 
+# --- garantia do ROTEIRO de áudio no fim do formulário (boilerplate estático) ---
+# O modelo às vezes DROPA a seção final "OBSERVAÇÕES GERAIS / ROTEIRO" ao montar o
+# formulário (parece instrução, não conteúdo). Como é boilerplate fixo, garantimos de
+# forma determinística — lendo do PRÓPRIO template (fonte única, sem drift). Marcador de
+# idempotência: "Mnemônica: Agente" (só existe quando o ROTEIRO está completo).
+ROTEIRO_MARK = 'Mnemônica: Agente'
+OBS_HEADER = '▶ OBSERVAÇÕES GERAIS / IMPRESSÕES IN LOCO'
+SEP = '━' * 20
+
+
+def _roteiro_do_template():
+    """Seção OBSERVAÇÕES GERAIS + ROTEIRO extraída do template (do header até o fim)."""
+    tpath = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         '..', 'prompts', 'template-formulario.md')
+    try:
+        with open(tpath, encoding='utf-8') as f:
+            t = f.read()
+    except OSError:
+        return None
+    i = t.find(OBS_HEADER)
+    if i == -1:
+        return None
+    return SEP + '\n' + t[i:].rstrip('\n')
+
+
+def ensure_roteiro_tail(body):
+    """Garante que o formulário termine com OBSERVAÇÕES GERAIS + ROTEIRO. Se já está completo
+    (marcador presente), não toca. Senão, descarta uma seção OBSERVAÇÕES parcial que tenha
+    sobrado (header sem o ROTEIRO) e anexa o bloco canônico do template."""
+    if ROTEIRO_MARK in body:
+        return body
+    bloco = _roteiro_do_template()
+    if not bloco:
+        return body
+    lines = body.split('\n')
+    cut = next((i for i, ln in enumerate(lines) if OBS_HEADER in ln), None)
+    if cut is not None:                    # remove o header parcial + separador de abertura acima
+        while cut > 0 and (not lines[cut - 1].strip() or set(lines[cut - 1].strip()) <= {'━'}):
+            cut -= 1
+        body = '\n'.join(lines[:cut])
+    return body.rstrip() + '\n\n' + bloco + '\n'
+
+
 # --- linha de EPI dentro da seção FLAGS PARA O PERITO (determinística) ---
-# A skill monta o FLAGS ANTES deste guard rodar → o modelo não tem o período descoberto
+# O Step 2 monta o FLAGS ANTES deste guard rodar → o modelo não tem o período descoberto
 # (calculado aqui) na hora de preencher. Então o guard, dono do fato, injeta/atualiza a linha
 # de EPI dentro do FLAGS. Idempotente: remove a anterior e reinsere logo após o cabeçalho.
 FLAGS_HEADER = '🚩 FLAGS PARA O PERITO'
@@ -783,8 +1194,8 @@ def inject_flags_epi(body, summary):
         return '\n'.join(lines)                  # sem gap → só limpa a linha antiga (se houver)
     h = next((i for i, l in enumerate(lines) if FLAGS_HEADER in l), None)
     if h is None:
-        return '\n'.join(lines)                  # formulário sem seção FLAGS → no-op
-    j = h                                        # insere após o separador ━ que fecha o cabeçalho (se houver)
+        return '\n'.join(lines)                  # formulário sem seção FLAGS (template antigo) → no-op
+    j = h                                        # insere após o separador ━ que fecha o cabeçalho
     for k in range(h + 1, min(h + 4, len(lines))):
         if lines[k].strip() and set(lines[k].strip()) <= {'━'}:
             j = k
@@ -793,19 +1204,9 @@ def inject_flags_epi(body, summary):
     return '\n'.join(lines)
 
 
-def _plugin_version():
-    """Versão do plugin (de ../../.claude-plugin/plugin.json) — ecoada a cada run p/ o operador
-    ver se está na última versão (o update no Cowork é MANUAL; sem isso, roda-se versão velha sem
-    perceber). Silencioso fora do layout do plugin (ex.: o squad do OS não tem plugin.json)."""
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        with open(os.path.join(here, '..', '..', '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
-            return 'v' + json.load(f).get('version', '?')
-    except Exception:
-        return None
-
-
 def resolve_paths(args):
+    # No plugin a base SEMPRE vem como argumento (o diretório de conhecimento sai do
+    # perito-config.json); sem default local, ao contrário do squad do OS.
     caepi_p = dicio_p = None
     for a in args:
         if os.path.isdir(a):
@@ -816,6 +1217,18 @@ def resolve_paths(args):
         elif a.endswith('.json'):
             dicio_p = a
     return caepi_p, dicio_p
+
+
+def _plugin_version():
+    """Versão do plugin (de ../../.claude-plugin/plugin.json) — ecoada a cada run p/ o operador
+    confirmar que está na última (o Cowork cacheia o clone, update é manual). Silencioso fora do
+    layout do plugin (ex.: o squad do OS não tem plugin.json)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        with open(os.path.join(here, '..', '..', '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
+            return json.load(f).get('version')
+    except Exception:
+        return None
 
 
 def main():
@@ -832,17 +1245,25 @@ def main():
 
     with open(path, encoding='utf-8') as f:
         text = f.read()
-    stripped = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
-    src_lines = stripped.splitlines()
-    new_lines, fixes, flags, nao_cat = process(src_lines, cadict, caepi)
+    body = strip_old_block(text)          # remove bloco anterior ANTES de processar (idempotência)
+    src_lines = body.splitlines()
+    classified, flags, nao_cat = process(src_lines, cadict, caepi)
     cob_res, faltou_vu, scoped, cov_by_agent, gaps_by_agent = cobertura(src_lines, cadict, caepi)
-    body = '\n'.join(new_lines)
-    # preenche o slot 'cobre __/__ meses' do EPI — RESUMO com o número calculado (onde o perito lê)
+    # preenche o slot 'cobre __/__ meses' do EPI — RESUMO com o número + status de gap (gatilho ao
+    # lado do checkbox; mesma régua do 📐), onde o perito lê e decide
     body = fill_inline_coverage(body, cov_by_agent, gaps_by_agent, _imprescrito_months(body))
+    # crava quantidade/CA/material nos slots do EPI — RESUMO (Protetor/Creme/Luva/Máscara) a partir
+    # das entregas do imprescrito — substitui o trabalho de consolidação que era do modelo (v1.34).
+    # Não toca o segmento de cobertura preenchido acima.
+    body = fill_resumo_items(body, src_lines, cadict, caepi)
+    # crava a linha NR-6 'Anotação do C.A.' distinguindo EPI certificável de item complementar
+    body = fill_nr6_ca(body)
     # crava a linha NR-6 'Frequência regular de fornecimento' a partir da MESMA cobertura/gaps:
     # gap material → [X]Não; contínuo → [X]Sim; sem ficha de protetor/creme → intacta (perito)
     body = fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent)
-    # injeta o resumo de período descoberto na seção FLAGS (a skill monta o FLAGS antes
+    # garante o ROTEIRO de áudio no fim (o modelo às vezes dropa o boilerplate)
+    body = ensure_roteiro_tail(body)
+    # injeta o resumo de período descoberto na seção FLAGS (o Step 2 monta o FLAGS antes
     # deste guard calcular o gap; aqui o dado é cravado de forma determinística)
     _gap_lines = [l.lstrip() for l in cob_res if l.lstrip().startswith('⚠')]
     _gap_summary = ('; '.join(g.lstrip('⚠').strip().rstrip(':').strip() for g in _gap_lines)
@@ -852,25 +1273,26 @@ def main():
     age = caepi.age_days()
     stale = age is not None and age > 90
 
-    if not fixes and not flags and not nao_cat and not stale and not cob_res and not faltou_vu:
+    if not classified and not flags and not nao_cat and not stale and not cob_res and not faltou_vu:
         with open(path, 'w', encoding='utf-8') as f:
             f.write(body)
-        print('✅ check_epi: nenhuma classificação de EPI suspeita.')
+        print('✅ check_epi: nenhuma entrega de EPI com C.A. para classificar.')
         sys.exit(0)
 
     bloco = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n']
-    if fixes:
-        bloco.append('**🔧 Classificado pelo C.A. — use no quadro-resumo (ignora o nome comercial; a Descrição da ficha NÃO é alterada):**\n')
+    if classified:
+        bloco.append('**🔧 Classificado pelo C.A. — use no quadro-resumo (ignora o nome comercial):**\n')
         bloco.append('| C.A. | Descrição (ficha) | Agente que protege | Fonte |')
         bloco.append('| :--- | :--- | :--- | :---: |')
-        for ca, desc, agente, src in fixes:
+        for ca, desc, agente, src in classified:
             bloco.append('| %s | %s | %s | %s |' % (ca, desc, agente, src))
     if flags:
         bloco.append('\n**🚩 Conferir:**')
         for trecho, msg in flags:
             bloco.append('- ⚠ `%s` → %s' % (trecho, msg))
     if nao_cat:
-        bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (nem no dicionário nem na base CAEPI — verificar e catalogar): ' + ', '.join(nao_cat))
+        bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (nem no dicionário nem na base CAEPI — verificar e catalogar): '
+                     + ', '.join(nao_cat))
     if cob_res:
         bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do imprescrito menos afastamentos, e o boletim do C.A.):**')
         for r in cob_res:
@@ -878,15 +1300,16 @@ def main():
         if not scoped:
             bloco.append('- ⚠ sem campo "Período imprescrito" nem divisória ▼ — cobertura sobre TODA a ficha (pode incluir histórico anterior ao imprescrito).')
     if faltou_vu:
-        bloco.append('\nⓘ Vida útil não cadastrada (cobertura não calculada) p/ C.A./item: ' + ', '.join(faltou_vu)
-                     + ' — cataloque `vida_util_meses` no CA-dicionario.json.')
+        bloco.append('\nⓘ Vida útil não reconhecida (cobertura não calculada) p/: ' + ', '.join(faltou_vu)
+                     + ' — informe o tipo (plug/concha/espuma) ou cadastre `vida_util_meses` por C.A.')
     if stale:
-        bloco.append('\n**⏰ Base CAEPI com %d dias** (build %s) — re-baixe o RelatorioCA do MTE e rode `build_caepi_index.py`.' % (age, caepi.build_date))
+        bloco.append('\n**⏰ Base CAEPI com %d dias** (build %s) — re-baixe o RelatorioCA do MTE e rode `build_caepi_index.py`.'
+                     % (age, caepi.build_date))
     new = insert_block(body, '\n'.join(bloco))
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new)
 
-    for ca, desc, agente, src in fixes:
+    for ca, desc, agente, src in classified:
         print('🔧 C.A. %s → %s [%s]' % (ca, agente, src))
     for trecho, msg in flags:
         print('🚩 %s → %s' % (trecho, msg))
@@ -895,7 +1318,7 @@ def main():
     for r in cob_res:
         print('📐 %s' % r)
     if faltou_vu:
-        print('ⓘ vida útil não cadastrada: %s' % ', '.join(faltou_vu))
+        print('ⓘ vida útil não reconhecida: %s' % ', '.join(faltou_vu))
     if stale:
         print('⏰ CAEPI desatualizado (%d dias)' % age)
     sys.exit(2 if flags else 0)
