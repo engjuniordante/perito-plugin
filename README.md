@@ -1,11 +1,15 @@
 # Perito — plugin de perícia trabalhista (Claude Code / Cowork)
 
 Plugin que automatiza o pipeline de perícia de **insalubridade, periculosidade e ergonomia**
-do Eng. Antonio Carlos Dante Junior, reutilizável por qualquer perito da mentoria.
+do Eng. Antonio Carlos Dante Junior.
 
 O plugin contém **a lógica** (skills + scripts). Os **dados de cada perito** (base de
 conhecimento, templates `.docx`, planilha de agendamento e identidade) ficam na **pasta do
 projeto** que o perito conecta no Cowork, descritos em um `perito-config.json` na raiz dela.
+
+> 📖 **É perito e quer só usar o plugin?** Veja o [**Manual de uso (passo a passo)**](MANUAL.md)
+> — instalação, configuração e cada skill explicada em linguagem simples. Este README é a
+> visão técnica (arquitetura e estrutura).
 
 ## Skills
 
