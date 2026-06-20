@@ -118,6 +118,9 @@ Lógica das fontes: **Inicial = pedido** (o que verificar). **Contestação defe
 **OBSERVAÇÕES GERAIS / DITADO `[subsídio]`:** deixar em branco com o roteiro curto visível.
 
 ## Fechamento (auto-validação Claude-side)
+
+> Gate determinístico (v1.0.48): o `montar_formulario.py` já roda o `validate_form.py` por dentro (após o guard) e trava 3 invariantes SEM token — imprescrito ⊆ contrato (início≥admissão, fim≤demissão), nº do processo form×bundle, e guard de EPI carimbado. O checklist abaixo cobre o que o gate ainda NÃO valida (tipo de laudo, blocos de agente completos, CNAE, etc.).
+
 ```
 ## ✅ AUTO-CHECK DA EXTRAÇÃO
 - TIPO de laudo veio do PEDIDO da Inicial (não da ata)? [Sim/Não]

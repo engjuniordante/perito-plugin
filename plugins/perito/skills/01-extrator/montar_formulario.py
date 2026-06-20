@@ -22,6 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CHECK_EPI = HERE / "check_epi.py"
+VALIDATE = HERE / "validate_form.py"
 
 SUBSEC_RE = re.compile(r"^▶\s*(.+?)\s*$", re.M)
 DATE_ROW_RE = re.compile(r"^\|\s*\d{2}/\d{2}/\d{4}\s*\|")
@@ -617,6 +618,7 @@ def main() -> int:
     ap.add_argument("bundle", help="bundle .md com os 5 outputs do NotebookLM (fluxo ▶)")
     ap.add_argument("-o", "--output", required=True, help="arquivo final .md")
     ap.add_argument("--skip-guard", action="store_true", help="não roda check_epi.py")
+    ap.add_argument("--skip-validate", action="store_true", help="não roda validate_form.py (gate)")
     ap.add_argument("--base", default=None, help="diretório da base de conhecimento (04-EPIs)")
     args = ap.parse_args()
 
@@ -634,6 +636,9 @@ def main() -> int:
         if args.base:
             cmd.append(args.base)
         subprocess.run(cmd, check=False)
+    # gate determinístico (após o guard, que carimba o form) — invariantes de imprescrito/processo/guard
+    if not args.skip_validate:
+        subprocess.run([sys.executable, str(VALIDATE), str(out_path), str(bundle_path)], check=False)
     return 0
 
 
