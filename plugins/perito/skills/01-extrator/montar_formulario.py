@@ -71,6 +71,36 @@ def blank_if_nl(v: str) -> str:
     return "" if (not v or is_nao_localizado(v)) else cleanup_value(v)
 
 
+def _iso(d: str) -> str:
+    """DD/MM/AAAA → AAAA-MM-DD (comparável). Vazio/inválido → ''."""
+    m = re.match(r"(\d{2})/(\d{2})/(\d{4})", d or "")
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else ""
+
+
+def clamp_imprescrito(periodo_impr: str, periodo_trab: str) -> str:
+    """Imprescrito recortado ao contrato — DETERMINÍSTICO, não confia no recorte do NLM.
+    A prescrição quinquenal recua até (ação−5 anos), mas não há vínculo — logo, nem exposição
+    nem EPI — antes da admissão nem depois da demissão. Portanto:
+        início = max(início_extraído, admissão)   ·   fim = min(fim_extraído, demissão)
+    Sem isso, um imprescrito-início pré-admissão do NLM (ex.: '24/08/2020 a 24/08/2025' calculado
+    como 5 anos da data da ação sem recortar ao pacto 09/03/2022–15/04/2025) infla o denominador de
+    cobertura e cria 'gap' fantasma pré-emprego no guard de EPI."""
+    if not periodo_impr:
+        return periodo_impr
+    trab = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_trab or "")
+    adm = trab[0] if trab else ""
+    dem = trab[-1] if len(trab) > 1 else ""
+    impr = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_impr)
+    if not impr:
+        return periodo_impr
+    ini, fim = impr[0], (impr[-1] if len(impr) > 1 else "")
+    if adm and _iso(adm) > _iso(ini):
+        ini = adm
+    if dem and (not fim or _iso(fim) > _iso(dem)):
+        fim = dem
+    return f"de {ini} até {fim}" if (ini and fim) else periodo_impr
+
+
 def parse_ficha_rows(ficha_block: str) -> list[str]:
     """Linhas da ficha (tabela markdown) → bullets '- Data · Qtd · Descrição · CA NNN',
     SÓ o período imprescrito (abaixo da divisória ▼)."""
@@ -212,7 +242,8 @@ def build_form(bundle_path: Path) -> str:
     ident_render = "\n".join(ident_lines)
     periodo_trab = cleanup_value(bullet_value(ident_block, "Período trabalhado")) \
         or cleanup_value(bullet_value(ident_block, "Período trabalhado (geral)"))
-    periodo_impr = cleanup_value(bullet_value(ident_block, "Período imprescrito"))
+    periodo_impr = clamp_imprescrito(
+        cleanup_value(bullet_value(ident_block, "Período imprescrito")), periodo_trab)
 
     esc_idx = first_checked_label(escopo_block, ["todo o período", "somente o período imprescrito"])
     esc_marks = [" ", " "]

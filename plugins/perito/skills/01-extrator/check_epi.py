@@ -382,11 +382,28 @@ def _contract_end(text):
     return first_date_iso(m.group(2))[0] if m else None
 
 
+def _contract_start(text):
+    """Início do período trabalhado (admissão) em ISO, ou None. O imprescrito NÃO pode começar
+    antes da admissão — não há vínculo (logo, nem exposição nem EPI) antes do contrato."""
+    m = PERIODO_TRAB_RE.search(text)
+    return first_date_iso(m.group(1))[0] if m else None
+
+
 def _clamp_impr_end(text, impr_b_iso):
     """Recorta o fim do imprescrito ao fim do contrato quando este vem ANTES (a prescrição
     quinquenal vai até a data da ação, mas a exposição acaba na demissão). Contrato ativo → intacto."""
     ce = _contract_end(text)
     return ce if (impr_b_iso and ce and ce < impr_b_iso) else impr_b_iso
+
+
+def _clamp_impr_start(text, impr_a_iso):
+    """Recorta o início do imprescrito ao início do contrato quando o imprescrito começa ANTES da
+    admissão. Espelha _clamp_impr_end na outra ponta. A prescrição quinquenal recua até (ação−5
+    anos), mas não há vínculo antes da admissão: um imprescrito-início pré-admissão (NLM aplicando
+    '5 anos da data da ação' sem recortar ao pacto) infla o denominador de cobertura e cria 'gap'
+    fantasma pré-emprego. Determinístico — o cálculo do imprescrito não é julgamento, é data."""
+    cs = _contract_start(text)
+    return cs if (impr_a_iso and cs and cs > impr_a_iso) else impr_a_iso
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do
 # pacto, quando o contrato é recente e cabe inteiro na prescrição). Essa janela resgata
 # a entrega de admissão sem readmitir histórico de função/período anterior — que, quando
@@ -401,7 +418,7 @@ def _imprescrito_range(text):
     m = IMPRESCRITO_RE.search(text)
     if not m:
         return None, None
-    ini = first_date_iso(m.group(1))[0]
+    ini = _clamp_impr_start(text, first_date_iso(m.group(1))[0])  # nunca antes da admissão
     if ini:
         try:
             ini = (date.fromisoformat(ini) - timedelta(days=IMPRESC_GRACE_DAYS)).isoformat()
@@ -740,6 +757,7 @@ def _imprescrito_months(text):
     if not m:
         return None
     a, b = first_date_iso(m.group(1))[0], first_date_iso(m.group(2))[0]
+    a = _clamp_impr_start(text, a)        # denominador não conta meses antes da admissão
     b = _clamp_impr_end(text, b)          # denominador não conta meses após a demissão
     if not (a and b):
         return None

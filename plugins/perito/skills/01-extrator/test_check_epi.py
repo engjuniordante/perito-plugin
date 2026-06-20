@@ -264,6 +264,31 @@ def t10_clamp_fim_contrato():
     check(meses2 is not None and meses2 > 58.0, "sem campo de contrato → sem clamp (~60m): %.1f" % (meses2 or -1))
 
 
+def t10b_clamp_inicio_admissao():
+    print("T10b — clamp do início do imprescrito à admissão (sem gap fantasma pré-emprego)")
+    # Caso real Rafael × MAHLE (0015098-90, 20/06): o NLM devolveu o imprescrito como '5 anos da
+    # data da ação' (24/08/2020 a 24/08/2025) SEM recortar ao pacto (admissão 09/03/2022). Sem o
+    # clamp de início, 24/08/2020→09/03/2022 (pré-admissão) entra como 'descoberto' e infla o gap.
+    ent = ["• 09/03/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+           "• 01/09/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+           "• 02/01/2024 · 1un · PROT AURIC SILICONE · CA 5745"]
+    base = ["Período imprescrito: ★ de 24/08/2020 até 24/08/2025",
+            "Período trabalhado: de 09/03/2022 até 15/04/2025",
+            "TABELA DE FORNECIMENTO DE EPIs"] + ent + ["▶ OBSERVAÇÕES GERAIS"]
+    # (a) denominador parte da ADMISSÃO (~37m de pacto), não dos 5 anos da ação (~60m)
+    meses = ce._imprescrito_months("\n".join(base))
+    check(meses is not None and 36.0 < meses < 40.0,
+          "denominador recortado à admissão (~38m, não ~60): %.1f" % (meses or -1))
+    # (b) nenhuma janela de gap começa antes da admissão (zero datas de 2020/2021)
+    res, faltou, scoped, cov, gaps = ce.cobertura(base, {}, FAKE)
+    check(not any(("/2020" in x or "/2021" in x) for x in res),
+          "nenhum gap pré-admissão (zero /2020 e /2021): %r" % res)
+    # (c) CONTROLE — sem "Período trabalhado", sem clamp: janela parte de 2020 (~60m)
+    semtrab = [l for l in base if not l.startswith("Período trabalhado")]
+    meses2 = ce._imprescrito_months("\n".join(semtrab))
+    check(meses2 is not None and meses2 > 58.0, "sem campo de contrato → sem clamp (~60m): %.1f" % (meses2 or -1))
+
+
 # T11 — desconto automático de afastamento (exposição = imprescrito − afastamento)
 def t11_desconto_afastamento():
     print("T11 — desconto automático de afastamento (Opção 1, à prova de erro)")
@@ -466,7 +491,7 @@ def main():
               t9b_nr6_ca,
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,
-              t10_clamp_fim_contrato, t11_desconto_afastamento):
+              t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento):
         t()
     print()
     if FALHAS:

@@ -81,7 +81,7 @@ Papel:
 
 - Período trabalhado: de ____ até ____
 - Turno: `[interno]`
-- **Período imprescrito ★:** de ____ até ____
+- **Período imprescrito ★:** de ____ até ____ *(RECORTE AO CONTRATO: início = a MAIOR data entre [ação − 5 anos] e a admissão; fim = a MENOR data entre a ação e a demissão. Quando todo o pacto cabe nos 5 anos, o imprescrito é o próprio período trabalhado — nunca antes da admissão nem depois da demissão.)*
 
 ### ▶ Escopo da avaliação *(conforme ata — vai ao laudo)*
 - [ ] Será avaliado **todo o período laboral**. Esse geralmente é para laudo ergonomico apenas
