@@ -78,30 +78,50 @@ def _iso(d: str) -> str:
     return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else ""
 
 
-def clamp_imprescrito(periodo_impr: str, periodo_trab: str) -> str:
-    """Imprescrito recortado ao contrato — DETERMINÍSTICO e ORDEM-INDEPENDENTE.
-    A prescrição quinquenal recua até (ação−5 anos), mas não há vínculo — logo, nem exposição
-    nem EPI — antes da admissão nem depois da demissão. Cada data é recortada ao pacto e então o
-    início é o MENOR e o fim é o MAIOR: recorta(d) = min(max(d, admissão), demissão).
-    Tomar min/max (e não 'primeira/última data no texto') torna o recorte imune à ORDEM em que o
-    NLM escreve as datas. O bug (VILCINEI × VFX/SYLVAMO): o marco quinquenal (ex.: 16/09/2020) caía
-    na posição de 'fim' do texto — prosa 'a partir de 01/05/2025, retroagindo a 16/09/2020' ou datas
-    reversas — e o clamp unidirecional (que só puxava o fim p/ BAIXO) deixava o imprescrito
-    INVERTIDO. Com min/max após recorte, qualquer fraseado converge p/ o intervalo do contrato.
-    Data única = marco de início ('a partir de…') → fim cai na demissão."""
-    if not periodo_impr:
+def _menos_cinco_anos(d: str) -> str:
+    """DD/MM/AAAA − 5 anos, em DD/MM/AAAA. Marco da prescrição quinquenal (CLT 7º XXIX).
+    29/02 em ano-alvo não-bissexto → 28/02. Vazio/inválido → ''."""
+    m = re.match(r"(\d{2})/(\d{2})/(\d{4})", d or "")
+    if not m:
+        return ""
+    dd, mm, yy = int(m.group(1)), int(m.group(2)), int(m.group(3)) - 5
+    try:
+        return date(yy, mm, dd).strftime("%d/%m/%Y")
+    except ValueError:
+        return date(yy, mm, 28).strftime("%d/%m/%Y")
+
+
+def clamp_imprescrito(periodo_impr: str, periodo_trab: str, data_acao: str = "") -> str:
+    """Imprescrito DETERMINÍSTICO — ORDEM-INDEPENDENTE e com PISO QUINQUENAL calculado.
+    A prescrição quinquenal (CLT 7º XXIX) recua até (ação−5 anos); não há vínculo — logo, nem
+    exposição nem EPI — antes da admissão nem depois da demissão. O início legal é:
+        início = max(admissão, ação−5 anos)   ·   fim = demissão
+    Com a Data da ação disponível, o início é CONTA (piso = max[admissão, marco]), não palpite do NLM:
+    contrato ≤5 anos → marco cai antes da admissão → pacto inteiro; >5 anos → o marco manda e um marco
+    ERRADO do NLM dentro do contrato é forçado ao correto. Sem a Data da ação, cai no modo recorte:
+    cada data clampada ao pacto, min=início/max=fim (imune à ordem do NLM — o bug VILCINEI era o marco
+    cair na posição de 'fim' e inverter o período). Data única = marco de início → fim cai na demissão."""
+    if not periodo_impr and not data_acao:
         return periodo_impr
     trab = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_trab or "")
     adm = trab[0] if trab else ""
     dem = trab[-1] if len(trab) > 1 else ""
+    # PISO QUINQUENAL determinístico: o início nunca recua além de (ação − 5 anos)
+    acao = re.findall(r"\d{2}/\d{2}/\d{4}", data_acao or "")
+    marco = _menos_cinco_anos(acao[0]) if acao else ""
+    piso = adm
+    if marco and (not adm or _iso(marco) > _iso(adm)):
+        piso = marco
     impr = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_impr)
     if not impr:
+        if piso and dem:
+            return f"de {piso} até {dem}"
         return periodo_impr
 
     def _clamp(d: str) -> str:
         di = _iso(d)
-        if adm and di < _iso(adm):
-            return adm
+        if piso and di < _iso(piso):
+            return piso
         if dem and di > _iso(dem):
             return dem
         return d
@@ -111,6 +131,9 @@ def clamp_imprescrito(periodo_impr: str, periodo_trab: str) -> str:
         ini, fim = clamped[0], (dem or clamped[0])
     else:
         ini, fim = min(clamped, key=_iso), max(clamped, key=_iso)
+    # com a Data da ação, o início é cravado no piso (não confia no recorte do NLM p/ a ponta esquerda)
+    if marco and piso:
+        ini = piso
     return f"de {ini} até {fim}" if (ini and fim) else periodo_impr
 
 
@@ -256,7 +279,7 @@ def build_form(bundle_path: Path) -> str:
     periodo_trab = cleanup_value(bullet_value(ident_block, "Período trabalhado")) \
         or cleanup_value(bullet_value(ident_block, "Período trabalhado (geral)"))
     periodo_impr = clamp_imprescrito(
-        cleanup_value(bullet_value(ident_block, "Período imprescrito")), periodo_trab)
+        cleanup_value(bullet_value(ident_block, "Período imprescrito")), periodo_trab, autuacao)
 
     esc_idx = first_checked_label(escopo_block, ["todo o período", "somente o período imprescrito"])
     esc_marks = [" ", " "]

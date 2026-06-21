@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_epi as ce
+from montar_formulario import _menos_cinco_anos
 
 
 PROC_RE = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
@@ -49,6 +50,18 @@ def validate_imprescrito_sanity(form_text: str, findings: list[str]) -> None:
     if impr_b and dem and impr_b > dem:
         findings.append(f'Imprescrito termina DEPOIS da demissão (fim {mi.group(2)} > demissão {mt.group(2)}) '
                         '— sem exposição após a saída; recorte ao contrato falhou.')
+    # B1d — piso quinquenal: havendo Data da ação, o início TEM de ser max(admissão, ação−5 anos).
+    # Pega divergência do NLM (marco errado dentro do contrato, que as 3 travas de bound não veem).
+    ma = re.search(r'Data da ação:\s*(\d{2}/\d{2}/\d{4})', form_text)
+    if ma and impr_a and adm:
+        marco_br = _menos_cinco_anos(ma.group(1))
+        marco = ce.first_date_iso(marco_br)[0]
+        if marco:
+            piso, piso_br = (marco, marco_br) if marco > adm else (adm, mt.group(1)[:10])
+            if impr_a != piso:
+                findings.append(f'Imprescrito-início {mi.group(1)} ≠ piso quinquenal '
+                                f'max[admissão {mt.group(1)[:10]}, ação {ma.group(1)}−5a={marco_br}] = {piso_br} '
+                                '— conferir Data da ação × marco; possível erro do NLM no início.')
 
 
 def validate_process_identity(form_text: str, bundle_text: str, findings: list[str]) -> None:

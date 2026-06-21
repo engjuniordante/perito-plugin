@@ -67,10 +67,33 @@ def main():
             check(not inverte, f"sem inversão: {out}")
 
     print("I4 — vazio intacto; data interior (afastamento) não move min/max")
-    check(mf.clamp_imprescrito("", TRAB_V) == "", "vazio → devolve intacto")
+    check(mf.clamp_imprescrito("", TRAB_V) == "", "vazio sem ação → devolve intacto")
     interior = mf.clamp_imprescrito("de 09/03/2022 até 15/04/2025 (afast. 01/01/2023)",
                                     "de 09/03/2022 até 15/04/2025")
     check(interior == "de 09/03/2022 até 15/04/2025", f"data interior ignorada → {interior}")
+
+    print("I5 — PISO QUINQUENAL determinístico (com Data da ação): início = max(admissão, ação−5a)")
+    C = mf.clamp_imprescrito
+    check(C("06/09/2020 a 15/08/2024", TRAB_K, "06/09/2025") == ESP_K, "KELLY: NLM certo confirmado")
+    check(C("01/01/2021 a 15/08/2024", TRAB_K, "06/09/2025") == ESP_K, "KELLY: NLM ERRADO → forçado ao piso 06/09/2020")
+    check(C("", TRAB_K, "06/09/2025") == ESP_K, "KELLY: sem valor do NLM → montado do contrato+ação")
+    check(C("24/08/2020 a 24/08/2025", "de 09/03/2022 até 15/04/2025", "24/08/2025")
+          == "de 09/03/2022 até 15/04/2025", "RAFAEL: marco pré-admissão → pacto inteiro")
+    check(C("de 01/05/2025 até 16/09/2020", TRAB_V, "16/09/2025") == ESP_V, "VILCINEI: invertido+ação → pacto inteiro")
+    check(mf._menos_cinco_anos("29/02/2024") == "28/02/2019", "edge 29/02/2024−5a → 28/02/2019")
+
+    print("I6 — 4ª invariante B1 (validate_form): início ≠ piso quinquenal → flag")
+    import validate_form as vf
+    bad = ("Data da ação: 06/09/2025 [interno]\n"
+           "Período trabalhado: de 18/09/2009 até 15/08/2024\n"
+           "Período imprescrito: ★ de 01/01/2021 até 15/08/2024\n")
+    f = []; vf.validate_imprescrito_sanity(bad, f)
+    check(any("piso quinquenal" in x for x in f), "KELLY com início errado (01/01/2021) → flag de piso")
+    good = ("Data da ação: 06/09/2025 [interno]\n"
+            "Período trabalhado: de 18/09/2009 até 15/08/2024\n"
+            "Período imprescrito: ★ de 06/09/2020 até 15/08/2024\n")
+    f = []; vf.validate_imprescrito_sanity(good, f)
+    check(not f, "KELLY com início no piso (06/09/2020) → sem flag")
 
     print()
     if FALHAS:
