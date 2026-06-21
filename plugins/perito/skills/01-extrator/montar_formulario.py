@@ -79,13 +79,16 @@ def _iso(d: str) -> str:
 
 
 def clamp_imprescrito(periodo_impr: str, periodo_trab: str) -> str:
-    """Imprescrito recortado ao contrato — DETERMINÍSTICO, não confia no recorte do NLM.
+    """Imprescrito recortado ao contrato — DETERMINÍSTICO e ORDEM-INDEPENDENTE.
     A prescrição quinquenal recua até (ação−5 anos), mas não há vínculo — logo, nem exposição
-    nem EPI — antes da admissão nem depois da demissão. Portanto:
-        início = max(início_extraído, admissão)   ·   fim = min(fim_extraído, demissão)
-    Sem isso, um imprescrito-início pré-admissão do NLM (ex.: '24/08/2020 a 24/08/2025' calculado
-    como 5 anos da data da ação sem recortar ao pacto 09/03/2022–15/04/2025) infla o denominador de
-    cobertura e cria 'gap' fantasma pré-emprego no guard de EPI."""
+    nem EPI — antes da admissão nem depois da demissão. Cada data é recortada ao pacto e então o
+    início é o MENOR e o fim é o MAIOR: recorta(d) = min(max(d, admissão), demissão).
+    Tomar min/max (e não 'primeira/última data no texto') torna o recorte imune à ORDEM em que o
+    NLM escreve as datas. O bug (VILCINEI × VFX/SYLVAMO): o marco quinquenal (ex.: 16/09/2020) caía
+    na posição de 'fim' do texto — prosa 'a partir de 01/05/2025, retroagindo a 16/09/2020' ou datas
+    reversas — e o clamp unidirecional (que só puxava o fim p/ BAIXO) deixava o imprescrito
+    INVERTIDO. Com min/max após recorte, qualquer fraseado converge p/ o intervalo do contrato.
+    Data única = marco de início ('a partir de…') → fim cai na demissão."""
     if not periodo_impr:
         return periodo_impr
     trab = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_trab or "")
@@ -94,11 +97,20 @@ def clamp_imprescrito(periodo_impr: str, periodo_trab: str) -> str:
     impr = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_impr)
     if not impr:
         return periodo_impr
-    ini, fim = impr[0], (impr[-1] if len(impr) > 1 else "")
-    if adm and _iso(adm) > _iso(ini):
-        ini = adm
-    if dem and (not fim or _iso(fim) > _iso(dem)):
-        fim = dem
+
+    def _clamp(d: str) -> str:
+        di = _iso(d)
+        if adm and di < _iso(adm):
+            return adm
+        if dem and di > _iso(dem):
+            return dem
+        return d
+
+    clamped = [_clamp(d) for d in impr]
+    if len(impr) == 1:
+        ini, fim = clamped[0], (dem or clamped[0])
+    else:
+        ini, fim = min(clamped, key=_iso), max(clamped, key=_iso)
     return f"de {ini} até {fim}" if (ini and fim) else periodo_impr
 
 
