@@ -250,9 +250,13 @@ def build(template_path, data_path, out_path, *epi_paths):
 
     # ---- validações ----
     full = '\n'.join(p.text for p in all_paragraphs(doc))
-    residual = sorted(set(re.findall(r'\{\{[^}]+\}\}', full)))
-    if residual:
-        warnings.append('MARCADORES RESIDUAIS: ' + ', '.join(residual))
+    # GATE DE MARCADOR ÓRFÃO (paridade com o squad laudo-pericial v2.1): qualquer
+    # {{CAMPO}} que sobrou = laudo incompleto. Mantido FORA de `warnings` para ganhar
+    # bloco próprio e explícito no relatório (não enterrado entre avisos de EPI) e
+    # ainda assim bloquear a saída (exit 2) — só avisar não basta, senão o laudo
+    # incompleto é declarado concluído. all_paragraphs cobre corpo + tabelas
+    # (aninhadas) + header/footer (mais amplo que o scan_orphans do squad).
+    orphans = sorted(set(re.findall(r'\{\{[^}]+\}\}', full)))
     perito = data.get('perito_nome', 'Irineu de Freitas Branco Junior')
     if perito not in full:
         warnings.append('IDENTIDADE: nome do perito (%s) não encontrado no documento' % perito)
@@ -273,6 +277,9 @@ def build(template_path, data_path, out_path, *epi_paths):
           % (n_paras, n_tbls, ident_rows, epi_rows, vib_rows))
     if auto:
         print('Agentes AUSENTES preenchidos pelo script: %d/%d' % (len(auto), 21))
+    if orphans:
+        print('\n❌ LAUDO INCOMPLETO — %d marcador(es) órfão(s): %s' % (len(orphans), ', '.join(orphans)))
+        print('   Corrigir o JSON (campos faltando) e re-gerar — NÃO entregar este .docx.')
     if warnings:
         print('\n⚠ AVISOS (corrija o JSON e rode de novo):')
         for w in warnings: print('  -', w)
@@ -286,15 +293,15 @@ def build(template_path, data_path, out_path, *epi_paths):
             print('  - %s → %s' % (trecho, msg))
     if epi_naocat:
         print('\n📇 EPI — C.A. NÃO CATALOGADOS (adicione ao CA-dicionario.json): %s' % ', '.join(epi_naocat))
-    if not warnings and not epi_flags:
+    if not orphans and not warnings and not epi_flags:
         if epi_fixes:
             print('\n✅ DOCUMENTO GERADO — creme(s) auto-corrigido(s) para An.13 (acima); nada mais pendente.')
         else:
             print('✅ VALIDAÇÃO OK: sem marcador residual, identidade do perito presente, sem vazamento.')
         print('✅ verificação encerrada. NÃO reabra/dumpe o .docx: ele é render determinístico do JSON já conferido.')
-    elif not warnings and epi_flags:
+    elif not orphans and not warnings and epi_flags:
         print('\n⚠ DOCUMENTO GERADO, mas há classificação(ões) de EPI a confirmar pelo C.A. acima — revise ANTES de assinar.')
-    return not warnings
+    return not warnings and not orphans
 
 def build_vibracao_table(doc, linhas):
     ph = None

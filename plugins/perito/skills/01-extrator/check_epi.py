@@ -440,6 +440,7 @@ def _afastamentos(text):
     boundary) — imune ao 'De:/até:' de COVID do agente M, que fica fora da seção. Para cada linha
     'De:', as 2 primeiras datas = (início, fim). Retorna (intervalos, ok): ok=False se alguma linha
     'De:' tiver data ilegível/incompleta → o chamador NÃO desconta (degrada pro manual) e avisa.
+    Linha 'De:  até:  motivo:' VAZIA (0 datas) = placeholder do template → ignorada, não conta.
     Sem seção / sem linha 'De:' → ([], True) = no-op (a maioria dos processos)."""
     lines = text.split('\n')
     h = next((i for i, l in enumerate(lines) if AFAST_HEADER_RE.search(l)), None)
@@ -451,8 +452,10 @@ def _afastamentos(text):
         if not DE_LINE_RE.match(l):
             continue                       # ignora 'Total excluído:' e linhas soltas
         ds = FULLDATE_RE.findall(l)
+        if len(ds) == 0:
+            continue                       # 'De:  até:  motivo:' vazio = placeholder do template → ignora
         if len(ds) < 2:
-            ok = False                     # linha de afastamento sem as 2 datas → suspeita
+            ok = False                     # afastamento de verdade com 1 data só → ilegível/incompleto → manual
             continue
         try:
             ini, fim = (date.fromisoformat(first_date_iso(ds[0])[0]),
