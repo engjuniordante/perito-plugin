@@ -17,7 +17,7 @@ import argparse
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -27,6 +27,10 @@ VALIDATE = HERE / "validate_form.py"
 SUBSEC_RE = re.compile(r"^▶\s*(.+?)\s*$", re.M)
 DATE_ROW_RE = re.compile(r"^\|\s*\d{2}/\d{2}/\d{4}\s*\|")
 DIVISORIA = "▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO"
+# EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do pacto,
+# quando o contrato cabe inteiro na prescrição). Esta janela resgata a entrega de admissão sem
+# readmitir histórico anterior. Espelha IMPRESC_GRACE_DAYS do check_epi.py.
+IMPRESC_GRACE_DAYS = 31
 
 
 # ── parsing do bundle (fluxo flat de ▶) ─────────────────────────────────────────
@@ -137,29 +141,73 @@ def clamp_imprescrito(periodo_impr: str, periodo_trab: str, data_acao: str = "")
     return f"de {ini} até {fim}" if (ini and fim) else periodo_impr
 
 
-def parse_ficha_rows(ficha_block: str) -> list[str]:
-    """Linhas da ficha (tabela markdown) → bullets '- Data · Qtd · Descrição · CA NNN',
-    SÓ o período imprescrito (abaixo da divisória ▼)."""
+def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str = "") -> list[str]:
+    """Linhas da ficha (tabela markdown) → bullets '- Data · Qtd · Descrição · CA NNN', recortadas
+    ao período imprescrito.
+
+    Recorte por DATA, igual ao check_epi.py: mantém a entrega cuja data cai em
+    [início_imprescrito − GRACE, demissão]. `impr_start`/`contract_end` chegam do `periodo_impr`
+    DETERMINÍSTICO (clamp_imprescrito: max(admissão, ação−5anos) … demissão) — NÃO do marcador ▼ do
+    NLM. Fecha o ponto cego do montador: dependendo só do ▼, se o NLM não o emitia a tabela inundava
+    com histórico pré-vínculo, e a EPI de admissão acima do ▼ sumia (sem janela de graça). FALLBACK
+    gracioso: sem janela determinística, volta ao recorte legado pelo ▼.
+
+    FICHA 100% PRÉ-IMPRESCRITO: ficha COM entregas mas TODAS fora da janela → o recorte legítimo
+    zera a tabela. Em vez de devolver vazio (que parece 'EPI não carregou'), emite uma linha de
+    ACHADO explícita — a ficha não neutraliza o período em análise."""
     rows: list[str] = []
+    all_dates: list[str] = []
+    win_lo = ""
+    win_hi = _iso(contract_end)
+    if impr_start:
+        try:
+            win_lo = (datetime.strptime(impr_start, "%d/%m/%Y").date()
+                      - timedelta(days=IMPRESC_GRACE_DAYS)).isoformat()
+        except ValueError:
+            win_lo = ""
+    deterministic = bool(win_lo)
+
     after_split = False
     divider_seen = DIVISORIA in ficha_block
     for raw in ficha_block.splitlines():
         if DIVISORIA in raw:
             after_split = True
             continue
-        if divider_seen and not after_split:
-            continue
         if DATE_ROW_RE.match(raw.strip()):
             cells = [c.strip() for c in raw.strip().strip("|").split("|")]
             if len(cells) < 4:
                 continue
             data, qty, desc, ca = cells[0], cells[1], cells[2], cells[3]
+            all_dates.append(data)
+            if deterministic:
+                di = _iso(data)
+                if not di or di < win_lo or (win_hi and di > win_hi):
+                    continue
+            elif divider_seen and not after_split:
+                continue  # legado: sem janela determinística, recorta pelo ▼
             qty_fmt = qty if re.search(r"[A-Za-zÀ-ÿ]", qty) else f"{qty}un"
             if not ca or "não informado" in ca.lower() or "nao informado" in ca.lower():
                 ca_fmt = "CA não informado"
             else:
                 ca_fmt = f"CA {ca}"
             rows.append(f"- {data} · {qty_fmt} · {desc} · {ca_fmt}")
+
+    if deterministic and not rows and all_dates:
+        isos = sorted(d for d in map(_iso, all_dates) if d)
+        if isos:
+            def _br(iso: str) -> str:
+                return f"{iso[8:10]}/{iso[5:7]}/{iso[0:4]}"
+            n = len(all_dates)
+            faixa = _br(isos[0]) if n == 1 else f"{_br(isos[0])}–{_br(isos[-1])}"
+            if isos[-1] < win_lo:
+                rows.append(
+                    f"- ⚠ NENHUMA entrega de EPI no período imprescrito: as {n} entregas da ficha "
+                    f"({faixa}) são todas ANTERIORES ao início do imprescrito ({impr_start}) — "
+                    f"a ficha não neutraliza o período em análise.")
+            else:
+                rows.append(
+                    f"- ⚠ NENHUMA das {n} entregas da ficha ({faixa}) cai no período imprescrito "
+                    f"({impr_start} … {contract_end or 'contrato em curso'}) — não neutraliza o período.")
     return rows
 
 
@@ -309,7 +357,12 @@ def build_form(bundle_path: Path) -> str:
     controle_line = next((l for l in evid_block.splitlines() if "controle de entrega" in l.lower()), "")
     treino_sim = bool(re.search(r"\[\s*[xX]\s*\]\s*Sim", treino_line))
     controle_sim = bool(re.search(r"\[\s*[xX]\s*\]\s*Sim", controle_line))
-    ficha_rows = parse_ficha_rows(ficha_block)
+    # Janela do imprescrito DETERMINÍSTICA (não depende do ▼ do NLM): início = 1ª data do
+    # periodo_impr (max(admissão, ação−5anos)); fim = demissão. Mesmo anchor do check_epi.
+    _impr_dates = re.findall(r"\d{2}/\d{2}/\d{4}", periodo_impr)
+    _impr_ini = _impr_dates[0] if _impr_dates else ""
+    _impr_fim = _impr_dates[-1] if len(_impr_dates) > 1 else ""
+    ficha_rows = parse_ficha_rows(ficha_block, _impr_ini, _impr_fim)
     ficha_render = "\n".join(ficha_rows) if ficha_rows else "- ____ · ____ · ____ · CA ____"
 
     nr6 = parse_nr6_table(nr6_block)
