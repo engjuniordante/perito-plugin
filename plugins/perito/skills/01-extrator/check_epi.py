@@ -1295,6 +1295,30 @@ def main():
     stale = age is not None and age > 90
 
     if not classified and not flags and not nao_cat and not stale and not cob_res and not faltou_vu:
+        # Ficha COM C.A. mas tudo mecânico/geral (nao_correlacionar na base) NÃO é
+        # "ficha sem C.A.". É munição: a ré forneceu EPI, mas nenhum classifica p/
+        # agente NR-15 (luva mecânica 8 fios, vestimenta, óculos, balaclava, botina).
+        # Caso recorrente em perícia rural (An.13 agrotóxico / An.3 calor) — não enterrar.
+        mecanicos = []
+        for raw in src_lines:
+            cells = split_row(raw)
+            if is_data_row(cells) and extract_ca(raw):
+                mecanicos.append(cells[-2].strip())
+        if mecanicos:
+            seen, exemplos = set(), []
+            for d in mecanicos:
+                k = d.lower()
+                if k and k not in seen:
+                    seen.add(k); exemplos.append(d)
+            amostra = '; '.join(exemplos[:6]) + ('; …' if len(exemplos) > 6 else '')
+            bloco_mec = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n',
+                         '⚠ **%d entrega(s) com C.A. na ficha, mas NENHUMA classifica p/ agente NR-15** — todos mecânicos/gerais (%s).' % (len(mecanicos), amostra),
+                         'Nenhum dos EPIs fornecidos é **barreira química (An.13)** nem **proteção térmica (An.3)**: a ré forneceu EPI, porém inadequado ao risco insalubre alegado. Confronte com os agentes presentes na diligência.']
+            new_mec = insert_block(body, '\n'.join(bloco_mec))
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(new_mec)
+            print('⚠ check_epi: %d entrega(s) com C.A., nenhuma classifica p/ agente NR-15 (todos mecânicos/gerais).' % len(mecanicos))
+            sys.exit(0)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(body)
         print('✅ check_epi: nenhuma entrega de EPI com C.A. para classificar.')
