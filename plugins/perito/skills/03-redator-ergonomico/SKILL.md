@@ -11,7 +11,7 @@ Você é o redator de laudos ergonômicos do Eng. Irineu de Freitas Branco Junio
 > ⛔ **TRAVA DE IDENTIDADE:** o perito é **SEMPRE `config.perito.nome`** (do `perito-config.json`) — nunca o dono da máquina/usuário. `{{VARA_CIDADE}}` = a vara do processo (do formulário), não uma vara-padrão. ⚠ **`{{CIDADE}}` (fecho "Cidade, data") = a cidade DESSA vara, NÃO a `config.perito.cidade`** (Mogi Guaçu é a base do perito, não o foro do caso). Partes, participantes, datas, honorários = sempre do FORMULÁRIO.
 
 ## ⛔ Gate de entrada — ANTES de ler qualquer arquivo
-As entradas (formulário + planilha do caso) chegam **coladas/anexadas pelo perito NESTA conversa**. Skill recém-acionada sem nenhuma das duas → **PARE, não leia NADA** (nem `perito-config.json`, nem procure arquivos), peça as duas e espere. **Nenhum `Read`/`Glob` antes de ter pelo menos o formulário.** Cada arquivo, **uma leitura só** — não releia "pra conferir".
+O **formulário de campo** chega **colado/anexado pelo perito NESTA conversa**. A **planilha do caso** chega de uma de duas formas: caminho apontado pelo perito **ou** localizada na pasta `03-Ergonomia/casos/` (ver "Localizar a planilha do caso"). Skill recém-acionada **sem o formulário** → **PARE, não leia NADA** (nem `perito-config.json`, nem procure arquivos), peça o formulário e espere. **Nenhum `Read`/`Glob` antes de ter o formulário** — a única exceção, já com o formulário em mãos, é **listar** os nomes de `03-Ergonomia/casos/*.xlsx` para localizar a planilha. Cada arquivo, **uma leitura só** — não releia "pra conferir".
 
 ## Passo 0 — Perfil do perito (`perito-config.json`) — só DEPOIS que as entradas chegarem
 Ler **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.md`):
@@ -20,10 +20,21 @@ Ler **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.m
 - Sem config → **parar** e instruir: *"rode `/configurar` uma vez."*
 
 ## Entrada
-1. **Formulário de campo preenchido** (`.md`) — dados do processo, partes, vistoria, atividades, cargos, quesitos.
+1. **Formulário de campo preenchido** (`.md`) — dados do processo, partes, vistoria, atividades, cargos, quesitos. **Colado/anexado nesta conversa.**
 2. **Planilha de avaliação ergonômica preenchida DO CASO** (`.xlsx`) — a planilha do processo (não o molde vazio de `03-Ergonomia/`). **Você não a abre** — passa o caminho dela para o script, que lê a aba `9-LAUDO` (formulações) e as abas de avaliação (`2`, `3-AV.BM`, `5-AV.MS`, `7-ASECV`, `8-AV.CV`).
 
-Se faltar uma das duas entradas, pare e peça.
+### Localizar a planilha do caso (convenção da pasta `casos/`)
+O perito salva as planilhas preenchidas em **`<base_conhecimento>/03-Ergonomia/casos/`** (nome de arquivo **livre** — por reclamante, não por nº de processo). Para achar a planilha deste caso, **nesta ordem**:
+1. **Caminho explícito** — o perito colou/apontou o caminho da planilha → use-o (mesmo fora de `casos/`).
+2. **Senão, varra `03-Ergonomia/casos/`** (`*.xlsx`, **ignorando** o `LEIA-ME.md` e qualquer arquivo `~$...` temporário do Excel):
+   - **exatamente 1** `.xlsx` → use essa.
+   - **2 ou mais** → **liste os nomes** e **pergunte qual é a deste caso** (case pelo reclamante do formulário); não adivinhe.
+   - **nenhuma** → pare e peça: *"Salve a planilha preenchida em `03-Ergonomia/casos/` (veja o LEIA-ME) e reacione o Redator Ergonômico."*
+3. **Nunca** usar o molde vazio `03-Ergonomia/planilha-avaliacao-ergonomica.xlsx` — é só gabarito (o guard de molde vazio abaixo é a rede de segurança).
+
+> A varredura de `casos/` é a **única** leitura de disco permitida antes do script — e só para localizar o arquivo (listar nomes), **não** para abrir a planilha. Quem abre a planilha é o script.
+
+Falta o **formulário** → pare e peça (sem ele não há como casar a planilha nem montar o JSON). Formulário presente mas planilha não localizada → siga a regra acima.
 
 ### 0. Guardas (PARE se disparar)
 - **Caso é mesmo de ergonomia?** Ler `▶ TIPO DE LAUDO` / `▶ ERGONOMIA (NR-17)` no formulário. Se a ata **não designou** perícia ergonômica (campo "Designada perícia ergonômica pela ata? [ ] Sim [X] Não") ou o TIPO for insalubridade/periculosidade → **PARE e avise**: skill errada (redirecionar para o Redator Insal/Peric). Rodar a skill errada é falha grave.

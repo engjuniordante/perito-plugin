@@ -28,35 +28,38 @@ O ajudante **nunca** manda nada sozinho. Quem assina e envia é **sempre você**
 
 ---
 
-## Parte 1 — Instalar (uma vez só)
+## Parte 1 — Instalar e configurar (o Junior já fez por você)
 
-Abra o programa (Claude Code ou Cowork). Escreva estas duas linhas, **uma de cada vez**,
-apertando Enter depois de cada:
+A instalação e a primeira configuração **já estão prontas** — o Junior deixou tudo no jeito
+no seu computador. **Você não precisa fazer nada aqui.** Pode ir direto para a Parte 3.
+
+<details>
+<summary>Só por referência (se um dia precisar reinstalar) — clique para abrir</summary>
+
+Abra o programa (Claude Code ou Cowork) e escreva, **uma linha de cada vez**:
 
 ```
 /plugin marketplace add engjuniordante/perito-plugin
 /plugin install perito@perito-jr
 ```
 
-Pronto, está instalado. Você só faz isso uma vez.
+Depois, **uma vez**, escreva **configurar plugin** e responda:
+- o seu **nome** e o seu **CREA**;
+- a sua **cidade**;
+- o seu **e-mail** (é pra onde vão os avisos de prazo);
+- **onde ficam** a sua base de laudos, os seus modelos do Word e a sua planilha de prazos.
+
+</details>
 
 ---
 
-## Parte 2 — Dizer quem você é (uma vez só)
+## Parte 2 — Se algo mudar
 
-Antes de usar, o ajudante precisa saber **quem é você** e **onde estão as suas pastas**.
+Se um dia mudar alguma coisa — **e-mail**, uma **pasta**, ou os seus dados — escreva:
 
-Escreva:
+> **mudar configuração**
 
-> **configurar plugin**
-
-Ele vai te perguntar:
-- o seu **nome** e o seu **CREA**;
-- a sua **cidade**;
-- **onde ficam** a sua base de laudos, os seus modelos do Word e a sua planilha de prazos.
-
-Responda e pronto. **Você só faz isso uma vez.**
-Se um dia mudar alguma coisa (e-mail, uma pasta), escreva **mudar configuração** e ajeite.
+e ajeite ali na hora. Fora isso, não precisa mexer.
 
 ---
 
@@ -103,11 +106,17 @@ O laudo sai pronto em Word, na pasta de saída. Aí é só conferir e assinar.
 
 **O que faz:** monta o laudo de ergonomia (NR-17) no Word, usando a sua planilha de avaliação.
 
-**Como usar:**
-1. **Cole o formulário** de campo **junto** com a sua **planilha de ergonomia** preenchida.
-2. Escreva: **gerar o laudo ergonômico**
+⚠️ **A planilha tem várias abas — então ela não se cola, ela se salva numa pasta.**
 
-A planilha é quem calcula as notas; o ajudante só **copia** pro Word. Ele nunca recalcula nada.
+**Como usar:**
+1. Preencha a sua planilha de ergonomia do caso (copie o molde de `03-Ergonomia`,
+   preencha e **salve em `03-Ergonomia/casos/`** — nome livre, ex.: "Fulano ergonomia.xlsx").
+2. **Cole só o formulário** de campo aqui na conversa.
+3. Escreva: **gerar o laudo ergonômico**
+
+O ajudante acha a planilha sozinho na pasta `casos/`. Se tiver mais de uma lá, ele pergunta
+qual é a deste caso. A planilha é quem calcula as notas; o ajudante só **copia** pro Word —
+nunca recalcula nada.
 
 ---
 
@@ -126,15 +135,32 @@ Ele só ajeita a forma; **não muda o que você escreveu**.
 
 ---
 
-### 5. Guardar uma correção rápida
+### 5. Guardar uma correção rápida (texto **ou** EPI)
 
-**O que faz:** quando você conserta uma coisinha num laudo, ele **lembra** disso pra próxima vez.
+**O que faz:** quando você conserta uma coisinha, ele **lembra** disso pra sempre. Serve para
+duas coisas:
 
-**Como usar:**
+**a) Corrigir um texto do laudo**
 1. **Cole o pedaço corrigido** aqui.
 2. Escreva: **salvar essa correção**
 
 Ele guarda só aquele pedaço, sem mexer no resto.
+
+**b) Acertar a classificação de um EPI (pelo C.A.)** — *esta é importante e é o que deixa o
+ajudante esperto com EPI.* Ele guarda o C.A., não o nome comercial — então uma vez corrigido,
+**nunca mais erra naquele C.A.**
+
+- **Classificou no agente errado?** Escreva, com suas palavras:
+  > **o CA 35339 é químico, não solar**
+  *(ou "classifiquei errado esse EPI", "cataloga esse CA")*
+
+- **Quer registrar a vida útil de um C.A.?** (a vida útil **nunca** vem da base do governo —
+  só você tem ela, do boletim do C.A.). Escreva:
+  > **cataloga a vida útil do CA 35339: 12 meses**
+  *(ou "CA 35339 vida útil 12 meses")*
+  
+  > 💡 Sem a vida útil cadastrada, o ajudante não consegue calcular se o EPI cobria o período
+  > todo. Vale cadastrar sempre que tiver o boletim do C.A. na mão.
 
 ---
 
@@ -162,22 +188,25 @@ nada escondido.
 
 ### 7. Ver os prazos da semana
 
-**O que faz:** olha a sua planilha de perícias e mostra o que está chegando.
+**O que faz:** olha a sua planilha de perícias e mostra o que está chegando nos próximos
+15 dias — diligências, laudos a entregar, impugnações a responder, e os atrasados em destaque.
 
 **Como usar:**
 - Escreva: **prazos** *(ou "o que vence essa semana")*
 
-Ele **só olha, nunca escreve** na planilha.
+Ele lê a planilha na hora e te mostra o planejamento aqui na conversa. **Só olha, nunca
+escreve** na planilha.
 
-> ⚠️ Essa ferramenta **ainda precisa ser testada na sua planilha de verdade.**
-> Antes de confiar nela, faça um teste comigo (Junior) junto.
+> ⚠️ **Antes de confiar nela:** ela precisa ser testada na sua planilha de verdade. Eu
+> (Junior) vou conferir com você os nomes das colunas e o caminho do arquivo num teste
+> rápido ("rodar o alerta agora"). Até a gente validar, continue conferindo os prazos no PJE.
 
 ---
 
-### 8. Configurar (você já viu na Parte 2)
+### 8. Configurar
 
-**O que faz:** guarda quem é você e onde estão as suas pastas. É a primeira coisa que você
-fez. Só volta aqui (escrevendo **mudar configuração**) se algo mudar.
+**O que faz:** guarda quem é você e onde estão as suas pastas. **O Junior já deixou isso
+pronto** (Parte 1). Só mexa aqui — escrevendo **mudar configuração** — se algo mudar.
 
 ---
 
@@ -222,7 +251,7 @@ não promete o que não consegue.
 
 ## Se der algum problema
 
-- **Apareceu "plugin não configurado"** → escreva **configurar plugin** (Parte 2).
+- **Apareceu "plugin não configurado"** → escreva **mudar configuração** (ou me avise — eu já deixei isso pronto).
 - **O laudo saiu com nome ou cidade errados** → escreva **mudar configuração** e confira;
   se continuar, me avise.
 - **A impugnação não fez nada** → você esqueceu de **colar a resposta** antes.
