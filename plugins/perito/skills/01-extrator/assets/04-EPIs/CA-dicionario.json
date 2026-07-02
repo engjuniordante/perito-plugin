@@ -1,0 +1,84 @@
+{
+  "_doc": "Override curado do perito sobre a base oficial CAEPI. Use SÓ para os C.A. que o CAEPI classifica errado ou não cobre. Chave = nº do C.A. (só dígitos). Cada correção do Junior vira regra permanente. O nome comercial NUNCA classifica — é sempre o C.A. Ordem do guard: este dicionário → caepi.sqlite → regra absoluta creme→An.13.",
+  "_schema": {
+    "<C.A.>": {
+      "agente": "<rótulo do agente/anexo, ex.: 'Químico dérmico (An.13)'>",
+      "obs": "<por que o override, opcional>"
+    }
+  },
+  "35339": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Creme protetivo G3 'Luz Negra' — nome comercial enganava como UV/radiação; CAEPI confirma proteção contra agentes químicos Grupo 3. Caso-semente do guard."
+  },
+  "18189": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 6,
+    "obs": "Protetor auditivo tipo plug — vida útil 6 meses (confirmado pelo perito)"
+  },
+  "28089": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 12,
+    "obs": "Protetor auditivo tipo concha — vida útil 12 meses (confirmado pelo perito)"
+  },
+  "5745": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 6,
+    "obs": "Protetor auditivo inserção (plug) — tipo confirmado pelo PGR/LTCAT GSE 07 Caldeireiro, proc 0015480-83 RENATO/PRINER; default plug 6m, conferir boletim do fabricante"
+  },
+  "25027": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Conjunto impermeável/pulverização agrícola — CAEPI classifica An.7/An.8 mas proteção real é química dérmica (agrotóxicos) — contexto rural Cutrale/citricultura"
+  },
+  "11408": {
+    "agente": "Umidade (An.10)",
+    "obs": "Luva TRICOFLEX banhado látex — proteção contra umidade e agentes térmicos; perito corrigiu override anterior (An.13 era contexto MAHLE Ad hoc — CAEPI/base diz An.10 umidade que é o correto)"
+  },
+  "37373": {
+    "agente": "Sem agente NR-15 (mecânico/geral)",
+    "obs": "Luva HELANCA = tecido = risco mecânico; não é umidade nem químico. Base/CAEPI chutou An.10 (errado). Perito: sem agente NR-15."
+  },
+  "7166": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 12,
+    "obs": "Protetor auricular tipo CONCHA — laudo Milton/Frutas Conchal; concha 12m"
+  },
+  "11512": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 6,
+    "obs": "Protetor auricular PLUG — laudo Rafael/Ingredion e Dener/LSI; vida útil 6m"
+  },
+  "9584": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 4,
+    "obs": "Protetor auricular PLUG — laudo Rafael/Ingredion; vida útil 4m (cravada por Junior)"
+  },
+  "11070": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Creme protetivo cutâneo — laudo Marco Antonio/MAHLE (óleo mineral)"
+  },
+  "43802": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Creme protetivo cutâneo — laudo Marco Antonio/MAHLE (óleo mineral)"
+  },
+  "42027": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Luva impermeável — laudo Marco Antonio/MAHLE; barreira a óleo mineral (An.13)"
+  },
+  "12705": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Luva impermeável — laudo Marco Antonio/MAHLE; barreira a óleo mineral (An.13)"
+  },
+  "43217": {
+    "agente": "Químico dérmico (An.13)",
+    "obs": "Luva impermeável — laudo Marco Antonio/MAHLE; barreira a óleo mineral (An.13)"
+  },
+  "32034": {
+    "agente": "Sem agente NR-15 (mecânico/geral)",
+    "obs": "Luva multitato — laudo Rogério/Barboza: NÃO protege agente químico (perito). Mecânica, sem agente NR-15."
+  },
+  "5674": {
+    "agente": "Ruído (An.1)",
+    "vida_util_meses": 0.05,
+    "obs": "Protetor auricular tipo espuma (3M) — vida útil 1 dia útil (~0.05m); perito confirmou"
+  }
+}

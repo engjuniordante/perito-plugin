@@ -51,6 +51,7 @@ A descrição da ficha é **intocável** (nome do produto verbatim — o guard b
 - O **template** `formulario-pericia.md` está **embutido no `montar_formulario.py`** — você **NÃO** precisa lê-lo nem espelhá-lo (o script gera o form inteiro). Ele segue na pasta como referência humana.
 - Na **Fase 2**, `Read` o **form GERADO** (em `Formularios-Campo/`) para fazer os `Edit`s da camada analítica.
 - **NÃO** ler `check_epi.py`/`montar_formulario.py` (caixa-preta), nem `analise-epi-padrao.md` (cobertura é do `check_epi.py`), nem template `.docx`/laudos anteriores/gabaritos. **Não rodar `find`.**
+- ⚙️ **Base EPI bundled — NÃO apagar:** `assets/04-EPIs/` (`caepi.sqlite` + `CA-dicionario.json`) viaja com o plugin porque o **bash do Cowork não enxerga a pasta do Drive** (sandbox isolado). O `check_epi.py` usa a base viva do `--base` quando alcançável (Claude Code nativo) e cai na bundled quando não (Cowork). Ao atualizar o CAEPI, **re-bundle aqui** e republique.
 
 ## Regras de ouro
 1. **Formato Notas-do-iPhone:** sem tabelas markdown (`|`) — usar listas/bullets (`·` e `—`). Tabela quebra no Notas.

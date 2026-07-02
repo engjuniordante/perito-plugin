@@ -1226,8 +1226,14 @@ def inject_flags_epi(body, summary):
 
 
 def resolve_paths(args):
-    # No plugin a base SEMPRE vem como argumento (o diretório de conhecimento sai do
-    # perito-config.json); sem default local, ao contrário do squad do OS.
+    # A base vem como argumento (diretório de conhecimento do perito-config.json). MAS no Cowork o
+    # bash roda num sandbox que NÃO enxerga a pasta conectada do Google Drive → esse caminho não
+    # existe p/ o script (item 1: mount do Cowork). Por isso mantemos uma BASE BUNDLED em
+    # assets/04-EPIs (bash-visível, ao lado da skill) e caímos nela quando o caminho do --base é
+    # inalcançável. No Claude Code nativo (bash vê o Drive) o --base vence e usa a base viva do perito;
+    # no Cowork, a bundled assume — degradação graciosa, sem depender do mount.
+    here = os.path.dirname(os.path.abspath(__file__))
+    bundled_dir = os.path.join(here, 'assets', '04-EPIs')
     caepi_p = dicio_p = None
     for a in args:
         if os.path.isdir(a):
@@ -1237,6 +1243,14 @@ def resolve_paths(args):
             caepi_p = a
         elif a.endswith('.json'):
             dicio_p = a
+    if not (caepi_p and os.path.exists(caepi_p)):
+        fb = os.path.join(bundled_dir, 'caepi.sqlite')
+        if os.path.exists(fb):
+            caepi_p = fb
+    if not (dicio_p and os.path.exists(dicio_p)):
+        fb = os.path.join(bundled_dir, 'CA-dicionario.json')
+        if os.path.exists(fb):
+            dicio_p = fb
     return caepi_p, dicio_p
 
 
@@ -1324,7 +1338,14 @@ def main():
         print('✅ check_epi: nenhuma entrega de EPI com C.A. para classificar.')
         sys.exit(0)
 
+    base_ok = caepi.con is not None
     bloco = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n']
+    if not base_ok:
+        bloco.append('🛑 **BASE EPI NÃO CARREGADA** — `caepi.sqlite` não encontrado/aberto em `%s`. '
+                     'Nenhum C.A. foi classificado pela base oficial do MTE (só a regra de creme e o '
+                     'dicionário curado agiram) — os "não catalogados" abaixo podem ser falso-negativo '
+                     'de carga. Torne a base acessível ao script e rode de novo ANTES de fechar o laudo.\n'
+                     % caepi_p)
     if classified:
         bloco.append('**🔧 Classificado pelo C.A. — use no quadro-resumo (ignora o nome comercial):**\n')
         bloco.append('| C.A. | Descrição (ficha) | Agente que protege | Fonte |')
@@ -1366,6 +1387,9 @@ def main():
         print('ⓘ vida útil não reconhecida: %s' % ', '.join(faltou_vu))
     if stale:
         print('⏰ CAEPI desatualizado (%d dias)' % age)
+    if not base_ok:
+        print('🛑 check_epi: BASE EPI NÃO CARREGADA (%s) — classificação incompleta.' % caepi_p,
+              file=sys.stderr)
     sys.exit(2 if flags else 0)
 
 

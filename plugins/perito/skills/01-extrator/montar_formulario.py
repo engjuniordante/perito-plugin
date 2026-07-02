@@ -141,6 +141,46 @@ def clamp_imprescrito(periodo_impr: str, periodo_trab: str, data_acao: str = "")
     return f"de {ini} até {fim}" if (ini and fim) else periodo_impr
 
 
+def _reflow_flat_ficha(text: str) -> tuple[str, bool]:
+    """Salvaguarda p/ quando o NotebookLM ACHATA a tabela da Parte 3a (devolve as entregas em prosa,
+    sem os separadores `|`). O parser só lê linha markdown com pipe; achatado → zero linha → a TABELA
+    sai vazia (parece 'EPI não carregou', mas é só formato). Aqui reconstruímos as entregas ANCORANDO
+    NA DATA (a heurística que o perito faria à mão) e devolvemos a ficha em formato pipe — assim toda a
+    lógica determinística a jusante (recorte do imprescrito, formatação, ACHADO) roda intacta.
+
+    Reconstrução sem separador tem AMBIGUIDADE real (dígito de C.A. colado no campo seguinte) → o
+    chamador marca a tabela como reconstruída p/ o perito conferir. NÃO inventa valor: C.A. ausente
+    vira 'C.A. não informado'; descrição perdida vira placeholder explícito.
+
+    NÃO dispara quando: já há linha tabular (pipe) · há <2 datas · a ficha foi declarada ausente."""
+    if any(DATE_ROW_RE.match(ln.strip()) for ln in text.splitlines()):
+        return text, False
+    if re.search(r"N[ÃA]O\s+(?:LOCALIZAD|INDEXAD|H[ÁA]\s+FICHA)", text, re.I):
+        return text, False
+    dates = list(re.finditer(r"\b\d{2}/\d{2}/\d{4}\b", text))
+    if len(dates) < 2:
+        return text, False
+    rebuilt = ["| Data de Entrega | Quantidade | Descrição do EPI | C.A. |",
+               "| :--- | :---: | :--- | :---: |"]
+    for i, m in enumerate(dates):
+        data = m.group(0)
+        end = dates[i + 1].start() if i + 1 < len(dates) else len(text)
+        seg = text[m.end():end].strip(" \t\r\n|·—–-,;")
+        qm = re.match(r"(\d{1,4})(?:\s*(?:un|und|par|pares|p[çc]|p[çc]s|pc|pcs)\b)?\s+", seg, re.I)
+        if qm:
+            qtd, resto = qm.group(1), seg[qm.end():].strip()
+        else:
+            qtd, resto = "1", seg
+        cam = re.search(r"(\d{3,6})\s*$", resto)
+        if cam:
+            ca, desc = cam.group(1), resto[:cam.start()].strip(" ·—–-,;")
+        else:
+            ca, desc = "C.A. não informado", resto.strip(" ·—–-,;")
+        desc = desc or "[descrição não recuperada — conferir ficha]"
+        rebuilt.append(f"| {data} | {qtd} | {desc} | {ca} |")
+    return "\n".join(rebuilt), True
+
+
 def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str = "") -> list[str]:
     """Linhas da ficha (tabela markdown) → bullets '- Data · Qtd · Descrição · CA NNN', recortadas
     ao período imprescrito.
@@ -155,6 +195,7 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
     FICHA 100% PRÉ-IMPRESCRITO: ficha COM entregas mas TODAS fora da janela → o recorte legítimo
     zera a tabela. Em vez de devolver vazio (que parece 'EPI não carregou'), emite uma linha de
     ACHADO explícita — a ficha não neutraliza o período em análise."""
+    ficha_block, reflowed = _reflow_flat_ficha(ficha_block)  # recupera ficha achatada pelo NLM
     rows: list[str] = []
     all_dates: list[str] = []
     win_lo = ""
@@ -208,6 +249,10 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
                 rows.append(
                     f"- ⚠ NENHUMA das {n} entregas da ficha ({faixa}) cai no período imprescrito "
                     f"({impr_start} … {contract_end or 'contrato em curso'}) — não neutraliza o período.")
+    if reflowed and rows:
+        rows.insert(0, "- ⚠ ATENÇÃO — a tabela de EPI veio ACHATADA do NotebookLM (sem separadores) e foi "
+                       "RECONSTRUÍDA automaticamente por âncora de data. CONFIRA cada C.A. e descrição "
+                       "contra a ficha original antes de fechar o laudo.")
     return rows
 
 
