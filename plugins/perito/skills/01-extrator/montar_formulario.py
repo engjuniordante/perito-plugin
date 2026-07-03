@@ -321,6 +321,78 @@ def mark(cond: bool) -> str:
 
 
 # ── render: template do Irineu ───────────────────────────────────────────────────
+# ── pré-triagem de agentes → checkbox determinístico (paridade com build_agente_section do squad) ──
+# O script marca [X] Presente no Status quando a pré-triagem (Parte 3b) trouxe base documental p/ o
+# agente; o modelo NÃO escreve prosa no Status. Assim o perito mantém o checkbox pra flipar in loco e
+# o redator lê a marca, não uma alegação. Match do agente pelo NOME (tolerante ao rótulo do NLM; NÃO
+# uso "An.1" que é substring de "An.10..14"); miss → deixa em branco (avaliar in loco), nunca erra.
+_AGENTE_NEEDLES = [
+    ("RUÍDO", ("ruído",)),
+    ("CALOR", ("calor",)),
+    ("RADIAÇÕES NÃO IONIZANTES", ("não ionizante",)),
+    ("VIBRAÇÕES", ("vibra",)),
+    ("FRIO", ("frio",)),
+    ("UMIDADE", ("umidade",)),
+    ("LIMITES DE TOLERÂNCIA", ("quantitativo",)),
+    ("POEIRAS MINERAIS", ("poeira",)),
+    ("CONTATO DÉRMICO", ("qualitativo", "dérmico")),
+    ("BIOLÓGICOS", ("biológico",)),
+]
+
+
+def parse_agentes(block: str) -> dict[str, str]:
+    """Bloco PRÉ-TRIAGEM DE AGENTES → {rótulo do agente: valor}. Valor traz '[Presente — …]' ou '— …'."""
+    out: dict[str, str] = {}
+    for raw in block.splitlines():
+        m = re.match(r"^[-•*]\s*([^:]+):\s*(.+)$", raw.strip())
+        if m:
+            out[m.group(1).strip()] = m.group(2).strip()
+    return out
+
+
+def _agente_present(agentes: dict[str, str], needles: tuple[str, ...]) -> bool:
+    for key, val in agentes.items():
+        kl = key.lower()
+        if any(n in kl for n in needles):
+            return "[presente" in val.lower()
+    return False
+
+
+def prefill_agentes(form: str, agentes: dict[str, str]) -> str:
+    """Marca [X] Presente no Status dos agentes que a pré-triagem trouxe com base documental (e
+    [X] Aplicável na periculosidade). Só o checkbox — o Obs fica pro modelo (Fase 2). Sem base → o
+    Status fica intacto (vazio) p/ o perito marcar in loco."""
+    if not agentes:
+        return form
+    lines = form.split("\n")
+    needles: tuple[str, ...] | None = None
+    peric = False
+    for i, line in enumerate(lines):
+        if line.startswith("### ") or line.startswith("## ▶"):
+            up = line.upper()
+            needles, peric = None, False
+            if "PERICULOSIDADE" in up:
+                needles, peric = ("periculosidade",), True
+            else:
+                for hdr, nd in _AGENTE_NEEDLES:
+                    if hdr in up:
+                        needles = nd
+                        break
+            continue
+        if not needles:
+            continue
+        s = line.strip()
+        if not peric and s == "- Status: [ ] Ausente  [ ] Presente":
+            if _agente_present(agentes, needles):
+                lines[i] = "- Status: [ ] Ausente  [X] Presente"
+            needles = None
+        elif peric and s == "- Status: [ ] Não aplicável  [ ] Aplicável":
+            if _agente_present(agentes, needles):
+                lines[i] = "- Status: [ ] Não aplicável  [X] Aplicável"
+            needles = None
+    return "\n".join(lines)
+
+
 def build_form(bundle_path: Path) -> str:
     text = bundle_path.read_text(encoding="utf-8")
     # O NLM às vezes formata headers/labels/células em **negrito** ("▶ **PROCESSO...**", "- **Nº:**").
@@ -423,7 +495,7 @@ def build_form(bundle_path: Path) -> str:
     tr_s, tr_n = nr6_yesno(nr6, "treinamento")
     fr_s, fr_n = nr6_yesno(nr6, "frequ")
 
-    return TEMPLATE.format(
+    form = TEMPLATE.format(
         numero=numero, vara=vara, data_dilig=data_dilig, horario=horario, local=local,
         autuacao=autuacao, part_recte=part_recte, cnae=cnae,
         amb0=amb_marks[0], amb1=amb_marks[1], amb2=amb_marks[2], amb3=amb_marks[3],
@@ -442,6 +514,10 @@ def build_form(bundle_path: Path) -> str:
         q_recte=q_recte or "Não encontrado no PJE.",
         q_recda=q_recda or "Não encontrado no PJE.",
     )
+    # Pré-marca [X] Presente no Status dos agentes que a pré-triagem trouxe com base documental
+    # (determinístico, paridade com o squad) — o modelo só refina o Obs na Fase 2.
+    agentes = parse_agentes(get_by_prefix(sec, "PRÉ-TRIAGEM"))
+    return prefill_agentes(form, agentes)
 
 
 # Template do Irineu com slots {}. Mantém a estrutura/rótulos do formulario-pericia.md
