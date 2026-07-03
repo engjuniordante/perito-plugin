@@ -241,9 +241,10 @@ def build(template, data_path, planilha, out_path):
     pl = read_planilha(planilha)
     doc = docx.Document(_resolve_template(template))
     warnings = []
+    fatal = []   # laudo estruturalmente incompleto/comprometido → bloqueia a saída (exit 2)
 
     for dim, lvl in pl['niveis'].items():
-        if not lvl: warnings.append('NÍVEL %s não derivado da formulação (célula vazia?)' % dim)
+        if not lvl: fatal.append('NÍVEL %s não derivado da planilha (célula vazia?) — laudo incompleto' % dim)
 
     # blocos do JSON (dados do processo) — alinhamento do template
     replace_blocks(doc, dict(data.get('blocks', {})))
@@ -290,8 +291,8 @@ def build(template, data_path, planilha, out_path):
         # Item estreito · Descrição larga (justificada) · Pontos estreito
         if not insert_table_at_anchor(doc, anchor, ['Item', 'Descrição', 'Pontos'], body,
                                       widths=[0.7, 4.9, 0.8], justify_cols=(1,)):
-            warnings.append('âncora %s não encontrada' % anchor)
-        if not rows: warnings.append('aba %s vazia na planilha' % key)
+            fatal.append('âncora %s não encontrada no template — tabela de avaliação ausente' % anchor)
+        if not rows: fatal.append('aba %s vazia na planilha — avaliação faltando' % key)
     evtab('BM', '{{TABELA_AV_BIOMECANICA}}')
     evtab('MS', '{{TABELA_AV_MEMBROS_SUPERIORES}}')
     evtab('CV', '{{TABELA_AV_COLUNA_VERTEBRAL}}')
@@ -301,29 +302,36 @@ def build(template, data_path, planilha, out_path):
         # Condição/Situação larga (justificada) · SIM/NÃO estreitas (só "x")
         if not insert_table_at_anchor(doc, anchor, [h1, 'SIM', 'NÃO'], rows,
                                       widths=[5.0, 0.7, 0.7], justify_cols=(0,)):
-            warnings.append('âncora %s não encontrada' % anchor)
+            fatal.append('âncora %s não encontrada no template — tabela ausente' % anchor)
 
-    # validações
+    # validações (fatais bloqueiam a saída; warnings só sinalizam)
     full = '\n'.join(p.text for p in all_paragraphs(doc))
     residual = sorted(set(re.findall(r'\{\{[^}]+\}\}', full)))
-    if residual: warnings.append('MARCADORES RESIDUAIS: ' + ', '.join(residual))
+    if residual: fatal.append('MARCADORES RESIDUAIS: ' + ', '.join(residual))
     perito = data.get('perito_nome', 'Irineu de Freitas Branco Junior')
-    if perito not in full: warnings.append('IDENTIDADE: perito (%s) ausente' % perito)
+    if perito not in full: fatal.append('IDENTIDADE: perito (%s) ausente do documento' % perito)
     for bad in data.get('nomes_proibidos', []):
-        if bad in full: warnings.append('VAZAMENTO: "%s" presente' % bad)
+        if bad in full: fatal.append('VAZAMENTO: "%s" presente no documento' % bad)
+
+    # Não gravar laudo defeituoso: se há fatal, aborta SEM salvar.
+    if fatal:
+        print('\n❌ LAUDO NÃO GERADO — problema(s) que comprometem o laudo ergonômico:')
+        for f in fatal: print('  -', f)
+        print('   Nenhum arquivo foi salvo. Corrija (JSON/planilha/template) e rode de novo.')
+        return False
 
     doc.save(out_path)
     print('OK ->', out_path)
     print('Níveis: BM=%s · MS=%s · CV=%s → %s' %
           (pl['niveis']['BM'], pl['niveis']['MS'], pl['niveis']['CV'], pl['qualificacao']))
     if warnings:
-        print('\n⚠ AVISOS:')
+        print('\n⚠ AVISOS (revise antes de assinar):')
         for w in warnings: print('  -', w)
     else:
-        print('Sem marcadores residuais. Identidade OK.')
-    return not residual
+        print('✅ VALIDAÇÃO OK: sem marcador residual, níveis derivados, identidade presente, sem vazamento.')
+    return True
 
 if __name__ == '__main__':
     if len(sys.argv) != 5:
         print('uso: python3 build_laudo_ergo.py <template> <data.json> <planilha.xlsx> <saida.docx>'); sys.exit(1)
-    build(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    sys.exit(0 if build(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]) else 2)

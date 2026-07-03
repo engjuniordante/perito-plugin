@@ -300,19 +300,33 @@ def build(template_path, data_path, out_path, *epi_paths):
         warnings.append('tipo_laudo AUSENTE no JSON — declare "insalubridade"/"periculosidade"/'
                         '"insal-peric" (do ▶ TIPO DE LAUDO do formulário) p/ o gate cruzar com o formulário')
 
-    # GATE DE MARCADOR ANALISE_* INVÁLIDO (o pior erro — e o gate de órfão NÃO pega):
-    # um bloco ANALISE_* com nome fora do padrão (ex.: ANALISE_RUIDO em vez de
-    # ANALISE_RUIDO_CONTINUO, ou ANALISE_QUIMICOS_ACIDOS que não existe) é descartado
-    # em silêncio por replace_blocks (não há {{...}} correspondente no template);
-    # depois fill_absent_analises preenche o marcador REAL (que ficou ausente do JSON)
-    # com a descaracterização-padrão. Resultado: o agente que o modelo CARACTERIZOU
-    # sai DESCARACTERIZADO e nenhum órfão sobra pro gate pegar. Detectar aqui e bloquear.
+    # GATE DE CONSISTÊNCIA JSON × FORMULÁRIO (aborta ANTES de gravar — os dois piores
+    # erros que o gate de órfão NÃO pega, porque fill_absent_analises os mascara):
+    #  (a) MARCADOR ANALISE_* INVÁLIDO — chave fora do padrão (ANALISE_RUIDO em vez de
+    #      ANALISE_RUIDO_CONTINUO, ou ANALISE_QUIMICOS_ACIDOS inexistente): descartada em
+    #      silêncio por replace_blocks e o marcador REAL é preenchido pela descaracterização.
+    #  (b) AGENTE PRESENTE OMITIDO — agente [Presente] no formulário (agentes_presentes)
+    #      que o modelo esqueceu de escrever em blocks: fill_absent_analises o
+    #      descaracteriza. Nos dois casos: CARACTERIZADO vira descaracterizado, sem órfão.
     _valid_analise = set(ABSENT_ANALISE)
     _mk = lambda k: k[2:-2] if k.startswith('{{') and k.endswith('}}') else k
-    bad_markers = sorted({
-        _mk(k) for k in (data.get('blocks') or {})
-        if _mk(k).startswith('ANALISE_') and _mk(k) not in _valid_analise
-    })
+    _emitted = {_mk(k) for k in (data.get('blocks') or {})}
+    bad_markers = sorted({k for k in _emitted if k.startswith('ANALISE_') and k not in _valid_analise})
+    _present = [_mk(k) for k in (data.get('agentes_presentes') or [])]
+    present_bad = sorted({a for a in _present if a not in _valid_analise})
+    present_faltando = sorted({a for a in _present if a in _valid_analise and a not in _emitted})
+    if bad_markers or present_bad or present_faltando:
+        print('\n❌ LAUDO NÃO GERADO — inconsistência entre o formulário e as análises do JSON:')
+        for k in bad_markers:
+            print('  - chave inválida em blocks: {{%s}} — não existe, seria DESCARTADA em silêncio '
+                  '(agente caracterizado viraria descaracterizado)' % k)
+        for a in present_faltando:
+            print('  - agente PRESENTE no formulário sem análise no JSON: %s — seria DESCARACTERIZADO em silêncio' % a)
+        for a in present_bad:
+            print('  - nome inválido em agentes_presentes: %s (não é um ANALISE_* canônico)' % a)
+        print('   ANALISE_* válidos: %s' % ', '.join(sorted(_valid_analise)))
+        print('   Nenhum arquivo foi salvo. Corrija o JSON e rode de novo.')
+        return False
 
     # blocos (multi-parágrafo) primeiro, depois escalares
     replace_blocks(doc, data.get('blocks', {}))
@@ -404,13 +418,6 @@ def build(template_path, data_path, out_path, *epi_paths):
           % (n_paras, n_tbls, ident_rows, epi_rows, vib_rows))
     if auto:
         print('Agentes AUSENTES preenchidos pelo script: %d/%d' % (len(auto), 21))
-    if bad_markers:
-        print('\n❌ MARCADOR ANALISE_* INVÁLIDO — %d chave(s) fora do padrão: %s'
-              % (len(bad_markers), ', '.join(bad_markers)))
-        print('   A(s) análise(s) que você escreveu com essa(s) chave(s) foi(ram) DESCARTADA(S):')
-        print('   o agente CARACTERIZADO sai DESCARACTERIZADO em silêncio. NÃO entregar este .docx.')
-        print('   Corrija a chave no JSON para o marcador válido e re-gere.')
-        print('   ANALISE_* válidos: %s' % ', '.join(sorted(_valid_analise)))
     if orphans:
         print('\n❌ LAUDO INCOMPLETO — %d marcador(es) órfão(s): %s' % (len(orphans), ', '.join(orphans)))
         print('   Corrigir o JSON (campos faltando) e re-gerar — NÃO entregar este .docx.')

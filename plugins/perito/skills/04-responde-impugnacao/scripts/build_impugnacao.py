@@ -147,6 +147,7 @@ def build(template, data_path, out_path):
     data = json.load(open(data_path, encoding='utf-8'))
     doc = docx.Document(_resolve_template(template))
     warnings = []
+    fatal = []   # compromete o documento → bloqueia a saída (exit 2)
 
     scal = {(k if k.startswith('{{') else '{{%s}}' % k): v
             for k, v in data.get('scalars', {}).items()}
@@ -154,29 +155,35 @@ def build(template, data_path, out_path):
 
     parte = data.get('parte_impugnante', 'Reclamada')
     if not set_sdt_party(doc, parte):
-        warnings.append('dropdown SDT "Partes" não encontrado')
+        warnings.append('dropdown SDT "Partes" não encontrado — ajuste manualmente')
 
     if not render_esclarecimentos(doc, data.get('esclarecimentos', [])):
-        warnings.append('marcador {{ESCLARECIMENTOS_CORPO}} não encontrado')
+        fatal.append('marcador {{ESCLARECIMENTOS_CORPO}} não encontrado — corpo dos esclarecimentos não entrou')
 
     full = '\n'.join(p.text for p in all_paragraphs(doc))
     residual = sorted(set(re.findall(r'\{\{[^}]+\}\}', full)))
-    if residual: warnings.append('MARCADORES RESIDUAIS: ' + ', '.join(residual))
+    if residual: fatal.append('MARCADORES RESIDUAIS: ' + ', '.join(residual))
     perito = data.get('perito_nome', 'Irineu de Freitas Branco Junior')
-    if perito not in full: warnings.append('IDENTIDADE: perito (%s) ausente' % perito)
+    if perito not in full: fatal.append('IDENTIDADE: perito (%s) ausente do documento' % perito)
     for bad in data.get('nomes_proibidos', []):
-        if bad in full: warnings.append('VAZAMENTO: "%s"' % bad)
+        if bad in full: fatal.append('VAZAMENTO: "%s" presente no documento' % bad)
+
+    if fatal:
+        print('\n❌ NÃO GERADO — problema(s) que comprometem os esclarecimentos:')
+        for f in fatal: print('  -', f)
+        print('   Nenhum arquivo foi salvo. Corrija e rode de novo.')
+        return False
 
     doc.save(out_path)
     print('OK ->', out_path, '| parte impugnante:', parte)
     if warnings:
-        print('\n⚠ AVISOS:')
+        print('\n⚠ AVISOS (revise antes de assinar):')
         for w in warnings: print('  -', w)
     else:
-        print('Sem marcadores residuais. Identidade OK.')
-    return not residual
+        print('✅ VALIDAÇÃO OK: sem marcador residual, identidade presente, sem vazamento.')
+    return True
 
 if __name__ == '__main__':
     if len(sys.argv) != 4:
         print('uso: python3 build_impugnacao.py <template> <data.json> <saida.docx>'); sys.exit(1)
-    build(sys.argv[1], sys.argv[2], sys.argv[3])
+    sys.exit(0 if build(sys.argv[1], sys.argv[2], sys.argv[3]) else 2)
