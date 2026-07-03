@@ -103,7 +103,7 @@ Carregar **só o `MAPA-CAMPOS` do template escolhido**, uma vez. **Só preencher
 
 > ⛔ **O template escolhido aqui é o 1º argumento do comando no Passo 5.2 E o `tipo_laudo` do JSON — os TRÊS o mesmo tipo.** NUNCA fixe `insal-peric` "por padrão": um laudo só-insalubridade num template insal+peric sai com uma **seção 7 de periculosidade fantasma** (b.o. real). O script tem um **gate de tipo** que RECUSA gerar (exit 2, sem arquivo) se não casarem.
 >
-> ✅ **Os TRÊS templates estão na schema atual e bundled** (insalubridade, periculosidade, insal-peric) — todos com a tabela de EPI expansível e o imprescrito por função. Escolha o do tipo do formulário; o script recusa se o tipo não bater. Verificação: `python3 <base-dir>/scripts/build_laudo.py --list-templates` (deve listar os três `[OK]`).
+> ✅ **Os TRÊS templates estão na schema atual e bundled** (insalubridade, periculosidade, insal-peric) — todos com a tabela de EPI expansível e o imprescrito por função. Escolha o do tipo do formulário; o script recusa se o tipo não bater. Verificação: `--list-templates` (os três presentes) e, após **qualquer edição de template**, `python3 <base-dir>/scripts/build_laudo.py --check-templates` (guard anti-drift: valida a estrutura dos três contra o que o build exige — pega schema de EPI/imprescrito antigo ou marcador de tipo errado antes de gerar laudo).
 
 ### 0.5 Detector de formulário pré-diligência (PARE se disparar)
 Antes de redigir, verificar se o formulário foi **preenchido in loco** ou se ainda é o **output cru do Extrator** (estado pré-diligência). Disparo se **TODAS** as condições abaixo forem verdadeiras:

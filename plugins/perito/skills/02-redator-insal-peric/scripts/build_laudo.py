@@ -254,6 +254,52 @@ def find_table(doc, needle):
                     return t
     return None
 
+
+def _template_markers(doc):
+    """Conjunto de marcadores {{NOME}} presentes no template (corpo+tabelas+header/footer)."""
+    raw = '\n'.join(p.text for p in all_paragraphs(doc))
+    return set(re.findall(r'\{\{([A-Z0-9_]+)\}\}', raw))
+
+
+def _check_template_contract(path):
+    """GUARD ANTI-DRIFT: valida que um template tem a estrutura que build_laudo.py exige.
+    Pega tanto schema antigo (EPI de 3 linhas, imprescrito de 1 coluna) quanto marcadores
+    de tipo errado. Devolve (problemas, tipo) — problemas vazio = template OK."""
+    doc = docx.Document(path)
+    m = _template_markers(doc)
+    base = os.path.basename(path)
+    tipo = next((t for t, (b, _n15, _n16) in _TIPO_TEMPLATE.items() if b == base), None)
+    probs = []
+    # contrato comum a todos os tipos (schema atual)
+    if not {'EPI_DESC', 'EPI_AGENTE'} <= m:
+        probs.append('tabela de EPI fora da schema atual (falta {{EPI_DESC}}/{{EPI_AGENTE}})')
+    if 'EPI_DESC_1' in m:
+        probs.append('schema de EPI ANTIGO ({{EPI_DESC_1}}) — regerar do insal-peric')
+    if not {'PERIODO_IMPRESCRITO_INICIO', 'PERIODO_IMPRESCRITO_TERMINO'} <= m:
+        probs.append('falta imprescrito por função ({{PERIODO_IMPRESCRITO_INICIO/TERMINO}})')
+    if 'PERIODO_IMPRESCRITO' in m:
+        probs.append('imprescrito ANTIGO (coluna única {{PERIODO_IMPRESCRITO}})')
+    it = find_table(doc, '{{FUNCAO}}'); ep = find_table(doc, '{{EPI_DESC}}'); nr6 = find_table(doc, 'NR-6 EQUIPAMENTO')
+    if not it or len(it.rows[-1].cells) != 7:
+        probs.append('tabela de identificação != 7 colunas (build espera 7)')
+    if not ep or len(ep.rows[-1].cells) != 6:
+        probs.append('tabela de EPI != 6 colunas (build espera 6)')
+    if not nr6 or len(nr6.rows) != 9:
+        probs.append('tabela NR-6 != 9 linhas (rowmap do build espera 9)')
+    # marcadores de análise por tipo
+    nr15 = [x for x in m if x.startswith('ANALISE_') and 'PERIC' not in x]
+    peric = [x for x in m if x.startswith('ANALISE_PERIC_')]
+    if tipo == 'insalubridade':
+        if len(nr15) != 15: probs.append('esperava 15 marcadores NR-15, achou %d' % len(nr15))
+        if peric: probs.append('template de INSALUBRIDADE não pode ter marcadores de periculosidade')
+    elif tipo == 'periculosidade':
+        if nr15: probs.append('template de PERICULOSIDADE não pode ter marcadores NR-15')
+        if len(peric) != 6: probs.append('esperava 6 marcadores de periculosidade, achou %d' % len(peric))
+    elif tipo == 'insal-peric':
+        if len(nr15) != 15 or len(peric) != 6:
+            probs.append('insal-peric deve ter 15 NR-15 + 6 periculosidade (achou %d+%d)' % (len(nr15), len(peric)))
+    return probs, tipo
+
 # ---------------- main ----------------
 def _resolve_epi_paths(extras):
     """extras = caminhos soltos (qualquer ordem): .json=dicionário, .sqlite=CAEPI,
@@ -604,8 +650,28 @@ if __name__ == '__main__':
         if extra:
             print('  (outros: %s)' % ', '.join(extra))
         sys.exit(0)
+    # GUARD ANTI-DRIFT: valida a ESTRUTURA dos 3 templates bundled contra o contrato
+    # do build. Rodar depois de qualquer edição de template — pega deriva antes do laudo.
+    if len(sys.argv) >= 2 and sys.argv[1] == '--check-templates':
+        esperados = ['template-insalubridade.docx', 'template-periculosidade.docx', 'template-insal-peric.docx']
+        all_ok = True
+        print('Contrato estrutural dos templates BUNDLED:')
+        for e in esperados:
+            p = os.path.join(_BUNDLED_TEMPLATES, e)
+            if not os.path.isfile(p):
+                print('  [FALTA] %s' % e); all_ok = False; continue
+            probs, tipo = _check_template_contract(p)
+            if probs:
+                all_ok = False
+                print('  [FALHA] %s' % e)
+                for x in probs: print('        - ' + x)
+            else:
+                print('  [OK]    %s (%s)' % (e, tipo))
+        print('\n%s' % ('✅ os 3 templates cumprem o contrato do build.' if all_ok
+                        else '❌ há template fora do contrato — NÃO rodar laudos até corrigir.'))
+        sys.exit(0 if all_ok else 2)
     if len(sys.argv) < 4:
         print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]')
-        print('     python3 build_laudo.py --list-markers   (lista os ANALISE_* válidos)'); sys.exit(1)
+        print('     python3 build_laudo.py --list-markers | --list-templates | --check-templates'); sys.exit(1)
     ok = build(sys.argv[1], sys.argv[2], sys.argv[3], *sys.argv[4:])
     sys.exit(0 if ok else 2)
