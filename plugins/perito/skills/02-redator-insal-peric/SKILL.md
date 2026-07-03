@@ -101,6 +101,10 @@ Ler `▶ TIPO DE LAUDO` no formulário e escolher template **+ seu único MAPA-C
 
 Carregar **só o `MAPA-CAMPOS` do template escolhido**, uma vez. **Só preencher os marcadores que existem nesse template** (o só-insalubridade não tem NR-16; o só-periculosidade não tem os 15 agentes NR-15, mas tem o lembrete fixo "EPI não neutraliza periculosidade").
 
+> ⛔ **O template escolhido aqui é o 1º argumento do comando no Passo 5.2 E o `tipo_laudo` do JSON — os TRÊS o mesmo tipo.** NUNCA fixe `insal-peric` "por padrão": um laudo só-insalubridade num template insal+peric sai com uma **seção 7 de periculosidade fantasma** (b.o. real). O script tem um **gate de tipo** que RECUSA gerar (exit 2, sem arquivo) se não casarem.
+>
+> ⚠ **Estado atual dos templates:** **só o `template-insal-peric.docx` está na schema atual e bundled.** Os `template-insalubridade.docx` / `template-periculosidade.docx` estão **desatualizados** (schema antiga de EPI e de imprescrito — a regerar a partir do insal-peric) e **não** estão bundled. Se o caso for **só-insalubridade** ou **só-periculosidade** e o template correto não estiver disponível/atualizado, o script **falha limpo** (template não encontrado ou marcadores órfãos) → **PARE e avise o perito** ("o template isolado de <tipo> precisa ser regerado"); **nunca** improvise gerando no insal-peric. Verificação: `python3 <base-dir>/scripts/build_laudo.py --list-templates`.
+
 ### 0.5 Detector de formulário pré-diligência (PARE se disparar)
 Antes de redigir, verificar se o formulário foi **preenchido in loco** ou se ainda é o **output cru do Extrator** (estado pré-diligência). Disparo se **TODAS** as condições abaixo forem verdadeiras:
 - Nenhum agente NR-15/NR-16 tem status marcado (todos `[ ] Ausente [ ] Presente` em branco), **e**
@@ -209,6 +213,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
 
 1. **Montar o JSON `laudo-data.json`** com tudo decidido nos Passos 1–4 — **você já tem tudo em contexto, NÃO releia formulário, mapa nem `[agente].md`**. Schema:
    - `perito_nome`: `config.perito.nome` (do `perito-config.json` — checagem de identidade do script). Opcional: `nomes_proibidos` = `config.perito.nomes_proibidos`.
+   - `tipo_laudo` **(obrigatório)**: `"insalubridade"` / `"periculosidade"` / `"insal-peric"` — **exatamente** o `▶ TIPO DE LAUDO` do formulário (Passo 0). O script cruza com o template do 1º argumento **e** com o conteúdo real dele; divergiu = **recusa gerar** (gate anti-seção-fantasma). Mesmo tipo do template no comando.
    - `scalars`: `VARA` (vara do processo!), `PROCESSO`, `RECLAMANTE`, `RECLAMADA`, `HONORARIOS_VALOR`, `HONORARIOS_EXTENSO`, `CIDADE`, `DATA_PROTOCOLO`, `DATA_VISTORIA`, `HORARIO_VISTORIA`, `LOCAL_VISTORIA`, `ESCOPO_AVALIACAO`, `NUMERO_FOLHAS`.
    - `blocks`: cada chave é um marcador (`LISTA_PARTICIPANTES`, `ATIVIDADES_POR_FUNCAO`, os `ANALISE_*` **só dos agentes PRESENTES** — os ausentes o script preenche, ver Passo 2 —, `CONCLUSAO_ITENS`, `QUESITOS_RECLAMANTE`, `QUESITOS_RECLAMADA`) e o valor é uma **lista de parágrafos**. Para a tabela de vibração, inclua a linha `"@@TABELA_VIBRACAO@@"` dentro do bloco `ANALISE_VIBRACOES`, no ponto onde a tabela entra.
    - `identificacao`: lista de linhas `[Função, Setor, Início, Término, Autuação, ImprInício, ImprTérmino]` (uma por função; fora do imprescrito → `"—"` nas duas últimas).
@@ -220,6 +225,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
    ```json
    {
      "perito_nome": "Irineu de Freitas Branco Junior",
+     "tipo_laudo": "insal-peric",
      "scalars": {
        "VARA": "2ª Vara do Trabalho de Araraquara", "PROCESSO": "0010094-14.2026.5.15.0079",
        "RECLAMANTE": "Fulano de Tal", "RECLAMADA": "Empresa X S.A.",
@@ -246,9 +252,10 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
    > Emita em `blocks` **só os `ANALISE_*` dos agentes PRESENTES** (no exemplo: químico qualitativo + inflamáveis). **Os ausentes ficam de fora** — o script preenche cada um com a descaracterização-padrão na voz do Irineu. `vibracao` só entra se houver tabela.
 
 2. **Rodar o script** (monta o .docx inteiro) — caixa-preta, não leia o código. **Antes de rodar, faça a conferência do Passo 6 no seu JSON** (é a sua única chance de conferir conteúdo — depois do script não se reabre o documento):
-   `python3 <base-dir>/scripts/build_laudo.py "<00-Template/template-insal-peric.docx>" laudo-data.json /tmp/perito/laudo-<processo>.docx "<base_conhecimento>"`
+   `python3 <base-dir>/scripts/build_laudo.py "<00-Template/{TEMPLATE DO PASSO 0}>" laudo-data.json /tmp/perito/laudo-<processo>.docx "<base_conhecimento>"`
+   - ⚠ **O 1º argumento é o template ESCOLHIDO no Passo 0** (`template-insalubridade.docx` **ou** `template-periculosidade.docx` **ou** `template-insal-peric.docx`), casando com o `tipo_laudo` do JSON. **NUNCA fixe `insal-peric` por padrão** — não bateu, o script recusa gerar (gate de tipo, exit 2).
    - ✅ **VALIDE O JSON ANTES (1 linha, obrigatório):** `python3 -c "import json; json.load(open('laudo-data.json')); print('JSON OK')"`. Se você montou o JSON com vários `Edit` sucessivos, **escreva um arquivo novo do zero** em vez de editar o existente — no sandbox um `Edit` que encolhe o arquivo pode não truncar o físico que o bash lê (sobra bytes nulos → `Extra data`). JSON quebrado = o script morre com traceback; pegue isso aqui, barato, antes de gastar a montagem do .docx.
-   - **Template (1º arg) e base EPI (4º arg) têm FALLBACK BUNDLED automático.** No Cowork o **bash não enxerga o Drive** → o script cai sozinho no `template-insal-peric.docx` **bundled** em `assets/templates/` e na base EPI bundled da skill 01 (imprime `ℹ️ usando o BUNDLED`). Passe o caminho do Drive normalmente; nativo usa o vivo, Cowork usa o bundled. **Nunca redija o .docx à mão nem pule o script porque "o template não está acessível".**
+   - **Template (1º arg) e base EPI (4º arg) têm FALLBACK BUNDLED automático.** No Cowork o **bash não enxerga o Drive** → o script cai sozinho na cópia **bundled do MESMO template** em `assets/templates/` e na base EPI bundled da skill 01 (imprime `ℹ️ usando o BUNDLED`). ⚠ **Hoje só o `insal-peric` está bundled** — só-insalubridade/só-periculosidade em Cowork podem falhar limpo (não improvisa). O fallback **nunca troca de tipo**. Passe o caminho do Drive normalmente; nativo usa o vivo, Cowork usa o bundled. **Nunca redija o .docx à mão nem pule o script porque "o template não está acessível".**
    - O 4º argumento = a pasta `base_conhecimento` (do `perito-config.json`); o script resolve `04-EPIs/caepi.sqlite` (base oficial CAEPI) e `04-EPIs/CA-dicionario.json` (override curado) e **classifica a tabela de EPI pelo C.A.** (chave primária; ignora o nome comercial; override curado → CAEPI → regra absoluta creme→An.13). Omitir = só a regra absoluta. O relatório reporta 🔧 classificado / 🚩 conferir / 📇 não catalogado.
    - **SAÍDA = `/tmp/perito/laudo-<processo>.docx`** (pasta de trabalho do bash — no Cowork é o único lugar onde o script consegue **gravar**; o bash não escreve no Drive). **Entregue esse arquivo ao perito:** no Cowork ele baixa da pasta de trabalho e salva em `Base Perícia Irineu/Laudos-Gerados/`; no Mac nativo, `cp` para `<saida_laudos>`. ⚠ Nunca fazer o script gravar direto no Drive/Desktop (o bash não alcança).
 3. **Rodou sem AVISO? ACABOU — entregue o relatório de validação (abaixo) e PARE.** O relatório do script **é** a verificação final: confere marcador residual, identidade, vazamento, e reporta contagem de parágrafos/tabelas. ✅ no relatório = laudo pronto.

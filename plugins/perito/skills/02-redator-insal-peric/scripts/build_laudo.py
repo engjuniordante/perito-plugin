@@ -49,8 +49,15 @@ _BUNDLED_TEMPLATES = os.path.join(_HERE, '..', 'assets', 'templates')
 _BUNDLED_EPI = os.path.normpath(os.path.join(_HERE, '..', '..', '01-extrator', 'assets', '04-EPIs'))
 
 
+def _list_bundled_templates():
+    d = _BUNDLED_TEMPLATES
+    return [f for f in os.listdir(d) if f.lower().endswith('.docx')] if os.path.isdir(d) else []
+
+
 def _resolve_template(template_path):
-    """(1) caminho dado, se for arquivo legível; (2) bundled assets/templates/<basename>."""
+    """(1) caminho dado, se for arquivo legível; (2) bundled assets/templates/<basename>.
+    O fallback só aceita o BUNDLED de MESMO basename — nunca troca de tipo em silêncio.
+    Se o basename pedido não existe bundled, falha (não substitui por outro template)."""
     if template_path and os.path.isfile(template_path):
         return template_path
     cand = os.path.join(_BUNDLED_TEMPLATES, os.path.basename(template_path or ''))
@@ -58,8 +65,73 @@ def _resolve_template(template_path):
         print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
               % os.path.basename(cand))
         return cand
-    raise SystemExit('template não encontrado: nem "%s" nem bundled em %s'
-                     % (template_path, _BUNDLED_TEMPLATES))
+    raise SystemExit('template não encontrado: nem "%s" nem bundled em %s\n'
+                     '   (bundled disponíveis: %s)'
+                     % (template_path, _BUNDLED_TEMPLATES,
+                        ', '.join(sorted(_list_bundled_templates())) or 'nenhum'))
+
+
+# --- gate de tipo: o template resolvido TEM que casar com o tipo do laudo ---
+# Blindagem contra o b.o. real (laudo só-insalubridade saiu num template insal+peric,
+# com seção 7 de periculosidade fantasma). Cruza duas fontes de verdade com o CONTEÚDO
+# real do template resolvido (marcadores {{ANALISE_PERIC_*}} vs NR-15):
+#   (a) tipo_laudo declarado no JSON  → vem do "▶ TIPO DE LAUDO" do formulário;
+#   (b) o basename do template pedido no comando.
+# Qualquer divergência = falha ANTES de gravar. Pega tanto o hardcode do comando quanto
+# um fallback BUNDLED que tenha trocado de tipo.
+_TIPO_CANON = {
+    'insalubridade': 'insalubridade', 'insal': 'insalubridade',
+    'periculosidade': 'periculosidade', 'peric': 'periculosidade',
+    'insalubridade + periculosidade': 'insal-peric', 'insal-peric': 'insal-peric',
+    'insal+peric': 'insal-peric', 'insalubridade e periculosidade': 'insal-peric',
+    'insal e peric': 'insal-peric',
+}
+# tipo -> (basename esperado, precisa NR-15, precisa NR-16)
+_TIPO_TEMPLATE = {
+    'insalubridade':  ('template-insalubridade.docx',  True,  False),
+    'periculosidade': ('template-periculosidade.docx', False, True),
+    'insal-peric':    ('template-insal-peric.docx',    True,  True),
+}
+
+
+def _canon_tipo(s):
+    return _TIPO_CANON.get(re.sub(r'\s+', ' ', str(s).strip().lower())) if s else None
+
+
+def _gate_tipo(doc, requested_path, tipo_laudo):
+    """Devolve (erros, tipo_canon, intent). Detecta o tipo pelo CONTEÚDO do template
+    (marcadores NR-15 vs {{ANALISE_PERIC_*}}) e confronta com o declarado/pedido."""
+    raw = '\n'.join(p.text for p in all_paragraphs(doc))
+    tmpl_nr15 = bool(re.search(r'\{\{ANALISE_(?!PERIC_)[A-Z]', raw))
+    tmpl_nr16 = bool(re.search(r'\{\{ANALISE_PERIC_', raw))
+    req_base = os.path.basename(requested_path or '')
+    tipo = _canon_tipo(tipo_laudo)
+    intent = tipo  # sem tipo_laudo, inferir do basename pedido
+    if intent is None:
+        for t, (base, _n15, _n16) in _TIPO_TEMPLATE.items():
+            if base == req_base:
+                intent = t
+                break
+    errs = []
+    if tipo and req_base:  # (1) tipo declarado × basename pedido (pega hardcode do comando)
+        exp_base = _TIPO_TEMPLATE[tipo][0]
+        if req_base != exp_base:
+            errs.append('TIPO × TEMPLATE PEDIDO: laudo é "%s" mas o comando passou "%s" '
+                        '(esperado "%s"). Corrija o 1º argumento.' % (tipo, req_base, exp_base))
+    if intent:  # (2) intenção × conteúdo REAL do template (pega fallback trocado de tipo)
+        _b, need15, need16 = _TIPO_TEMPLATE[intent]
+        if need16 != tmpl_nr16:
+            errs.append('TEMPLATE ERRADO (periculosidade): tipo "%s" %s seção NR-16, mas o '
+                        'template resolvido %s marcadores de periculosidade. '
+                        'Provável BUNDLED trocado — confira assets/templates/.'
+                        % (intent, 'EXIGE' if need16 else 'NÃO admite',
+                           'NÃO tem' if need16 else 'CONTÉM'))
+        if need15 != tmpl_nr15:
+            errs.append('TEMPLATE ERRADO (insalubridade): tipo "%s" %s seção NR-15, mas o '
+                        'template resolvido %s marcadores de NR-15.'
+                        % (intent, 'EXIGE' if need15 else 'NÃO admite',
+                           'NÃO tem' if need15 else 'CONTÉM'))
+    return errs, tipo, intent
 
 # ---------------- descaracterização-padrão por agente AUSENTE ----------------
 # O modelo só emite os ANALISE_* dos agentes PRESENTES; este mapa preenche
@@ -214,6 +286,19 @@ def build(template_path, data_path, out_path, *epi_paths):
     caepi = _open_caepi(caepi_p)
     doc = docx.Document(_resolve_template(template_path))
     warnings = []
+
+    # GATE DE TIPO — ANTES de qualquer mutação: se o template não casa com o tipo do
+    # laudo, falha dura SEM gravar arquivo (nada de laudo defeituoso na mão).
+    tipo_errs, _tipo, _intent = _gate_tipo(doc, template_path, data.get('tipo_laudo'))
+    if tipo_errs:
+        print('\n❌ LAUDO NÃO GERADO — template incompatível com o tipo do laudo:')
+        for e in tipo_errs:
+            print('  - ' + e)
+        print('   Nenhum arquivo foi salvo. Corrija (JSON/comando) e rode de novo.')
+        return False
+    if _tipo is None:
+        warnings.append('tipo_laudo AUSENTE no JSON — declare "insalubridade"/"periculosidade"/'
+                        '"insal-peric" (do ▶ TIPO DE LAUDO do formulário) p/ o gate cruzar com o formulário')
 
     # GATE DE MARCADOR ANALISE_* INVÁLIDO (o pior erro — e o gate de órfão NÃO pega):
     # um bloco ANALISE_* com nome fora do padrão (ex.: ANALISE_RUIDO em vez de
@@ -500,6 +585,17 @@ if __name__ == '__main__':
     if len(sys.argv) >= 2 and sys.argv[1] in ('--list-markers', '--markers'):
         print('Marcadores ANALISE_* válidos (%d):' % len(ABSENT_ANALISE))
         for m in ABSENT_ANALISE: print('  ' + m)
+        sys.exit(0)
+    # verificação avulsa: quais templates estão bundled (fallback do Cowork)
+    if len(sys.argv) >= 2 and sys.argv[1] == '--list-templates':
+        found = sorted(_list_bundled_templates())
+        esperados = ['template-insalubridade.docx', 'template-periculosidade.docx', 'template-insal-peric.docx']
+        print('Templates BUNDLED em %s:' % _BUNDLED_TEMPLATES)
+        for e in esperados:
+            print('  [%s] %s' % ('OK' if e in found else 'FALTA', e))
+        extra = [f for f in found if f not in esperados]
+        if extra:
+            print('  (outros: %s)' % ', '.join(extra))
         sys.exit(0)
     if len(sys.argv) < 4:
         print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]')
