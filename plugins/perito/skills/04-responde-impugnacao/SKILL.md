@@ -71,7 +71,9 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
    }
    ```
 2. **Rodar o script** (caixa-preta — não leia o código):
-   `python3 scripts/build_impugnacao.py <00-Template/template-impugnacao.docx> data-impugnacao.json <Base Perícia Irineu/Laudos-Gerados/esclarecimentos-<processo>.docx>`
+   `python3 scripts/build_impugnacao.py "<00-Template/template-impugnacao.docx>" data-impugnacao.json /tmp/perito/esclarecimentos-<processo>.docx`
+   - **Template (1º arg) tem FALLBACK BUNDLED automático:** no Cowork o **bash não enxerga o Drive** → o script cai sozinho no `template-impugnacao.docx` **bundled** em `assets/templates/` (imprime `ℹ️ usando o BUNDLED`). Passe o caminho do Drive normalmente. **Nunca formate o .docx à mão.**
+   - **SAÍDA = `/tmp/perito/esclarecimentos-<processo>.docx`** (pasta de trabalho do bash — no Cowork o script não grava no Drive). **Entregue o arquivo ao perito**, que salva em `Base Perícia Irineu/Laudos-Gerados/`.
    (saída dentro do workspace montado — nunca no Desktop).
 3. **Ler o relatório do script** — avisa marcador residual, dropdown não encontrado, identidade. Aviso → corrigir o JSON e rodar de novo.
 

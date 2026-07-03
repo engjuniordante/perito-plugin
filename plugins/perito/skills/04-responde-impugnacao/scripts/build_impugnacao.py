@@ -21,7 +21,7 @@ JSON:
   ]
 }
 """
-import sys, json, re
+import sys, json, re, os
 from copy import deepcopy
 
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
@@ -128,9 +128,24 @@ def render_esclarecimentos(document, itens):
             add_run(par_el, s, bold=False)
     return True
 
+def _resolve_template(template_path):
+    """Fallback BUNDLED — no Cowork o bash NÃO enxerga o Drive; cai no template do plugin
+    (assets/templates/). Nativo (bash vê o Drive) usa o caminho vivo."""
+    if template_path and os.path.isfile(template_path):
+        return template_path
+    here = os.path.dirname(os.path.abspath(__file__))
+    tdir = os.path.join(here, '..', 'assets', 'templates')
+    cand = os.path.join(tdir, os.path.basename(template_path or ''))
+    if os.path.isfile(cand):
+        print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
+              % os.path.basename(cand))
+        return cand
+    raise SystemExit('template não encontrado: nem "%s" nem bundled em %s' % (template_path, tdir))
+
+
 def build(template, data_path, out_path):
     data = json.load(open(data_path, encoding='utf-8'))
-    doc = docx.Document(template)
+    doc = docx.Document(_resolve_template(template))
     warnings = []
 
     scal = {(k if k.startswith('{{') else '{{%s}}' % k): v

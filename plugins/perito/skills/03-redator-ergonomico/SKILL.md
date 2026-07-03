@@ -77,7 +77,10 @@ Um `JSON de conteúdo` (`laudo-data-ergo.json`) → o script gera o `.docx`, em 
 > **Você NÃO preenche** as formulações, níveis, qualificação nem as 5 tabelas de checklist — **isso é da planilha, e o script lê.** Não inventar escore.
 
 ### 2. Rodar o script (lê a planilha + monta o .docx)
-`python3 scripts/build_laudo_ergo.py <00-Template/template-ergonomico.docx> laudo-data-ergo.json <planilha-do-caso.xlsx> <Base Perícia Irineu/Laudos-Gerados/laudo-ergonomico-<processo>.docx>`
+`python3 scripts/build_laudo_ergo.py "<00-Template/template-ergonomico.docx>" laudo-data-ergo.json <planilha-do-caso.xlsx> /tmp/perito/laudo-ergonomico-<processo>.docx`
+- **Template (1º arg) tem FALLBACK BUNDLED automático:** no Cowork o **bash não enxerga o Drive** → o script cai sozinho no `template-ergonomico.docx` **bundled** em `assets/templates/` (imprime `ℹ️ usando o BUNDLED`). Passe o caminho do Drive normalmente. **Nunca redija o .docx à mão.**
+- ⚠ **A PLANILHA do caso é dado do processo (não estática — não dá pra bundlar).** No Cowork o bash não lê a pasta do Drive: o perito precisa **anexar a planilha preenchida NESTA conversa** (vai para `uploads/`, que o bash enxerga) e você passa esse caminho; nativo lê direto de `03-Ergonomia/casos/`.
+- **SAÍDA = `/tmp/perito/laudo-ergonomico-<processo>.docx`** (pasta de trabalho do bash — no Cowork o script não grava no Drive). **Entregue o arquivo ao perito**, que salva em `Base Perícia Irineu/Laudos-Gerados/`.
 
 ⚠ A SAÍDA vai **dentro do workspace montado** (`Laudos-Gerados/`, sincronizada com o Drive) — nunca no Desktop (o sandbox do Cowork não acessa).
 

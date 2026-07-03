@@ -4,4 +4,6 @@ __pycache__/
 *.docx
 *.xlsx
 !plugins/perito/skills/**/scripts/*.EXEMPLO.json
+# templates .docx BUNDLED no plugin (fallback p/ o Cowork, cujo bash não lê o Drive) — exceção ao *.docx
+!plugins/perito/skills/**/assets/templates/*.docx
 perito-config.json

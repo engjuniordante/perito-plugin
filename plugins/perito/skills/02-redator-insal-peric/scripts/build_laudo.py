@@ -40,6 +40,27 @@ from docx.shared import Pt, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
+# --- resolução de caminhos com fallback BUNDLED (Cowork: o bash NÃO enxerga o Drive) ---
+# O template .docx e a base EPI podem chegar por caminho do Drive (config). No sandbox do
+# Cowork o bash não alcança o Drive → cai na cópia BUNDLED no plugin (mesma tática da base
+# EPI da skill 01). Nativo (bash vê o Drive) usa o caminho vivo; Cowork usa o bundled.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_BUNDLED_TEMPLATES = os.path.join(_HERE, '..', 'assets', 'templates')
+_BUNDLED_EPI = os.path.normpath(os.path.join(_HERE, '..', '..', '01-extrator', 'assets', '04-EPIs'))
+
+
+def _resolve_template(template_path):
+    """(1) caminho dado, se for arquivo legível; (2) bundled assets/templates/<basename>."""
+    if template_path and os.path.isfile(template_path):
+        return template_path
+    cand = os.path.join(_BUNDLED_TEMPLATES, os.path.basename(template_path or ''))
+    if os.path.isfile(cand):
+        print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
+              % os.path.basename(cand))
+        return cand
+    raise SystemExit('template não encontrado: nem "%s" nem bundled em %s'
+                     % (template_path, _BUNDLED_TEMPLATES))
+
 # ---------------- descaracterização-padrão por agente AUSENTE ----------------
 # O modelo só emite os ANALISE_* dos agentes PRESENTES; este mapa preenche
 # automaticamente os AUSENTES com a redação verbatim do Irineu (extraída dos
@@ -176,6 +197,13 @@ def _resolve_epi_paths(extras):
             caepi_p = a
         elif a.endswith('.json'):
             dicio_p = a
+    # fallback BUNDLED — no Cowork o bash não vê o Drive; se o resolvido não existe, usa o do plugin
+    if not (caepi_p and os.path.isfile(caepi_p)):
+        b = os.path.join(_BUNDLED_EPI, 'caepi.sqlite')
+        caepi_p = b if os.path.isfile(b) else caepi_p
+    if not (dicio_p and os.path.isfile(dicio_p)):
+        b = os.path.join(_BUNDLED_EPI, 'CA-dicionario.json')
+        dicio_p = b if os.path.isfile(b) else dicio_p
     return caepi_p, dicio_p
 
 
@@ -184,7 +212,7 @@ def build(template_path, data_path, out_path, *epi_paths):
     caepi_p, dicio_p = _resolve_epi_paths(list(epi_paths) + [data.get('ca_dicionario_path'), data.get('caepi_path')])
     cadict = _load_ca_dict(dicio_p)
     caepi = _open_caepi(caepi_p)
-    doc = docx.Document(template_path)
+    doc = docx.Document(_resolve_template(template_path))
     warnings = []
 
     # blocos (multi-parágrafo) primeiro, depois escalares
