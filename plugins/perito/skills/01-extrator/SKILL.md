@@ -26,21 +26,31 @@ Faltou algum? Avise qual e prossiga; o ausente vira `[NÃO LOCALIZADO]`.
 
 > **Por que assim:** re-digitar as ~340 linhas do formulário (ficha de EPI, 13 agentes, quesitos, identificação) é o que torrava token. Isso agora é determinístico no `montar_formulario.py`. Você entra **só** na camada que exige julgamento (Status/Obs dos agentes, flags, fechamento). Economia de ~85-90% do output, sem perder a análise.
 
-**Onde gravar:** pasta `config.caminhos.formularios_campo` (default `Formularios-Campo`), **na raiz do projeto conectado** — criar se não existir. Nome: `Formulario-Campo-<Reclamante>-<nº processo>.md`. **Nunca** gravar na pasta da skill (some no `/plugin update`).
+**Onde gravar — DOIS espaços (o bash do Cowork NÃO enxerga o Drive):** o `python3` roda no **bash**, que **não lê a pasta do Drive** (sandbox isolado — ver linha da base bundled). Por isso:
+- **Fase 1** — o bundle e a saída do script vivem na **pasta de trabalho do bash** (`/tmp/perito/`), o único lugar que o script consegue ler. **Não** `Write` o bundle no Drive (o bash não leria de lá — foi a causa do retrabalho "escrevi, o bash não viu, refiz tudo").
+- **Ponte única** — o formulário vai ao **Drive** (`config.caminhos.formularios_campo`, default `Formularios-Campo`, na raiz do projeto) numa **só** gravação `Write`. Daí em diante ele está visível aos tools de host.
+- **Fase 2** — os `Edit`s da camada analítica atuam **no arquivo do Drive** (host lê/edita o Drive; nunca o `/tmp`).
+
+Nome final: `Formulario-Campo-<Reclamante>-<nº processo>.md`. **Nunca** gravar na pasta da skill (some no `/plugin update`).
 
 ### Fase 1 — script monta o esqueleto (você NÃO redige)
-1. Salve os 5 outputs do NLM **VERBATIM** num bundle: `Write` em `<formularios_campo>/_bundle-<nº>.md` com o texto colado **como veio** (não consolidar, não reescrever — cópia crua; já vêm em `▶ subseções`).
-2. Rode UM comando:
-   `python3 <pasta desta skill>/montar_formulario.py <_bundle.md> -o <Formularios-Campo>/Formulario-Campo-<Reclamante>-<nº>.md --base <base_conhecimento>`
+1. **Bundle + script num ÚNICO comando bash** (garante que o bundle exista quando o script rodar, mesmo se o sandbox não persistir entre chamadas). Cole os 5 outputs do NLM **VERBATIM** dentro do heredoc (como vieram, em `▶ subseções` — não consolidar/reescrever):
+   ```
+   mkdir -p /tmp/perito && cat > /tmp/perito/_bundle.md <<'PERITO_BUNDLE_EOF'
+   <os 5 outputs do NLM colados VERBATIM>
+   PERITO_BUNDLE_EOF
+   python3 "<pasta desta skill>/montar_formulario.py" /tmp/perito/_bundle.md -o "/tmp/perito/Formulario-Campo-<Reclamante>-<nº>.md" --base "<base_conhecimento>"
+   ```
    - O script CRAVA, determinístico e fiel: TIPO (pedido da Inicial), PROCESSO, PARTICIPANTES (só Reclamante), EMPRESA/ambiente, IDENTIFICAÇÃO (todas as funções), ESCOPO, **ficha de EPI (só imprescrito, descrição verbatim)**, NR-6 (do NLM), **QUESITOS na íntegra**, e o bloco fixo dos 13 agentes + periculosidade **com TODOS os campos** (Status, Equipamento, Nível medido/IBUTG/AREN-VDVR, Taxa metabólica, Tipo, C.A., Vida útil, PPP…).
    - E roda o **guard `check_epi.py` por dentro** (C.A. é a chave, o nome NÃO classifica): 🔧 classifica por C.A. (dicionário→CAEPI→regra absoluta creme=An.13) · 📐 cobertura (Σ qtd×vida útil, creme e protetor auditivo) · 🚩 CA vencido/conferir · 📇 não catalogados · ⏰ base >90d.
    - **Reproduza o resultado 🔧/🚩/📇/📐 do script na resposta.** Não reabra o `.md` para conferir o que o script já fez.
+2. **Publicar no Drive (única ponte bash→Drive):** `cat "/tmp/perito/Formulario-Campo-<Reclamante>-<nº>.md"` e faça **UM** `Write` desse conteúdo em `<formularios_campo>/Formulario-Campo-<Reclamante>-<nº>.md` (Drive). É o único ponto de contato com o Drive; a partir daqui a Fase 2 lê/edita **esse** arquivo.
 
-> ⛔ **O script é a ÚNICA fonte da estrutura. NUNCA redigir o formulário à mão.** O `montar_formulario.py` **não depende do Drive nem da rede** — só lê o bundle (que você acabou de escrever, visível ao bash) e a base **bundled** em `assets/04-EPIs/`. **Logo, roda no Cowork.** Se ele parecer falhar: leia o erro real (bundle no caminho certo? Python 3?) e **rode de novo** — não pule para a redação manual.
+> ⛔ **O script é a ÚNICA fonte da estrutura. NUNCA redigir o formulário à mão.** O `montar_formulario.py` **não depende do Drive nem da rede** — só lê o bundle (que você escreveu na pasta de trabalho do bash via heredoc) e a base **bundled** em `assets/04-EPIs/`. **Logo, roda no Cowork.** Se ele parecer falhar: leia o erro real (bundle no `/tmp/perito/`? Python 3?) e **rode de novo** — não pule para a redação manual.
 > **Fallback (só se o script comprovadamente não rodar, com o erro colado na resposta):** reproduza a seção **▶ AGENTES — INSALUBRIDADE (NR-15)** e a **▶ PERICULOSIDADE** **copiando VERBATIM** o bloco do `formulario-pericia.md` (13 anexos A–M + periculosidade, **cada campo de cada agente**). **Jamais** uma versão resumida/achatada (ex.: só "Status/Obs/Medição") — achatar o agente é o erro que corrompe o laudo. Marque `[X] Presente` conforme a pré-triagem; medições em branco.
 
-### Fase 2 — você adiciona SÓ a camada analítica (via `Edit` no form gerado)
-⛔ **NUNCA re-digite estrutura** (ficha, quesitos, processo, identificação — o script já fez, fiel). `Read` o form gerado e faça `Edit`s pontuais só para acrescentar:
+### Fase 2 — você adiciona SÓ a camada analítica (via `Edit` no form já publicado no Drive)
+⛔ **NUNCA re-digite estrutura** (ficha, quesitos, processo, identificação — o script já fez, fiel). `Read` o form **do Drive** (o que você publicou no passo 2 — não o `/tmp`) e faça `Edit`s pontuais só para acrescentar:
 - **Status/Obs dos agentes:** ⚙️ **o `montar_formulario.py` já PRÉ-MARCA `[X] Presente` no Status** dos agentes que a pré-triagem trouxe com base documental — na Fase 2 você **confere e refina só o Obs**. Se o script não pegou um agente que você identificou (Inicial/PPP), marque você o checkbox — mas **na linha Status marque SÓ o checkbox** `[ ] Ausente  [X] Presente` (Ausente vazio). **NUNCA escrever prosa/verdito na linha Status** (ex.: `[Presente — alegado na Inicial…]`): isso afoga o checkbox — tira do perito o espaço pra pontuar in loco **e** faz o redator ler alegação como caracterização confirmada. Toda a fundamentação (indício, fonte/pág, roteamento, janela de exposição) vai no **Obs**. Medições **em branco** (salvo PPP/PGR com valor citado → preencher + fonte). Sem base → `[ ] Ausente  [ ] Presente` (ambos vazios, avaliar in loco). Regras de roteamento: ver Mapeamento abaixo (óleos/graxas/hidrocarbonetos → **An.13**; poeira → **An.12**; gases c/ LT → **An.11**).
 - **PERICULOSIDADE:** marcar o checkbox `[X] Aplicável` + o do anexo conforme pré-triagem/objeto (abastecimento/comboio/pipa/combustível → **Anexo 2 — Inflamáveis**; eletricidade → **Anexo 4**); fundamentação no Obs — **sem prosa na linha Status**.
 - **Observações sobre os EPIs:** as **4 flags de EPI** (ver Mapeamento) — EPI≠agente, entrega fora do imprescrito, EPI indicado mas não entregue, contestação×ficha.
