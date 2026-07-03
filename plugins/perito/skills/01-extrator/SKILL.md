@@ -32,9 +32,12 @@ Faltou algum? Avise qual e prossiga; o ausente vira `[NÃO LOCALIZADO]`.
 1. Salve os 5 outputs do NLM **VERBATIM** num bundle: `Write` em `<formularios_campo>/_bundle-<nº>.md` com o texto colado **como veio** (não consolidar, não reescrever — cópia crua; já vêm em `▶ subseções`).
 2. Rode UM comando:
    `python3 <pasta desta skill>/montar_formulario.py <_bundle.md> -o <Formularios-Campo>/Formulario-Campo-<Reclamante>-<nº>.md --base <base_conhecimento>`
-   - O script CRAVA, determinístico e fiel: TIPO (pedido da Inicial), PROCESSO, PARTICIPANTES (só Reclamante), EMPRESA/ambiente, IDENTIFICAÇÃO (todas as funções), ESCOPO, **ficha de EPI (só imprescrito, descrição verbatim)**, NR-6 (do NLM), **QUESITOS na íntegra**, e o bloco fixo dos 13 agentes + periculosidade.
+   - O script CRAVA, determinístico e fiel: TIPO (pedido da Inicial), PROCESSO, PARTICIPANTES (só Reclamante), EMPRESA/ambiente, IDENTIFICAÇÃO (todas as funções), ESCOPO, **ficha de EPI (só imprescrito, descrição verbatim)**, NR-6 (do NLM), **QUESITOS na íntegra**, e o bloco fixo dos 13 agentes + periculosidade **com TODOS os campos** (Status, Equipamento, Nível medido/IBUTG/AREN-VDVR, Taxa metabólica, Tipo, C.A., Vida útil, PPP…).
    - E roda o **guard `check_epi.py` por dentro** (C.A. é a chave, o nome NÃO classifica): 🔧 classifica por C.A. (dicionário→CAEPI→regra absoluta creme=An.13) · 📐 cobertura (Σ qtd×vida útil, creme e protetor auditivo) · 🚩 CA vencido/conferir · 📇 não catalogados · ⏰ base >90d.
    - **Reproduza o resultado 🔧/🚩/📇/📐 do script na resposta.** Não reabra o `.md` para conferir o que o script já fez.
+
+> ⛔ **O script é a ÚNICA fonte da estrutura. NUNCA redigir o formulário à mão.** O `montar_formulario.py` **não depende do Drive nem da rede** — só lê o bundle (que você acabou de escrever, visível ao bash) e a base **bundled** em `assets/04-EPIs/`. **Logo, roda no Cowork.** Se ele parecer falhar: leia o erro real (bundle no caminho certo? Python 3?) e **rode de novo** — não pule para a redação manual.
+> **Fallback (só se o script comprovadamente não rodar, com o erro colado na resposta):** reproduza a seção **▶ AGENTES — INSALUBRIDADE (NR-15)** e a **▶ PERICULOSIDADE** **copiando VERBATIM** o bloco do `formulario-pericia.md` (13 anexos A–M + periculosidade, **cada campo de cada agente**). **Jamais** uma versão resumida/achatada (ex.: só "Status/Obs/Medição") — achatar o agente é o erro que corrompe o laudo. Marque `[X] Presente` conforme a pré-triagem; medições em branco.
 
 ### Fase 2 — você adiciona SÓ a camada analítica (via `Edit` no form gerado)
 ⛔ **NUNCA re-digite estrutura** (ficha, quesitos, processo, identificação — o script já fez, fiel). `Read` o form gerado e faça `Edit`s pontuais só para acrescentar:
@@ -97,7 +100,7 @@ A descrição da ficha é **intocável** (nome do produto verbatim — o guard b
 **NR-6 (Parte 3b):** transferir os 6 itens SIM/NÃO. Os dois itens 👤 (adequado ao risco / fiscalização) ficam em branco (perito).
 
 **AGENTES (Parte 3b + Inicial) — PROCEDIMENTO:**
-⚠ A "PRÉ-TRIAGEM DE AGENTES" da Parte 3b é **INSUMO, não formato de saída**. **Nunca copiá-la como a seção de agentes** — a seção é o **bloco fixo já embutido no `formulario-pericia.md`**:
+⚠ A "PRÉ-TRIAGEM DE AGENTES" da Parte 3b é **INSUMO, não formato de saída**. **Nunca copiá-la como a seção de agentes** — a seção é o **bloco fixo já embutido no `formulario-pericia.md`** (que o script crava). Em nenhuma hipótese achatar o agente para `Status/Obs/Medição`: **cada anexo mantém todos os seus campos** (Equipamento, Nível medido/IBUTG/AREN-VDVR, Taxa metabólica, Tipo, C.A., Vida útil, PPP…).
 1. Manter o bloco de AGENTES do `formulario-pericia.md` completo (todos os 13 anexos + periculosidade — mesmo os não citados pelo NLM).
 2. Sobrepor a pré-triagem do NLM (**o `montar_formulario.py` já pré-marca o checkbox** — você confere): agente com base documental → na linha Status **só o checkbox** `[ ] Ausente  [X] Presente` (Ausente vazio; **nunca prosa na linha Status**) + Obs (alegação da Inicial / indício de EPI / fonte-pág / janela de exposição). **Medições em branco** (dB, IBUTG, AREN/VDVR, concentração, C.A., vida útil…) para o perito preencher — **SALVO quando há PPP/PGR/PPRA com valores citados**: aí **preencher os campos de medição com esses valores** + fonte/pág no Obs, mantendo o Status `[X] Presente`.
 3. Agente sem base → Status `[ ] Ausente  [ ] Presente` (ambos vazios) + Obs "avaliar in loco". **Nunca encolher nem suprimir bloco.**
@@ -125,7 +128,7 @@ Lógica das fontes: **Inicial = pedido** (o que verificar). **Contestação defe
 ```
 ## ✅ AUTO-CHECK DA EXTRAÇÃO
 - TIPO de laudo veio do PEDIDO da Inicial (não da ata)? [Sim/Não]
-- Agentes: 13 blocos NR-15 (A–M) + Periculosidade completos (bloco do formulário, não encolhido)? [Sim/Não]
+- Agentes: 13 blocos NR-15 (A–M) + Periculosidade completos, **cada agente com todos os seus campos** (Equipamento, medição, Tipo, C.A., Vida útil…) — não achatado para só Status/Obs? [Sim/Não]
 - Saída sem tabelas markdown — tudo em bullets `·`/`—`? [Sim/Não]
 - Tabela de EPI cobre todo o imprescrito? [Sim/Não — período coberto × descoberto]
 - Quesitos Juízo/Reclamante/Reclamada localizados? [Sim/Não]
