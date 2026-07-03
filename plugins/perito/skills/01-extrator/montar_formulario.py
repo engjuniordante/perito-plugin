@@ -303,6 +303,9 @@ def parse_identificacao(block: str) -> list[dict[str, str]]:
 
 
 def first_checked_label(block: str, options: list[str]) -> int:
+    # App de nota (Notas do iPhone etc.) achata os checkboxes num parágrafo só. Restaura a quebra
+    # antes de cada [ ]/[x] que não esteja no início da linha, pra cada opção cair em linha própria.
+    block = re.sub(r"(?<!^)(\[\s*[ xX]\s*\])", r"\n\1", block, flags=re.M)
     for raw in block.splitlines():
         m = re.match(r"^\s*[\-\*]?\s*\[\s*[xX]\s*\]\s*(.+)$", raw)
         if m:
@@ -320,6 +323,10 @@ def mark(cond: bool) -> str:
 # ── render: template do Irineu ───────────────────────────────────────────────────
 def build_form(bundle_path: Path) -> str:
     text = bundle_path.read_text(encoding="utf-8")
+    # O NLM às vezes formata headers/labels/células em **negrito** ("▶ **PROCESSO...**", "- **Nº:**").
+    # Neutraliza o negrito UMA vez na ingestão p/ nenhum campo silenciar por formatação (senão a chave
+    # da seção vira "**PROCESSO" e o get_by_prefix devolve vazio, travando o form). Paridade c/ o squad.
+    text = text.replace("**", "")
     sec = split_subsections(text)
 
     proc = get_by_prefix(sec, "PROCESSO E EMPRESA")
