@@ -133,6 +133,32 @@ Preencher do formulário: `{{VARA}}`, `{{PROCESSO}}`, `{{RECLAMANTE}}`, `{{RECLA
 ### 2. Varredura dos agentes (cada `{{ANALISE_*}}`)
 Ler o status de cada agente no formulário. **Você só escreve no JSON os agentes que precisam de prosa própria — os AUSENTES o script preenche sozinho:**
 
+> ⛔ **NOMES DE MARCADOR — use EXATAMENTE estes (é o contrato do JSON, não invente).** A chave do bloco tem que bater 1:1; qualquer variação (`ANALISE_RUIDO`, `ANALISE_QUIMICOS_ACIDOS`…) é **descartada em silêncio** e o agente sai **descaracterizado**. Um marcador por **anexo** — nunca um por substância. Na dúvida: `python3 <base-dir>/scripts/build_laudo.py --list-markers`.
+>
+> | Agente / Anexo | Marcador |
+> |---|---|
+> | Ruído contínuo/intermitente (An.1) | `ANALISE_RUIDO_CONTINUO` |
+> | Ruído de impacto (An.2) | `ANALISE_RUIDO_IMPACTO` |
+> | Calor (An.3) | `ANALISE_CALOR` |
+> | Iluminamento (An.4, revogado) | `ANALISE_BAIXO_ILUMINAMENTO` |
+> | Radiações ionizantes (An.5) | `ANALISE_RAD_IONIZANTES` |
+> | Condições hiperbáricas (An.6) | `ANALISE_HIPERBARICAS` |
+> | Radiações não ionizantes (An.7) | `ANALISE_RAD_NAO_IONIZANTES` |
+> | Vibrações (An.8) | `ANALISE_VIBRACOES` |
+> | Frio (An.9) | `ANALISE_FRIO` |
+> | Umidade (An.10) | `ANALISE_UMIDADE` |
+> | Químicos **quantitativos** (An.11) | `ANALISE_QUIM_QUANTITATIVOS` |
+> | Poeiras minerais (An.12) | `ANALISE_POEIRAS_MINERAIS` |
+> | Químicos **qualitativos** (An.13 — **todo o anexo, 1 só marcador**: ácidos, álcalis, óleo mineral etc.) | `ANALISE_QUIM_QUALITATIVOS` |
+> | Benzeno (An.13-A) | `ANALISE_BENZENO` |
+> | Agentes biológicos (An.14) | `ANALISE_AGENTES_BIOLOGICOS` |
+> | Explosivos (An.1 NR-16) | `ANALISE_PERIC_EXPLOSIVOS` |
+> | Inflamáveis (An.2 NR-16) | `ANALISE_PERIC_INFLAMAVEIS` |
+> | Roubos/violência (An.3 NR-16) | `ANALISE_PERIC_ROUBOS` |
+> | Eletricidade (An.4 NR-16) | `ANALISE_PERIC_ELETRICIDADE` |
+> | Motocicleta (An.5 NR-16) | `ANALISE_PERIC_MOTOCICLETA` |
+> | Radiações — periculosidade | `ANALISE_PERIC_RADIACOES` |
+
 - **`[Ausente]`** (não há o agente) → **NÃO emita o bloco `ANALISE_*` no JSON.** O `build_laudo.py` preenche automaticamente, na voz do Irineu, a descaracterização-padrão por agente (inclui a frase de periculosidade e o texto de revogação do An.4 Iluminamento). Isso corta ~metade do JSON. **Apenas omita — não escreva "Descaracterizada…" você mesmo.**
 - **`[Presente]`** (inclui **presente abaixo do LT / descaracterizado por medição** — ⚠ isso **NÃO** é ausente: precisa da análise desenvolvida, então **emita o bloco**) → desenvolver a análise nesta ordem de fonte:
   1. **Laudo base** cobre este agente → adapta a análise dele, trocando o dado pelo do formulário.
@@ -205,8 +231,8 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
      "blocks": {
        "LISTA_PARTICIPANTES": ["Fulano de Tal – Reclamante"],
        "ATIVIDADES_POR_FUNCAO": ["Operava a colhedora na safra...", "Na entressafra, manutenção..."],
-       "ANALISE_RUIDO": ["Constatei nível de 82 dB(A), abaixo do limite de tolerância de 85 dB(A) do Anexo 1 da NR-15. Descaracterizada a insalubridade por ruído."],
-       "ANALISE_OLEO_MINERAL": ["O(A) Reclamante mantinha contato cutâneo habitual com óleo mineral... Caracterizada a insalubridade em grau máximo (40%), Anexo 13 da NR-15."],
+       "ANALISE_RUIDO_CONTINUO": ["Constatei nível de 82 dB(A), abaixo do limite de tolerância de 85 dB(A) do Anexo 1 da NR-15. Descaracterizada a insalubridade por ruído."],
+       "ANALISE_QUIM_QUALITATIVOS": ["O(A) Reclamante mantinha contato cutâneo habitual com óleo mineral (agente do Anexo 13)... Caracterizada a insalubridade em grau máximo (40%), Anexo 13 da NR-15."],
        "ANALISE_VIBRACOES": ["Medições conforme tabela:", "@@TABELA_VIBRACAO@@", "Os valores ultrapassam o LT..."],
        "CONCLUSAO_ITENS": ["O(A) Reclamante ficava exposto(a) a agentes químicos, sendo caracterizada a insalubridade em grau máximo, correspondente ao percentual de 40%..."],
        "QUESITOS_RECLAMANTE": ["1) Há insalubridade?", "Resposta: Vide, por gentileza, item 6.13 no laudo."],
@@ -221,6 +247,7 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
 
 2. **Rodar o script** (monta o .docx inteiro) — caixa-preta, não leia o código. **Antes de rodar, faça a conferência do Passo 6 no seu JSON** (é a sua única chance de conferir conteúdo — depois do script não se reabre o documento):
    `python3 <base-dir>/scripts/build_laudo.py "<00-Template/template-insal-peric.docx>" laudo-data.json /tmp/perito/laudo-<processo>.docx "<base_conhecimento>"`
+   - ✅ **VALIDE O JSON ANTES (1 linha, obrigatório):** `python3 -c "import json; json.load(open('laudo-data.json')); print('JSON OK')"`. Se você montou o JSON com vários `Edit` sucessivos, **escreva um arquivo novo do zero** em vez de editar o existente — no sandbox um `Edit` que encolhe o arquivo pode não truncar o físico que o bash lê (sobra bytes nulos → `Extra data`). JSON quebrado = o script morre com traceback; pegue isso aqui, barato, antes de gastar a montagem do .docx.
    - **Template (1º arg) e base EPI (4º arg) têm FALLBACK BUNDLED automático.** No Cowork o **bash não enxerga o Drive** → o script cai sozinho no `template-insal-peric.docx` **bundled** em `assets/templates/` e na base EPI bundled da skill 01 (imprime `ℹ️ usando o BUNDLED`). Passe o caminho do Drive normalmente; nativo usa o vivo, Cowork usa o bundled. **Nunca redija o .docx à mão nem pule o script porque "o template não está acessível".**
    - O 4º argumento = a pasta `base_conhecimento` (do `perito-config.json`); o script resolve `04-EPIs/caepi.sqlite` (base oficial CAEPI) e `04-EPIs/CA-dicionario.json` (override curado) e **classifica a tabela de EPI pelo C.A.** (chave primária; ignora o nome comercial; override curado → CAEPI → regra absoluta creme→An.13). Omitir = só a regra absoluta. O relatório reporta 🔧 classificado / 🚩 conferir / 📇 não catalogado.
    - **SAÍDA = `/tmp/perito/laudo-<processo>.docx`** (pasta de trabalho do bash — no Cowork é o único lugar onde o script consegue **gravar**; o bash não escreve no Drive). **Entregue esse arquivo ao perito:** no Cowork ele baixa da pasta de trabalho e salva em `Base Perícia Irineu/Laudos-Gerados/`; no Mac nativo, `cp` para `<saida_laudos>`. ⚠ Nunca fazer o script gravar direto no Drive/Desktop (o bash não alcança).

@@ -215,6 +215,20 @@ def build(template_path, data_path, out_path, *epi_paths):
     doc = docx.Document(_resolve_template(template_path))
     warnings = []
 
+    # GATE DE MARCADOR ANALISE_* INVÁLIDO (o pior erro — e o gate de órfão NÃO pega):
+    # um bloco ANALISE_* com nome fora do padrão (ex.: ANALISE_RUIDO em vez de
+    # ANALISE_RUIDO_CONTINUO, ou ANALISE_QUIMICOS_ACIDOS que não existe) é descartado
+    # em silêncio por replace_blocks (não há {{...}} correspondente no template);
+    # depois fill_absent_analises preenche o marcador REAL (que ficou ausente do JSON)
+    # com a descaracterização-padrão. Resultado: o agente que o modelo CARACTERIZOU
+    # sai DESCARACTERIZADO e nenhum órfão sobra pro gate pegar. Detectar aqui e bloquear.
+    _valid_analise = set(ABSENT_ANALISE)
+    _mk = lambda k: k[2:-2] if k.startswith('{{') and k.endswith('}}') else k
+    bad_markers = sorted({
+        _mk(k) for k in (data.get('blocks') or {})
+        if _mk(k).startswith('ANALISE_') and _mk(k) not in _valid_analise
+    })
+
     # blocos (multi-parágrafo) primeiro, depois escalares
     replace_blocks(doc, data.get('blocks', {}))
     # agentes AUSENTES que o modelo não enviou -> descaracterização-padrão automática
@@ -305,6 +319,13 @@ def build(template_path, data_path, out_path, *epi_paths):
           % (n_paras, n_tbls, ident_rows, epi_rows, vib_rows))
     if auto:
         print('Agentes AUSENTES preenchidos pelo script: %d/%d' % (len(auto), 21))
+    if bad_markers:
+        print('\n❌ MARCADOR ANALISE_* INVÁLIDO — %d chave(s) fora do padrão: %s'
+              % (len(bad_markers), ', '.join(bad_markers)))
+        print('   A(s) análise(s) que você escreveu com essa(s) chave(s) foi(ram) DESCARTADA(S):')
+        print('   o agente CARACTERIZADO sai DESCARACTERIZADO em silêncio. NÃO entregar este .docx.')
+        print('   Corrija a chave no JSON para o marcador válido e re-gere.')
+        print('   ANALISE_* válidos: %s' % ', '.join(sorted(_valid_analise)))
     if orphans:
         print('\n❌ LAUDO INCOMPLETO — %d marcador(es) órfão(s): %s' % (len(orphans), ', '.join(orphans)))
         print('   Corrigir o JSON (campos faltando) e re-gerar — NÃO entregar este .docx.')
@@ -321,15 +342,15 @@ def build(template_path, data_path, out_path, *epi_paths):
             print('  - %s → %s' % (trecho, msg))
     if epi_naocat:
         print('\n📇 EPI — C.A. NÃO CATALOGADOS (adicione ao CA-dicionario.json): %s' % ', '.join(epi_naocat))
-    if not orphans and not warnings and not epi_flags:
+    if not orphans and not warnings and not bad_markers and not epi_flags:
         if epi_fixes:
             print('\n✅ DOCUMENTO GERADO — creme(s) auto-corrigido(s) para An.13 (acima); nada mais pendente.')
         else:
             print('✅ VALIDAÇÃO OK: sem marcador residual, identidade do perito presente, sem vazamento.')
         print('✅ verificação encerrada. NÃO reabra/dumpe o .docx: ele é render determinístico do JSON já conferido.')
-    elif not orphans and not warnings and epi_flags:
+    elif not orphans and not warnings and not bad_markers and epi_flags:
         print('\n⚠ DOCUMENTO GERADO, mas há classificação(ões) de EPI a confirmar pelo C.A. acima — revise ANTES de assinar.')
-    return not warnings and not orphans
+    return not warnings and not orphans and not bad_markers
 
 def build_vibracao_table(doc, linhas):
     ph = None
@@ -475,7 +496,13 @@ def epi_guard(linhas, cadict=None, caepi=None):
     return dedup(fixes), dedup(flags), dedup(nao_cat)
 
 if __name__ == '__main__':
+    # escape-hatch de auto-conferência: lista os ANALISE_* válidos sem "ler o código"
+    if len(sys.argv) >= 2 and sys.argv[1] in ('--list-markers', '--markers'):
+        print('Marcadores ANALISE_* válidos (%d):' % len(ABSENT_ANALISE))
+        for m in ABSENT_ANALISE: print('  ' + m)
+        sys.exit(0)
     if len(sys.argv) < 4:
-        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]'); sys.exit(1)
+        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]')
+        print('     python3 build_laudo.py --list-markers   (lista os ANALISE_* válidos)'); sys.exit(1)
     ok = build(sys.argv[1], sys.argv[2], sys.argv[3], *sys.argv[4:])
     sys.exit(0 if ok else 2)
