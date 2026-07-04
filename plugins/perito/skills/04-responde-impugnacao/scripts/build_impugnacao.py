@@ -21,7 +21,7 @@ JSON:
   ]
 }
 """
-import sys, json, re, os
+import sys, json, re, os, ntpath
 from copy import deepcopy
 
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
@@ -135,7 +135,9 @@ def _resolve_template(template_path):
         return template_path
     here = os.path.dirname(os.path.abspath(__file__))
     tdir = os.path.join(here, '..', 'assets', 'templates')
-    cand = os.path.join(tdir, os.path.basename(template_path or ''))
+    # ntpath.basename entende tanto '/' (POSIX) quanto '\' (Windows/Drive);
+    # os.path.basename no Linux ignora '\' e devolveria o caminho inteiro do Drive.
+    cand = os.path.join(tdir, ntpath.basename(template_path or ''))
     if os.path.isfile(cand):
         print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
               % os.path.basename(cand))
