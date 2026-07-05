@@ -18,7 +18,7 @@ Estrutura do JSON:
   "vibracao": [ ["Trator de Transbordo","1,00","16,50"], ["Colhedora","0,60","7,90"] ]   // opcional
 }
 """
-import sys, json, re, os, sqlite3
+import sys, json, re, os, ntpath, sqlite3
 from copy import deepcopy
 
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
@@ -60,10 +60,12 @@ def _resolve_template(template_path):
     Se o basename pedido não existe bundled, falha (não substitui por outro template)."""
     if template_path and os.path.isfile(template_path):
         return template_path
-    cand = os.path.join(_BUNDLED_TEMPLATES, os.path.basename(template_path or ''))
+    # ntpath.basename entende '/' (POSIX) e '\' (Windows/Drive); os.path.basename no Linux
+    # ignora '\' e devolveria o caminho inteiro do Drive → fallback bundled nunca casaria.
+    cand = os.path.join(_BUNDLED_TEMPLATES, ntpath.basename(template_path or ''))
     if os.path.isfile(cand):
         print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
-              % os.path.basename(cand))
+              % ntpath.basename(cand))
         return cand
     raise SystemExit('template não encontrado: nem "%s" nem bundled em %s\n'
                      '   (bundled disponíveis: %s)'
@@ -104,7 +106,7 @@ def _gate_tipo(doc, requested_path, tipo_laudo):
     raw = '\n'.join(p.text for p in all_paragraphs(doc))
     tmpl_nr15 = bool(re.search(r'\{\{ANALISE_(?!PERIC_)[A-Z]', raw))
     tmpl_nr16 = bool(re.search(r'\{\{ANALISE_PERIC_', raw))
-    req_base = os.path.basename(requested_path or '')
+    req_base = ntpath.basename(requested_path or '')  # aceita path do Drive Windows (vide _resolve_template)
     tipo = _canon_tipo(tipo_laudo)
     intent = tipo  # sem tipo_laudo, inferir do basename pedido
     if intent is None:
@@ -267,7 +269,7 @@ def _check_template_contract(path):
     de tipo errado. Devolve (problemas, tipo) — problemas vazio = template OK."""
     doc = docx.Document(path)
     m = _template_markers(doc)
-    base = os.path.basename(path)
+    base = ntpath.basename(path)
     tipo = next((t for t, (b, _n15, _n16) in _TIPO_TEMPLATE.items() if b == base), None)
     probs = []
     # contrato comum a todos os tipos (schema atual)

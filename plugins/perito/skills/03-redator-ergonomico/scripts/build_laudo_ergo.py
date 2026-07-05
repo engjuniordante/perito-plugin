@@ -9,7 +9,7 @@ Uso: python3 build_laudo_ergo.py <template-ergonomico.docx> <laudo-data.json> <p
 Divisão: o MODELO produz só o JSON (dados do processo). O SCRIPT lê a planilha
 (escores/formulações/tabelas — determinístico, nunca recalcula) e monta o .docx.
 """
-import sys, json, re, os
+import sys, json, re, os, ntpath
 from copy import deepcopy
 
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
@@ -228,10 +228,12 @@ def _resolve_template(template_path):
         return template_path
     here = os.path.dirname(os.path.abspath(__file__))
     tdir = os.path.join(here, '..', 'assets', 'templates')
-    cand = os.path.join(tdir, os.path.basename(template_path or ''))
+    # ntpath.basename entende '/' (POSIX) e '\' (Windows/Drive); os.path.basename no Linux
+    # ignora '\' e devolveria o caminho inteiro do Drive → fallback bundled nunca casaria.
+    cand = os.path.join(tdir, ntpath.basename(template_path or ''))
     if os.path.isfile(cand):
         print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
-              % os.path.basename(cand))
+              % ntpath.basename(cand))
         return cand
     raise SystemExit('template não encontrado: nem "%s" nem bundled em %s' % (template_path, tdir))
 

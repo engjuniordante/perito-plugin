@@ -140,7 +140,7 @@ def _resolve_template(template_path):
     cand = os.path.join(tdir, ntpath.basename(template_path or ''))
     if os.path.isfile(cand):
         print('ℹ️  template do Drive inacessível (bash do Cowork) — usando o BUNDLED: %s'
-              % os.path.basename(cand))
+              % ntpath.basename(cand))
         return cand
     raise SystemExit('template não encontrado: nem "%s" nem bundled em %s' % (template_path, tdir))
 
