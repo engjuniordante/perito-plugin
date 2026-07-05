@@ -190,7 +190,7 @@ def replace_scalar(document, mapping):
                 t = run.text
                 for k, v in mapping.items():
                     if k in t:
-                        t = t.replace(k, v)
+                        t = t.replace(k, str(v))  # str(): scalar do JSON pode vir número (EPI_ANO etc) → sem str, crash
                 run.text = t
 
 def set_block(p, lines):

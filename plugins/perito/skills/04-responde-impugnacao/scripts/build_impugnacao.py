@@ -40,11 +40,13 @@ from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 def all_paragraphs(document):
-    out = list(document.paragraphs)
-    for t in document.tables:
-        for row in t.rows:
-            for cell in row.cells:
-                out.extend(cell.paragraphs)
+    out = []
+    def rec(tbls):                     # recursivo: pega marcador em tabela aninhada (paridade c/ skills 02/03)
+        for t in tbls:
+            for row in t.rows:
+                for cell in row.cells:
+                    out.extend(cell.paragraphs); rec(cell.tables)
+    out.extend(document.paragraphs); rec(document.tables)
     for sec in document.sections:
         out.extend(sec.header.paragraphs); out.extend(sec.footer.paragraphs)
     return out
