@@ -23,6 +23,14 @@ import re
 import sys
 from pathlib import Path
 
+# Piso 3.9 (anotações builtin) + stdout/err UTF-8: no Windows a saída capturada cai em
+# cp1252 (Python <3.15) e um emoji do relatório mataria o script com UnicodeEncodeError.
+if sys.version_info < (3, 9):
+    sys.exit('Python 3.9+ é necessário (este ambiente tem %d.%d).' % sys.version_info[:2])
+for _s in (sys.stdout, sys.stderr):
+    if _s is not None and hasattr(_s, 'reconfigure'):
+        _s.reconfigure(encoding='utf-8', errors='replace')
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_epi as ce
 from montar_formulario import _menos_cinco_anos

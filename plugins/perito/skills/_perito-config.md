@@ -64,3 +64,9 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
 > A identidade do perito **vem sempre do config** — as travas antigas ("perito = sempre
 > Irineu") passam a significar "perito = `perito.nome` do config, nunca o usuário/dono da
 > máquina". A **vara** continua vindo do **formulário** (a do processo), não do config.
+
+## Execução dos scripts (Windows × Mac) — vale para TODAS as skills
+
+Os comandos das skills usam `python3`. **No Windows**, se `python3` não existir no
+terminal (Git Bash), usar **`python`** (ou `py -3`) — mesmo script, mesmos argumentos.
+Piso: **Python 3.9+** (os scripts abortam com mensagem clara abaixo disso).

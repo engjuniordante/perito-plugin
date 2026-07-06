@@ -33,6 +33,15 @@ import re
 import sqlite3
 import sys
 from datetime import date, timedelta
+from pathlib import Path
+
+# Piso 3.9 (anotações builtin) + stdout/err UTF-8: no Windows a saída capturada cai em
+# cp1252 (Python <3.15) e um emoji do relatório mataria o script com UnicodeEncodeError.
+if sys.version_info < (3, 9):
+    sys.exit('Python 3.9+ é necessário (este ambiente tem %d.%d).' % sys.version_info[:2])
+for _s in (sys.stdout, sys.stderr):
+    if _s is not None and hasattr(_s, 'reconfigure'):
+        _s.reconfigure(encoding='utf-8', errors='replace')
 
 MARK = '## 🚩 VERIFICAÇÃO AUTOMÁTICA DE EPI'
 
@@ -110,7 +119,10 @@ class Caepi:
         self.has_conf = False
         if path and os.path.exists(path):
             try:
-                self.con = sqlite3.connect('file:%s?mode=ro' % path, uri=True)
+                # as_uri() (file:///C:/... percent-encoded) — 'file:%s' com path Windows
+                # (C:\...) sai fora do formato de URI que o SQLite documenta
+                self.con = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro',
+                                           uri=True)
                 row = self.con.execute("SELECT v FROM meta WHERE k='build_date'").fetchone()
                 self.build_date = row[0] if row else None
                 cols = [r[1] for r in self.con.execute('PRAGMA table_info(ca)').fetchall()]

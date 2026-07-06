@@ -20,16 +20,31 @@ Estrutura do JSON:
 """
 import sys, json, re, os, ntpath, sqlite3
 from copy import deepcopy
+from pathlib import Path
+
+# Piso 3.9 (anotações builtin) + stdout/err UTF-8: no Windows a saída capturada cai em
+# cp1252 (Python <3.15) e um emoji do relatório mataria o script com UnicodeEncodeError.
+if sys.version_info < (3, 9):
+    sys.exit('Python 3.9+ é necessário (este ambiente tem %d.%d).' % sys.version_info[:2])
+for _s in (sys.stdout, sys.stderr):
+    if _s is not None and hasattr(_s, 'reconfigure'):
+        _s.reconfigure(encoding='utf-8', errors='replace')
 
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
 def _ensure(pkgs):
-    import importlib.util, subprocess, sys as _sys
+    import importlib, importlib.util, subprocess, sys as _sys
     falta = [pip for mod, pip in pkgs if importlib.util.find_spec(mod) is None]
-    if falta:
-        cmd = [_sys.executable, '-m', 'pip', 'install', *falta]
-        if _sys.platform.startswith('linux'):
-            cmd.append('--break-system-packages')
-        subprocess.run(cmd, check=False)
+    if not falta:
+        return
+    cmd = [_sys.executable, '-m', 'pip', 'install', *falta]
+    # PEP 668 (Linux E macOS/Homebrew): pip recusa fora de venv → repete com a flag
+    if subprocess.run(cmd, check=False).returncode != 0:
+        subprocess.run(cmd + ['--break-system-packages'], check=False)
+    importlib.invalidate_caches()
+    resta = [pip for mod, pip in pkgs if importlib.util.find_spec(mod) is None]
+    if resta:
+        _sys.exit('dependência ausente: %s — instale com:\n  %s -m pip install %s'
+                  % (', '.join(resta), _sys.executable, ' '.join(resta)))
 _ensure([('docx', 'python-docx')])
 
 import docx
@@ -569,7 +584,9 @@ def _caepi_lookup(con, ca):
 def _open_caepi(path):
     if path and os.path.exists(path):
         try:
-            return sqlite3.connect('file:%s?mode=ro' % path, uri=True)
+            # as_uri() (file:///C:/... percent-encoded) — 'file:%s' com path Windows
+            # (C:\...) sai fora do formato de URI que o SQLite documenta
+            return sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
         except Exception:
             return None
     return None

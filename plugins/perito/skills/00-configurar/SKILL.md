@@ -10,8 +10,8 @@ quando algo mudar). Todas as demais skills do plugin leem este arquivo para sabe
 o perito** e **onde estão** a base de conhecimento, os templates, a planilha de agendamento
 e a pasta de saída dos laudos.
 
-Schema completo e padrão de leitura: **`_plugin-skills/_perito-config.md`** (referência
-canônica — ler antes).
+Schema completo e padrão de leitura: **`_perito-config.md`** (na pasta de skills do
+plugin, ao lado desta — referência canônica, ler antes).
 
 ## Onde gravar (CRÍTICO)
 

@@ -12,15 +12,29 @@ Divisão: o MODELO produz só o JSON (dados do processo). O SCRIPT lê a planilh
 import sys, json, re, os, ntpath
 from copy import deepcopy
 
+# Piso 3.9 (anotações builtin) + stdout/err UTF-8: no Windows a saída capturada cai em
+# cp1252 (Python <3.15) e um emoji do relatório mataria o script com UnicodeEncodeError.
+if sys.version_info < (3, 9):
+    sys.exit('Python 3.9+ é necessário (este ambiente tem %d.%d).' % sys.version_info[:2])
+for _s in (sys.stdout, sys.stderr):
+    if _s is not None and hasattr(_s, 'reconfigure'):
+        _s.reconfigure(encoding='utf-8', errors='replace')
+
 # --- auto-provisionamento de dependências (sandbox efêmero do Cowork) ---
 def _ensure(pkgs):
-    import importlib.util, subprocess, sys as _sys
+    import importlib, importlib.util, subprocess, sys as _sys
     falta = [pip for mod, pip in pkgs if importlib.util.find_spec(mod) is None]
-    if falta:
-        cmd = [_sys.executable, '-m', 'pip', 'install', *falta]
-        if _sys.platform.startswith('linux'):
-            cmd.append('--break-system-packages')
-        subprocess.run(cmd, check=False)
+    if not falta:
+        return
+    cmd = [_sys.executable, '-m', 'pip', 'install', *falta]
+    # PEP 668 (Linux E macOS/Homebrew): pip recusa fora de venv → repete com a flag
+    if subprocess.run(cmd, check=False).returncode != 0:
+        subprocess.run(cmd + ['--break-system-packages'], check=False)
+    importlib.invalidate_caches()
+    resta = [pip for mod, pip in pkgs if importlib.util.find_spec(mod) is None]
+    if resta:
+        _sys.exit('dependência ausente: %s — instale com:\n  %s -m pip install %s'
+                  % (', '.join(resta), _sys.executable, ' '.join(resta)))
 _ensure([('docx', 'python-docx'), ('openpyxl', 'openpyxl')])
 
 import docx, openpyxl
