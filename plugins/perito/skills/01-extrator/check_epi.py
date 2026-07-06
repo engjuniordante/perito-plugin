@@ -1345,8 +1345,11 @@ def main():
                 f.write(new_mec)
             print('⚠ check_epi: %d entrega(s) com C.A., nenhuma classifica p/ agente NR-15 (todos mecânicos/gerais).' % len(mecanicos))
             sys.exit(0)
+        bloco_vazio = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n',
+                       '✅ Nenhuma entrega de EPI com C.A. na ficha — guard encerrado sem classificação.']
+        new_empty = insert_block(body, '\n'.join(bloco_vazio))
         with open(path, 'w', encoding='utf-8') as f:
-            f.write(body)
+            f.write(new_empty)
         print('✅ check_epi: nenhuma entrega de EPI com C.A. para classificar.')
         sys.exit(0)
 
