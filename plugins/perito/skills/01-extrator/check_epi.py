@@ -348,24 +348,28 @@ NON_CERTIFIABLE_HINTS = (
 
 
 def _vida_util(ca, txt, cadict, caepi):
+    """(vida útil em meses, rótulo da premissa) — o rótulo é ecoado no bloco 📐 para o
+    laudo/impugnação mostrarem DE ONDE saiu a conta (defensibilidade). (None, None) se não há."""
     if ca and ca in cadict and cadict[ca].get('vida_util_meses'):
         try:
-            return float(cadict[ca]['vida_util_meses'])
+            vu = float(cadict[ca]['vida_util_meses'])
+            return vu, 'CA %s: %gm (dicionário do perito)' % (ca, vu)
         except (TypeError, ValueError):
             pass
     if ca and caepi is not None and getattr(caepi, 'has_vu', False):
         hit = caepi.get(ca)
         if hit and hit.get('vida_util_meses'):
             try:
-                return float(hit['vida_util_meses'])
+                vu = float(hit['vida_util_meses'])
+                return vu, 'CA %s: %gm (CAEPI)' % (ca, vu)
             except (TypeError, ValueError):
                 pass
     if 'creme' in txt or 'pomada' in txt:
-        return 1.0
-    for kws, vu, _ in TYPE_VU:
+        return 1.0, 'creme 1 pote/mês'
+    for kws, vu, label in TYPE_VU:
         if any(k in txt for k in kws):
-            return vu
-    return None
+            return vu, label
+    return None, None
 
 
 def _is_certifiable(desc, ca):
@@ -540,6 +544,7 @@ def cobertura(lines, cadict, caepi):
     Classifica pelo AGENTE do C.A. (não pela descrição, que pode ter sido renomeada). Ruído e creme;
     luva/conjunto = perito. Retorna (resultados, faltou_vu)."""
     buckets, faltou, events = {}, [], {}
+    descartes, premissas = [], {}          # v1.47: nada some da conta em silêncio + premissa ecoada
     text = '\n'.join(lines)
     impr_a, impr_b = _imprescrito_range(text)
     # lookback p/ detecção de gap: uma entrega até ~500 dias ANTES do imprescrito pode ainda
@@ -578,12 +583,6 @@ def cobertura(lines, cadict, caepi):
                 in_sum = False             # fora do imprescrito → não soma (mas pode virar evento de gap)
             if gaplo and di < gaplo:        # antes até do lookback → não cobre o início, ignora de vez
                 continue
-        mq = QTY_RE.search(cells[1])
-        if not mq:
-            continue
-        qtd = int(mq.group(1))
-        if qtd > 500:                      # quantidade irreal = parse errado → ignorar
-            continue
         desc = cells[-2]
         ca = extract_ca(raw)
         agente, equip = None, ''
@@ -605,7 +604,16 @@ def cobertura(lines, cadict, caepi):
         is_prot = (agente == 'Ruído (An.1)') or any(k in txt for k in ('auric', 'auditiv'))
         if not (is_creme or is_prot):
             continue
-        vu = _vida_util(ca, txt, cadict, caepi)
+        # quantidade DEPOIS do filtro creme/protetor: linha relevante descartada da conta
+        # NUNCA some em silêncio (mesmo princípio dos afastamentos ilegíveis) — vira ⚠.
+        mq = QTY_RE.search(cells[1])
+        qtd = int(mq.group(1)) if mq else None
+        if qtd is None or qtd > 500:
+            if in_sum:
+                motivo = 'sem quantidade legível' if qtd is None else 'quantidade %d (irreal — parse?)' % qtd
+                descartes.append('%s%s — %s' % (desc[:40], ' [C.A. %s]' % ca if ca else '', motivo))
+            continue
+        vu, vu_label = _vida_util(ca, txt, cadict, caepi)
         if vu is None:
             if in_sum:
                 faltou.append(ca or desc[:30])
@@ -615,6 +623,8 @@ def cobertura(lines, cadict, caepi):
             b = buckets.setdefault(bucket, [0.0, 0])
             b[0] += qtd * vu
             b[1] += 1
+            if vu_label and vu_label not in premissas.setdefault(bucket, []):
+                premissas[bucket].append(vu_label)
         if di:                             # evento de gap (inclui o lookback pré-janela p/ herdar cobertura)
             try:
                 events.setdefault(bucket, []).append((date.fromisoformat(di), qtd, vu))
@@ -650,6 +660,16 @@ def cobertura(lines, cadict, caepi):
             res.append('%s: %d entregas → ~%s meses (Σ qtd × vida útil — sem janela p/ continuidade)'
                        % (a, n, ('%g' % round(m, 1))))
         res.extend(_coverage_gaps(a, wins))
+
+    # v1.47: premissa da conta ECOADA no 📐 — em impugnação ("de onde saiu 6m por plug?"),
+    # o formulário mostra a régua usada (tipo, dicionário do perito ou CAEPI, por C.A.).
+    for a in buckets:
+        if premissas.get(a):
+            res.append('premissa da conta [%s]: %s' % (a, ' · '.join(premissas[a])))
+    # v1.47: linha relevante fora da conta NUNCA em silêncio — gap/cobertura podem estar subestimados.
+    if descartes:
+        res.append('⚠ %d entrega(s) de protetor/creme FORA da conta (quantidade ilegível/irreal): %s — confira a ficha e ajuste a quantidade no formulário'
+                   % (len(descartes), '; '.join(descartes[:4]) + ('; …' if len(descartes) > 4 else '')))
 
     # Frase clara da conta + ECO dos períodos descontados (perito confere contra a ficha/PPP) —
     # só quando houve desconto e há cobertura a contextualizar.
@@ -926,16 +946,21 @@ def _resumo_an7_note(items):
 
 
 # A) slots COM cobertura: substitui só o trecho entre "label: " e " · cobre" (não toca cobertura)
-_RES_PROT_RE = re.compile(r'(•\s*Protetor\s*\(ru[ií]do\):\s*).*?(\s*·\s*cobre)', re.I)
-_RES_CREME_RE = re.compile(r'(•\s*Creme[^:]*:\s*).*?(\s*·\s*cobre)', re.I)
+_BUL = r'[•\-\*]\s*'   # o bullet fica DENTRO do grupo 1 — o sub reconstrói a linha a partir dele
+_RES_PROT_RE = re.compile(r'(' + _BUL + r'Protetor[^:(]*\(ru[ií]do[^)]*\):\s*).*?(\s*·\s*cobre)', re.I)
+_RES_CREME_RE = re.compile(r'(' + _BUL + r'Creme[^:]*:\s*).*?(\s*·\s*cobre)', re.I)
 # B) slots SEM cobertura: substitui o valor até o fim da linha
-_RES_LUVA_RE = re.compile(r'(•\s*Luva\s+imperm\.:\s*).*$', re.I | re.M)
-_RES_MASK_RE = re.compile(r'(•\s*M[aá]scara/resp\.:\s*).*$', re.I | re.M)
+_RES_LUVA_RE = re.compile(r'(' + _BUL + r'Luva\s+imperm\.:\s*).*$', re.I | re.M)
+_RES_MASK_RE = re.compile(r'(' + _BUL + r'M[aá]scara/resp\.:\s*).*$', re.I | re.M)
 # C) conjunto — marca peça presente na ficha (perito confirma adequação). Só Defensivo An.13 +
 # Umidade An.10 por ora (validados em caso real de pulverização); Solda/Frio = follow-up.
-_RES_DEF_RE = re.compile(r'(•\s*Defensivo An\.13:\s*).*$', re.I | re.M)
-_RES_UMI_RE = re.compile(r'(•\s*Umidade An\.10:\s*).*$', re.I | re.M)
-_RES_FRIO_RE = re.compile(r'(•\s*Frio An\.9:\s*).*$', re.I | re.M)
+_RES_DEF_RE = re.compile(r'(' + _BUL + r'Defensivo An\.13:\s*).*$', re.I | re.M)
+_RES_UMI_RE = re.compile(r'(' + _BUL + r'Umidade An\.10:\s*).*$', re.I | re.M)
+_RES_FRIO_RE = re.compile(r'(' + _BUL + r'Frio An\.9:\s*).*$', re.I | re.M)
+_RES_SOLDA_RE = re.compile(r'(' + _BUL + r'Solda An\.7:\s*).*$', re.I | re.M)
+_TON_RE = re.compile(r'ton(?:alidade)?\.?\s*(?:n[ºo°.]?\s*)?(\d{1,2})', re.I)
+_UMI_IMPERM_KW = ('borracha', 'pvc', 'impermeá', 'impermea', 'galocha', 'látex', 'latex',
+                  'nitríl', 'nitril', 'vinil', 'plástic', 'plastic')
 
 
 def fill_resumo_items(body, lines, cadict, caepi):
@@ -1000,6 +1025,15 @@ def fill_resumo_items(body, lines, cadict, caepi):
                 return 'luva[X]%s' % ca
         return 'luva[ ]'
 
+    def _pc_umi(label, must):
+        """Peça de umidade AVULSA: exige a peça + material impermeável explícito na descrição
+        (bota/avental de couro ou raspa NÃO contam — barreira de umidade é borracha/PVC/látex)."""
+        for e in entregas:
+            if must in e[4] and any(k in e[4] for k in _UMI_IMPERM_KW):
+                ca = (' (CA %s)' % e[0]) if (e[0] and e[0] != '—') else ''
+                return '%s[X]%s' % (label, ca)
+        return '%s[ ]' % label
+
     if _find('conjunto', 'macacão', 'macacao', 'pulveriz', 'hidrorepel'):
         defv = ' '.join([
             _pc('conjunto/pulveriz.', 'conjunto', 'macacão', 'macacao', 'pulveriz', 'hidrorepel'),
@@ -1011,6 +1045,33 @@ def fill_resumo_items(body, lines, cadict, caepi):
         body = _RES_DEF_RE.sub(lambda m: m.group(1) + defv, body, count=1)
         umi = ' '.join([_pc('bota', 'bota'), _pc('avental', 'avental'), _pc_luva()])
         body = _RES_UMI_RE.sub(lambda m: m.group(1) + umi, body, count=1)
+    else:
+        # v1.47: Umidade An.10 AVULSA — sem kit na ficha, marca presença por peça ESTRITA
+        # (peça + material impermeável explícito). Só toca a linha se achou ≥1 peça; sem
+        # evidência, o slot fica intacto (não afirmar ausência verificada que não se verificou).
+        umi_parts = [_pc_umi('bota', 'bota'), _pc_umi('avental', 'avental'), _pc_luva()]
+        if any('[X]' in p for p in umi_parts):
+            body = _RES_UMI_RE.sub(lambda m: m.group(1) + ' '.join(umi_parts), body, count=1)
+
+    # v1.47: Solda An.7 — presença da máscara/lente de solda + tonalidade quando a ficha traz.
+    # Adequação da tonalidade à amperagem = perito (in loco); aqui é só presença + dado da ficha.
+    solda_hit = None
+    for e in entregas:
+        t = e[4]
+        if 'solda' in t and any(k in t for k in ('máscara', 'mascara', 'lente', 'escudo',
+                                                 'viseira', 'protetor facial', 'capuz')):
+            solda_hit = e
+            break
+        if e[3] and 'An.7' in (e[3] or '') and any(k in t for k in ('lente', 'escudo', 'máscara', 'mascara')):
+            solda_hit = e
+            break
+    if solda_hit:
+        ca = (' (CA %s)' % solda_hit[0]) if (solda_hit[0] and solda_hit[0] != '—') else ''
+        mton = _TON_RE.search(solda_hit[1])
+        ton = mton.group(1) if mton else '__ (ver boletim do C.A.)'
+        body = _RES_SOLDA_RE.sub(
+            lambda m: m.group(1) + 'máscara/lente[X]%s · lente tonalidade %s' % (ca, ton),
+            body, count=1)
 
     # Frio An.9 — só com item de frio cold-specific (japona/balaclava). calça/luva/bota só contam
     # com contexto térmico/frio E excluindo 'altas temperaturas' (que é proteção a CALOR, não frio).
