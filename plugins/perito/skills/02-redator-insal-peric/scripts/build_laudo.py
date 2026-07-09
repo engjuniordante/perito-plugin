@@ -156,6 +156,144 @@ def _gate_tipo(doc, requested_path, tipo_laudo):
 # laudos dele). Cada valor é a lista de parágrafos do bloco.
 # ⚠ 4 entradas (RUIDO_CONTINUO, VIBRACOES, QUIM_QUALITATIVOS, PERIC_INFLAMAVEIS)
 # foram derivadas do padrão (são quase sempre PRESENTES, raramente caem aqui).
+# ---------------- fronteira FORMULÁRIO × modelo (o checkbox do perito manda) ------
+# Portado do squad laudo-pericial (gates 1.7/1.8, 09/07/2026). Origem: um redator leu
+# uma regra de outro caso ("assinatura na ficha ≠ treinamento"), virou a célula de
+# Treinamento da tabela NR-6 contra o [X] Sim do perito e — pela regra "qualquer NÃO
+# estrutural = EPI não elide" — inverteu o veredito de ruído de um agente que o
+# formulário marcava como "Neutralizado pelo EPI: [X] Sim".
+# O formulário é a autoridade sobre o FATO. Divergiu → não gera; leva ao perito.
+
+# letra do bloco de agente no formulário → marcador ANALISE_* do template
+_NEUTRAL_MARCADOR = {
+    'A': ['ANALISE_RUIDO_CONTINUO', 'ANALISE_RUIDO_IMPACTO'], 'B': ['ANALISE_CALOR'],
+    'D': ['ANALISE_RAD_IONIZANTES'], 'E': ['ANALISE_HIPERBARICAS'],
+    'F': ['ANALISE_RAD_NAO_IONIZANTES'], 'G': ['ANALISE_VIBRACOES'],
+    'H': ['ANALISE_FRIO'], 'I': ['ANALISE_UMIDADE'],
+    'J': ['ANALISE_QUIM_QUANTITATIVOS'], 'K': ['ANALISE_POEIRAS_MINERAIS'],
+    'L': ['ANALISE_QUIM_QUALITATIVOS'], 'M': ['ANALISE_AGENTES_BIOLOGICOS'],
+}  # C (Iluminação, An.4) é revogado — sem veredicto de neutralização
+
+# rótulo da linha NR-6 no formulário → chave do JSON (`nr6`). Ordem importa:
+# "Frequência regular de fornecimento" contém "fornecimento".
+_NR6_CHAVES = (('frequencia', ('frequencia',)), ('treinamento', ('treinamento',)),
+               ('fiscalizacao', ('fiscaliza',)), ('adequado', ('adequa',)),
+               ('ca', ('c.a', 'anotacao')), ('ficha', ('ficha', 'fornecimento')))
+
+_AGENTE_LETRA_RE = re.compile(r'^\s*#{0,4}\s*([A-M])\.\s+\S')
+# tolera sufixo no rótulo ("...pelo EPI durante TODO o imprescrito:") — formulários
+# antigos trazem só "pelo EPI:"; ambos casam
+_NEUTRAL_LABEL_RE = re.compile(r'(?i)^\s*[-*•]?\s*Neutralizado\s+pelo\s+EPI\b[^:]*:')
+_SECAO_RE = re.compile(r'^\s*(?:#{1,4}\s*)?▶')
+
+
+def _sem_acento(s):
+    import unicodedata
+    return unicodedata.normalize('NFKD', s or '').encode('ASCII', 'ignore').decode('ASCII').lower()
+
+
+def _checkbox_sim_nao(line):
+    """'SIM' | 'NAO' | None conforme o [X] da linha."""
+    for chk, opt in re.findall(r'\[\s*([xX ])\s*\]\s*(Sim|N[ãa]o)', line or ''):
+        if chk.strip():
+            return 'SIM' if opt.lower() == 'sim' else 'NAO'
+    return None
+
+
+def _secao_form(text, titulo):
+    """Corpo da seção '▶ TITULO' até a próxima seção ▶ (ou fim)."""
+    linhas = (text or '').splitlines()
+    h = next((i for i, l in enumerate(linhas)
+              if _SECAO_RE.match(l) and titulo.upper() in _sem_acento(l).upper()), None)
+    if h is None:
+        return ''
+    corpo = []
+    for l in linhas[h + 1:]:
+        if _SECAO_RE.match(l):
+            break
+        corpo.append(l)
+    return '\n'.join(corpo)
+
+
+def caracteriza_insalubridade(paragrafos):
+    """True quando o bloco ANALISE_* afirma insalubridade. Apaga primeiro as formas
+    negativas ('descaracterizada', 'não caracterizada', 'não insalubre') para que a
+    menção ao radical dentro delas não conte como afirmação."""
+    t = _sem_acento(' '.join(paragrafos if isinstance(paragrafos, list) else [str(paragrafos)]))
+    t = re.sub(r'descaracterizad[ao]\w*', ' ', t)
+    t = re.sub(r'nao\s+(?:se\s+|foi\s+|foram\s+|resta\s+|restou\s+)?caracteriz\w*', ' ', t)
+    t = re.sub(r'nao\s+(?:sao\s+|e\s+)?insalubr\w*', ' ', t)
+    return bool(re.search(r'caracterizad[ao]\s+a?\s*insalubridade|insalubr\w*\s+em\s+grau', t))
+
+
+def neutralizacao_por_agente(form_text):
+    """{marcador ANALISE_*: 'SIM'|'NAO'} por bloco de agente cuja linha 'Neutralizado
+    pelo EPI' traz um [X]. Linha em branco → ausente do dict (perito não opinou)."""
+    out, letra = {}, None
+    for l in _secao_form(form_text, 'AGENTES').splitlines():
+        m = _AGENTE_LETRA_RE.match(l)
+        if m:
+            letra = m.group(1).upper()
+            continue
+        if letra and _NEUTRAL_LABEL_RE.match(l):
+            v = _checkbox_sim_nao(l)
+            if v:
+                for mk in _NEUTRAL_MARCADOR.get(letra, []):
+                    out[mk] = v
+    return out
+
+
+def _nr6_chave(rotulo):
+    s = _sem_acento(rotulo)
+    for chave, pistas in _NR6_CHAVES:
+        if any(p in s for p in pistas):
+            return chave
+    return None
+
+
+def nr6_do_form(form_text):
+    """{chave: 'SIM'|'NAO'} das linhas do quadro NR-6 que o formulário MARCOU."""
+    out = {}
+    corpo = _secao_form(form_text, 'EPIS FORNECIDOS') or (form_text or '')
+    dentro = False
+    for l in corpo.splitlines():
+        if 'NR-6' in l.upper():
+            dentro = True
+            continue
+        if dentro and re.match(r'^\s*#{1,4}\s', l):
+            break
+        if not dentro or not re.match(r'^\s*[-*•]', l):
+            continue
+        chave = _nr6_chave(l.split('—')[0])
+        v = _checkbox_sim_nao(l)
+        if chave and v:
+            out[chave] = v
+    return out
+
+
+def gate_formulario(data, form_text):
+    """[] se OK; senão lista de mensagens de erro. Gates 1.7 (neutralização) e
+    1.8 (NR-6): o JSON não pode contrariar o que o perito MARCOU no formulário."""
+    erros = []
+    blocks = {(k[2:-2] if k.startswith('{{') and k.endswith('}}') else k): v
+              for k, v in (data.get('blocks') or {}).items()}
+
+    for marcador, v in neutralizacao_por_agente(form_text).items():
+        if v == 'SIM' and marcador in blocks and caracteriza_insalubridade(blocks[marcador]):
+            erros.append('  - %s: o formulário marca "Neutralizado pelo EPI: [X] Sim", mas o bloco '
+                         'CARACTERIZA insalubridade. O checkbox do perito é a autoridade — corrija a '
+                         'análise (ou o formulário, se a marcação estiver errada).' % marcador)
+
+    nr6_form, nr6_json = nr6_do_form(form_text), (data.get('nr6') or {})
+    for chave, val_form in nr6_form.items():
+        val_json = str(nr6_json.get(chave, '') or '').strip().upper()
+        if val_json and val_json != val_form:
+            erros.append('  - nr6["%s"]: formulário diz %s, JSON diz %s. Linha marcada pelo perito não '
+                         'é revista pelo redator — um NÃO estrutural derruba a neutralização do EPI e '
+                         'muda o veredito.' % (chave, val_form, val_json))
+    return erros
+
+
 _INSAL = 'Descaracterizada a insalubridade.'
 _PERIC = 'Descaracterizada a periculosidade.'
 _NC = 'Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a %s nos termos do Anexo nº %s da NR-%s.'
@@ -342,7 +480,7 @@ def _resolve_epi_paths(extras):
     return caepi_p, dicio_p
 
 
-def build(template_path, data_path, out_path, *epi_paths):
+def build(template_path, data_path, out_path, *epi_paths, form_path=None):
     data = json.load(open(data_path, encoding='utf-8'))
     caepi_p, dicio_p = _resolve_epi_paths(list(epi_paths) + [data.get('ca_dicionario_path'), data.get('caepi_path')])
     cadict = _load_ca_dict(dicio_p)
@@ -390,6 +528,25 @@ def build(template_path, data_path, out_path, *epi_paths):
         print('   ANALISE_* válidos: %s' % ', '.join(sorted(_valid_analise)))
         print('   Nenhum arquivo foi salvo. Corrija o JSON e rode de novo.')
         return False
+
+    # GATES 1.7/1.8 — o formulário é a autoridade sobre o FATO (só com --form)
+    if form_path:
+        try:
+            _form_text = open(form_path, encoding='utf-8').read()
+        except OSError as e:
+            print('\n❌ LAUDO NÃO GERADO — não li o --form: %s' % e)
+            return False
+        _erros = gate_formulario(data, _form_text)
+        if _erros:
+            print('\n❌ LAUDO NÃO GERADO — o JSON contraria o formulário do perito:')
+            for e in _erros:
+                print(e)
+            print('   O checkbox do perito vence texto-padrão, paradigma e caso anterior:')
+            print('   eles dão a moldura, nunca o fato. Divergência é dúvida — pergunte ao perito.')
+            print('   Nenhum arquivo foi salvo.')
+            return False
+    else:
+        warnings.append('sem --form: gates de neutralização e NR-6 NÃO verificados')
 
     # blocos (multi-parágrafo) primeiro, depois escalares
     replace_blocks(doc, data.get('blocks', {}))
@@ -689,8 +846,17 @@ if __name__ == '__main__':
         print('\n%s' % ('✅ os 3 templates cumprem o contrato do build.' if all_ok
                         else '❌ há template fora do contrato — NÃO rodar laudos até corrigir.'))
         sys.exit(0 if all_ok else 2)
-    if len(sys.argv) < 4:
-        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>]')
+    # --form <path> em qualquer posição (retrocompatível com a CLI posicional)
+    _argv, _form = list(sys.argv[1:]), None
+    if '--form' in _argv:
+        _i = _argv.index('--form')
+        if _i + 1 >= len(_argv):
+            print('erro: --form exige o caminho do formulário'); sys.exit(1)
+        _form = _argv[_i + 1]
+        del _argv[_i:_i + 2]
+    if len(_argv) < 3:
+        print('uso: python3 build_laudo.py <template.docx> <laudo-data.json> <saida.docx> [<caepi.sqlite>] [<CA-dicionario.json>] [<base_dir>] [--form <formulario.md>]')
+        print('     --form ativa os gates 1.7/1.8: o JSON não pode contrariar checkbox marcado pelo perito')
         print('     python3 build_laudo.py --list-markers | --list-templates | --check-templates'); sys.exit(1)
-    ok = build(sys.argv[1], sys.argv[2], sys.argv[3], *sys.argv[4:])
+    ok = build(_argv[0], _argv[1], _argv[2], *_argv[3:], form_path=_form)
     sys.exit(0 if ok else 2)

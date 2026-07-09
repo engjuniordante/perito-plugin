@@ -683,7 +683,7 @@ Fora do quadro (sem EPI que neutraliza): calor · periculosidade · biológico (
 - Nível medido (dB):
 - Tempo de exposição (h/dia):
 - Limite NR-15 Anexo 1: 85 dB
-- Neutralizado pelo EPI: [ ] Sim  [ ] Não
+- Neutralizado pelo EPI durante TODO o imprescrito: [ ] Sim  [ ] Não (nunca, ou só em parte)
 - C.A. do protetor auditivo:
 - Vida útil conforme boletim técnico:
 - Utilizado valor de PPP ou PGR? [ ] Sim  [ ] Não
