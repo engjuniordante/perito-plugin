@@ -271,6 +271,20 @@ def process(lines, cadict, caepi):
         data_cell, desc = cells[0], cells[-2]
         ca = extract_ca(raw)
 
+        # CREME: a descrição engana nos dois sentidos. Nunca decidir em silêncio — flagar.
+        #  (a) cosmético COM C.A.: o C.A. manda (é certificável), mas a descrição está errada
+        #      ou é creme protetor mal nomeado. O perito confirma.
+        #  (b) "creme" cru (sem qualificador de proteção e sem marcador de cosmético):
+        #      certificável por padrão — nas fichas do Junior quase sempre é protetivo —,
+        #      mas o perito confirma. Vale com ou sem C.A.
+        _partes_desc = [p for p in PARTE_RE.split((desc or '').lower()) if p.strip()]
+        if ca and any(_e_creme_cosmetico(p) for p in _partes_desc):
+            flags.append((desc[:80] + ' [C.A. %s]' % ca,
+                          'descrição cosmética com C.A.; confirmar se é creme protetor'))
+        elif _creme_sem_qualificador(desc):
+            flags.append((desc[:80] + (' [C.A. %s]' % ca if ca else ''),
+                          'creme sem qualificador; confirmar se é protetivo ou cosmético'))
+
         # ⛔ Descrição renomeada para o AGENTE — proibido (vaza pro laudo; o perito lê a ficha)
         if AGENTE_NA_DESC_RE.search(desc):
             flags.append((desc[:80] + (' [C.A. %s]' % ca if ca else ''),
@@ -339,7 +353,8 @@ TYPE_VU = [
 CERTIFIABLE_HINTS = (
     'botina', 'sapato', 'calcado', 'calçado', 'oculos', 'óculos', 'protetor', 'auric',
     'capacete', 'luva', 'mascara', 'máscara', 'respir', 'avental', 'perneira', 'lente',
-    'viseira', 'creme', 'capuz', 'mangote', 'jaleco', 'respirador'
+    'viseira', 'creme', 'capuz', 'mangote', 'jaleco', 'respirador',
+    'pomada', 'barreira'          # "Pomada de barreira" / "Creme de barreira" são EPI (An.13)
 )
 NON_CERTIFIABLE_HINTS = (
     'camisa', 'camiseta', 'calca', 'calça', 'calca jeans', 'calça jeans', 'palmilha',
@@ -359,6 +374,22 @@ SOLAR_PRODUTO_HINTS = ('protet', 'creme', 'pomada', 'locao', 'loção', 'filtro'
                        'bloqueador', 'fps')
 # Separadores de itens numa mesma linha da ficha: "Kit: protetor auricular e protetor solar".
 PARTE_RE = re.compile(r'\s*(?:[,;/+&]|\be\b|\bcom\b)\s*')
+
+# --- creme protetivo × creme cosmético (linha "Anotação do C.A." da NR-6) -------------
+# O ônus da prova é INVERTIDO de propósito: creme é certificável por padrão, e só um
+# marcador EXPLÍCITO de cosmético o demove. Exigir C.A. de um hidratante gera [X]Não, que
+# o perito vê na revisão; deixar de exigir de um creme protetivo gera [X]Sim silencioso,
+# que favorece a reclamada. Entre um erro visível e um invisível, escolhe-se o visível.
+# Evidência: a base do CAEPI tem 157 C.A. com 'creme', TODOS "CREME PROTETOR DE SEGURANÇA"
+# (An.13); zero com hidratante/cosmético/pomada/loção/barreira. Cosmético não tem C.A.
+CREME_TOKENS = ('creme', 'pomada', 'loção', 'locao')
+# Qualificador de proteção VENCE o marcador cosmético ("creme protetor hidratante" é EPI).
+# 'prot' cobre protetor/protetora/proteção/protetivo e a grafia do MTE ("CREME PROT ...").
+PROTECAO_HINTS = ('prot', 'proteç', 'protec', 'barreira', 'dérmic', 'dermic',
+                  'segurança', 'seguranca', 'químic', 'quimic', 'agentes')
+# Lista FECHADA. Só ela demove um creme. Cresce com grafia real de ficha, nunca com hipótese.
+COSMETICO_HINTS = ('hidratante', 'hidrat', 'cosmétic', 'cosmetic', 'para as mãos',
+                   'para as maos', 'corporal', 'perfumad', 'pós-barba', 'pos-barba')
 
 
 def _vida_util(ca, txt, cadict, caepi):
@@ -398,6 +429,32 @@ def _e_produto_solar(parte):
     return any(tok in parte for tok in SOLAR_PRODUTO_HINTS)
 
 
+def _tem_creme(parte):
+    return any(tok in parte for tok in CREME_TOKENS)
+
+
+def _e_creme_protetivo(parte):
+    """Creme/pomada/loção com qualificador de proteção → EPI certificável (An.13)."""
+    return _tem_creme(parte) and any(tok in parte for tok in PROTECAO_HINTS)
+
+
+def _e_creme_cosmetico(parte):
+    """Creme cosmético: tem palavra de creme, NÃO tem qualificador de proteção e TEM
+    marcador explícito de cosmético. Só isto demove um creme."""
+    if not _tem_creme(parte) or _e_creme_protetivo(parte):
+        return False
+    return any(tok in parte for tok in COSMETICO_HINTS)
+
+
+def _creme_sem_qualificador(desc):
+    """"Creme" cru: nem protetivo nem cosmético. Certificável (é o mais provável nas fichas),
+    mas o perito precisa confirmar → vira flag, nunca decisão silenciosa."""
+    d = (desc or '').lower()
+    return any(_tem_creme(p) and not _e_creme_protetivo(p) and not _e_creme_cosmetico(p)
+               and not _e_produto_solar(p)
+               for p in PARTE_RE.split(d) if p.strip())
+
+
 def _is_certifiable(desc, ca):
     """EPI certificável = exige C.A. anotado (linha 'Anotação do C.A.' da NR-6).
 
@@ -407,15 +464,25 @@ def _is_certifiable(desc, ca):
     falso negativo aqui é assimétrico: menos C.A. faltando ⇒ NR-6 tende a [X]Sim ⇒ EPI
     neutraliza mais fácil ⇒ favorece a reclamada (bug do VICTOR, Run #30).
 
-    A exclusão vem ANTES do `ca`: protetor solar não vira EPI porque alguém digitou um
-    número de C.A. na ficha por engano."""
+    ORDEM (cada passo existe por um motivo):
+      1. solar sai ANTES do `ca` — protetor solar não vira EPI porque alguém digitou um
+         número de C.A. na ficha por engano;
+      2. C.A. presente ⇒ certificável — a base do MTE decide, não a descrição. As 157
+         entradas de creme do CAEPI são todas "CREME PROTETOR DE SEGURANÇA"; cosmético não
+         tem C.A. Logo "Creme hidratante · CA 11070" é creme protetor mal descrito (o
+         `process()` emite flag de revisão);
+      3. só então o creme COSMÉTICO sai — e só ele, por marcador explícito."""
     d = (desc or '').lower()
-    uteis = [p for p in PARTE_RE.split(d) if p.strip() and not _e_produto_solar(p)]
-    if not uteis:
+    partes = [p for p in PARTE_RE.split(d) if p.strip()]
+    sem_solar = [p for p in partes if not _e_produto_solar(p)]
+    if not sem_solar:
         return False                       # só filtro solar — nem com C.A. digitado
-    resto = ' '.join(uteis)
     if ca:
-        return True
+        return True                        # o C.A. prova; a descrição não decide
+    uteis = [p for p in sem_solar if not _e_creme_cosmetico(p)]
+    if not uteis:
+        return False                       # só cosmético, sem C.A. → não exige C.A.
+    resto = ' '.join(uteis)
     if any(tok in resto for tok in NON_CERTIFIABLE_HINTS):
         return False
     return any(tok in resto for tok in CERTIFIABLE_HINTS)

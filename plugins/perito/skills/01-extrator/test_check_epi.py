@@ -292,6 +292,93 @@ def t9c_solar_nao_e_epi_certificavel():
           "solar sem C.A. não derruba a linha da NR-6: %r" % linha)
 
 
+
+def t9d_creme_cosmetico_nao_e_epi():
+    """A1 — creme cosmético não é EPI certificável, mas creme PROTETIVO é (e é muito usado).
+
+    Ônus da prova INVERTIDO de propósito: creme é certificável por padrão; só um marcador
+    EXPLÍCITO de cosmético o demove. Exigir C.A. de um hidratante gera [X]Não, que o perito
+    vê na revisão; deixar de exigir de um creme protetivo gera [X]Sim silencioso, que
+    favorece a reclamada. Entre um erro visível e um invisível, escolhe-se o visível.
+
+    Evidência que sustenta o desenho: a base do CAEPI tem 157 C.A. com 'creme', TODOS
+    "CREME PROTETOR DE SEGURANÇA" (An.13); zero com hidratante/cosmético/pomada/loção.
+    Cosmético não tem C.A. — por isso o C.A. decide antes da descrição."""
+    print("T9d — creme protetivo × creme cosmético")
+    casos = [
+        # (descrição, C.A., certificável?)
+        # protetivo — TODAS as grafias que o Junior usa nos laudos
+        ("Creme protetivo",                  None,    True),
+        ("Creme protetor",                   None,    True),
+        ("Creme de proteção",                None,    True),
+        ("Creme de barreira",                None,    True),
+        ("Creme para proteção química",      None,    True),
+        ("Creme contra agentes químicos",    None,    True),
+        ("CREME PROTETOR DE SEGURANÇA",      None,    True),   # grafia canônica do MTE
+        ("Creme protetor de barreira",       None,    True),
+        ("Pomada de barreira",               None,    True),   # dívida C2 morre aqui
+        ("Creme protetor hidratante",        None,    True),   # qualificador vence o cosmético
+        # cosmético sem C.A. — não exige C.A.
+        ("Creme hidratante",                 None,    False),
+        ("Creme para as mãos",               None,    False),
+        ("Loção hidratante",                 None,    False),
+        ("Hidratante corporal",              None,    False),
+        ("Pomada hidratante",                None,    False),
+        # cosmético COM C.A. — o C.A. prova; pode ser creme protetor mal descrito
+        ("Creme hidratante",                 "11070", True),
+        ("Creme para as mãos",               "11070", True),
+        # creme cru — certificável (nas fichas quase sempre é protetivo)
+        ("Creme",                            None,    True),
+        ("Creme Luvex SP",                   None,    True),
+        # combinada: o item certificável sobrevive à remoção do cosmético
+        ("Luva nitrílica e creme hidratante", None,   True),
+        # não regride nada do t9c
+        ("Protetor solar FPS 60",            "12345", False),
+        ("Creme solar",                      None,    False),
+        ("Filtro solar FPS 30",              None,    False),
+        ("Bloqueador solar",                 None,    False),
+        ("Protetor auricular",               None,    True),
+        ("Protetor facial",                  None,    True),
+        ("Uniforme",                         None,    False),
+        ("Camisa de brim",                   None,    False),
+        ("Calça refletiva",                  None,    False),
+        ("Camiseta refletiva",               None,    False),
+    ]
+    for desc, ca, esperado in casos:
+        check(ce._is_certifiable(desc, ca) is esperado,
+              "%r (C.A.=%s) → certificável=%s" % (desc, ca or "—", esperado))
+
+    # FLAGS: nunca decidir em silêncio quando a descrição é ambígua
+    def flags_de(desc, ca=None):
+        linha = "• 22/04/2025 · 01un · %s · %s" % (desc, ("CA " + ca) if ca else "CA n/a")
+        _, fl, _ = ce.process([linha], {}, FAKE)
+        return " ".join(m for _, m in fl)
+
+    check("descrição cosmética com C.A." in flags_de("Creme hidratante", "11070"),
+          "cosmético COM C.A. → flag 'confirmar se é creme protetor'")
+    check("descrição cosmética com C.A." in flags_de("Creme para as mãos", "11070"),
+          "creme para as mãos COM C.A. → flag")
+    check("creme sem qualificador" in flags_de("Creme"),
+          "creme cru → flag 'confirmar se é protetivo ou cosmético'")
+    check("creme sem qualificador" in flags_de("Creme Luvex SP"),
+          "nome comercial sem qualificador → flag")
+    check("creme" not in flags_de("Creme protetor de barreira", "11070").lower(),
+          "creme protetivo com C.A. → SEM flag (não poluir o formulário)")
+    check("creme" not in flags_de("Protetor auricular", "19578").lower(),
+          "item que não é creme → SEM flag")
+
+    # ponta a ponta: cosmético sem C.A. não derruba a linha da NR-6
+    body = ("▶ COMPROVAÇÃO NR-6\n"
+            "• Anotação do C.A., só EPI certificável (🔄) — [ ]Sim [X]Não · obs: texto antigo\n"
+            "TABELA DE FORNECIMENTO DE EPIs\n"
+            "• 22/04/2025 · 01un · Protetor auricular · CA 19578\n"
+            "• 22/04/2025 · 01un · Creme hidratante · CA n/a\n"
+            "▶ OBSERVAÇÕES GERAIS\n")
+    linha = next(l for l in ce.fill_nr6_ca(body).splitlines() if "Anotação do C.A." in l)
+    check("[X]Sim" in linha and "[ ]Não" in linha,
+          "creme hidratante sem C.A. não derruba a linha da NR-6: %r" % linha)
+
+
 def t10_clamp_fim_contrato():
     print("T10 — clamp da janela ao fim do contrato (sem exposição pós-demissão)")
     # imprescrito vai até a data da ação (17/09/2025), mas o contrato terminou em 11/10/2024.
@@ -542,6 +629,7 @@ def main():
               t4_split_sem_falso_positivo, t5_cobertura_continua, t6_inject_flags,
               t7_sem_epi_continuo, t8_idempotencia_arquivo, t9_nr6_frequencia,
               t9b_nr6_ca, t9c_solar_nao_e_epi_certificavel,
+              t9d_creme_cosmetico_nao_e_epi,
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,
               t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento):
