@@ -239,6 +239,59 @@ def t9b_nr6_ca():
 
 
 # T10 — janela de cobertura recortada ao FIM DO CONTRATO (não à data da ação)
+
+def t9c_solar_nao_e_epi_certificavel():
+    """Regressão VICTOR (Run #30, 2026-07-10): "Protetor solar" casava CERTIFIABLE_HINTS pelo
+    token genérico 'protetor' (de protetor auricular/facial) e derrubava a linha 'Anotação do
+    C.A.' — mas filtro solar não é EPI (NT 146/2015 §4). Isso gerou conflito falso com a
+    neutralização do ruído.
+
+    O guard REMOVE a parte solar da descrição, não aborta a linha: falso negativo aqui é
+    assimétrico (menos C.A. faltando ⇒ NR-6 tende a [X]Sim ⇒ EPI neutraliza ⇒ favorece a
+    reclamada). E vem ANTES do `ca`: solar não vira EPI por um número digitado por engano."""
+    print("T9c — protetor solar não é EPI certificável")
+    casos = [
+        # (descrição, C.A., certificável?)
+        ("Protetor solar FPS 60",                    None,    False),
+        ("Creme solar",                              None,    False),
+        ("Creme protetor solar FPS 30",              None,    False),
+        ("Loção protetora solar",                    None,    False),
+        # C.A. digitado por engano NÃO transforma filtro solar em EPI
+        ("Protetor solar FPS 60",                    "12345", False),
+        ("Creme solar",                              "98765", False),
+        # descrição combinada: o item certificável sobrevive à remoção do solar
+        ("Kit: protetor auricular e protetor solar", None,    True),
+        ("Protetor auricular / creme solar",         None,    True),
+        ("Luva nitrílica e protetor solar",          None,    True),
+        ("Máscara PFF2 + protetor solar",            None,    True),
+        # dispositivo com a palavra 'solar' continua sendo EPI
+        ("Óculos solar de segurança",                None,    True),
+        ("Óculos com filtro solar",                  None,    True),
+        # não regride o que já funcionava
+        ("Protetor auricular",                       None,    True),
+        ("Protetor facial",                          None,    True),
+        ("Creme protetor de barreira",               None,    True),
+        ("Uniforme",                                 None,    False),
+        ("Camisa de brim",                           None,    False),
+        ("Calça refletiva",                          None,    False),
+        ("Camiseta refletiva",                       None,    False),
+    ]
+    for desc, ca, esperado in casos:
+        check(ce._is_certifiable(desc, ca) is esperado,
+              "%r (C.A.=%s) → certificável=%s" % (desc, ca or "—", esperado))
+
+    # e o efeito de ponta a ponta na linha da NR-6 (auricular COM C.A. + solar sem C.A.)
+    body = ("▶ COMPROVAÇÃO NR-6\n"
+            "• Anotação do C.A., só EPI certificável (🔄) — [ ]Sim [X]Não · obs: texto antigo\n"
+            "TABELA DE FORNECIMENTO DE EPIs\n"
+            "• 22/04/2025 · 01un · Protetor auricular · CA 19578\n"
+            "• 22/04/2025 · 01un · Protetor solar FPS 60 · CA n/a\n"
+            "▶ OBSERVAÇÕES GERAIS\n")
+    linha = next(l for l in ce.fill_nr6_ca(body).splitlines() if "Anotação do C.A." in l)
+    check("[X]Sim" in linha and "[ ]Não" in linha,
+          "solar sem C.A. não derruba a linha da NR-6: %r" % linha)
+
+
 def t10_clamp_fim_contrato():
     print("T10 — clamp da janela ao fim do contrato (sem exposição pós-demissão)")
     # imprescrito vai até a data da ação (17/09/2025), mas o contrato terminou em 11/10/2024.
@@ -488,7 +541,7 @@ def main():
     for t in (t0_extract_ca, t1_creme_regra_absoluta, t2_gap_unico, t3_morte_por_mil_cortes,
               t4_split_sem_falso_positivo, t5_cobertura_continua, t6_inject_flags,
               t7_sem_epi_continuo, t8_idempotencia_arquivo, t9_nr6_frequencia,
-              t9b_nr6_ca,
+              t9b_nr6_ca, t9c_solar_nao_e_epi_certificavel,
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,
               t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento):

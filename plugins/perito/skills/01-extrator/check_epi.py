@@ -346,6 +346,20 @@ NON_CERTIFIABLE_HINTS = (
     'carneira', 'paraf', 'parafuso', 'peca', 'peça'
 )
 
+# DISPOSITIVO: item físico certificável cuja palavra NÃO é ambígua. 'protetor' e 'creme'
+# ficam FORA de propósito — são exatamente os tokens que "protetor solar" / "creme solar"
+# sequestram. Serve para dizer "esta parte da descrição é um EPI, não um filtro solar".
+DEVICE_HINTS = (
+    'botina', 'sapato', 'calcado', 'calçado', 'oculos', 'óculos', 'auric', 'capacete',
+    'luva', 'mascara', 'máscara', 'respir', 'avental', 'perneira', 'lente', 'viseira',
+    'capuz', 'mangote', 'jaleco', 'facial'
+)
+# Palavras que, junto de 'solar', caracterizam FILTRO SOLAR (não é EPI — NT 146/2015 §4).
+SOLAR_PRODUTO_HINTS = ('protet', 'creme', 'pomada', 'locao', 'loção', 'filtro',
+                       'bloqueador', 'fps')
+# Separadores de itens numa mesma linha da ficha: "Kit: protetor auricular e protetor solar".
+PARTE_RE = re.compile(r'\s*(?:[,;/+&]|\be\b|\bcom\b)\s*')
+
 
 def _vida_util(ca, txt, cadict, caepi):
     """(vida útil em meses, rótulo da premissa) — o rótulo é ecoado no bloco 📐 para o
@@ -372,13 +386,39 @@ def _vida_util(ca, txt, cadict, caepi):
     return None, None
 
 
+def _e_produto_solar(parte):
+    """A parte da descrição é FILTRO SOLAR? (não é EPI — NT 146/2015 §4).
+
+    Exige 'solar' + palavra de produto E **ausência de dispositivo**: "óculos solar de
+    segurança" e "óculos com filtro solar" seguem sendo EPI certificável."""
+    if 'solar' not in parte:
+        return False
+    if any(tok in parte for tok in DEVICE_HINTS):
+        return False
+    return any(tok in parte for tok in SOLAR_PRODUTO_HINTS)
+
+
 def _is_certifiable(desc, ca):
+    """EPI certificável = exige C.A. anotado (linha 'Anotação do C.A.' da NR-6).
+
+    O filtro solar é REMOVIDO da descrição, não aborta a linha: numa ficha com
+    "Kit: protetor auricular e protetor solar", o auricular sem C.A. continua sendo
+    sinalizado. Abortar tudo por causa da palavra 'solar' produziria falso negativo — e o
+    falso negativo aqui é assimétrico: menos C.A. faltando ⇒ NR-6 tende a [X]Sim ⇒ EPI
+    neutraliza mais fácil ⇒ favorece a reclamada (bug do VICTOR, Run #30).
+
+    A exclusão vem ANTES do `ca`: protetor solar não vira EPI porque alguém digitou um
+    número de C.A. na ficha por engano."""
+    d = (desc or '').lower()
+    uteis = [p for p in PARTE_RE.split(d) if p.strip() and not _e_produto_solar(p)]
+    if not uteis:
+        return False                       # só filtro solar — nem com C.A. digitado
+    resto = ' '.join(uteis)
     if ca:
         return True
-    d = (desc or '').lower()
-    if any(tok in d for tok in NON_CERTIFIABLE_HINTS):
+    if any(tok in resto for tok in NON_CERTIFIABLE_HINTS):
         return False
-    return any(tok in d for tok in CERTIFIABLE_HINTS)
+    return any(tok in resto for tok in CERTIFIABLE_HINTS)
 
 
 # Exige o ':' do CAMPO ("Período imprescrito: ★ de … até …") — assim a regex NÃO casa a
