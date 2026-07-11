@@ -239,7 +239,27 @@ def t9b_nr6_ca():
     check("EPI certificável sem C.A." in line2, "obs explica a inconformidade")
 
 
-# T10 — janela de cobertura recortada ao FIM DO CONTRATO (não à data da ação)
+def t9b2_nr6_ficha_fornecimento():
+    print("T9b2 — guard preenche a linha NR-6 'Ficha registra o fornecimento'")
+    body = ("▶ COMPROVAÇÃO NR-6\n"
+            "• Ficha registra o fornecimento (🔄) — [ ]Sim [ ]Não · obs: texto antigo\n"
+            "\n"
+            "TABELA DE FORNECIMENTO DE EPIs\n"
+            "• 22/04/2025 · 01un · Protetor auricular · CA 19578\n")
+    line = next(l for l in ce.fill_nr6_ficha(body).splitlines()
+                if "Ficha registra o fornecimento" in l)
+    check("[X]Sim" in line and "[ ]Não" in line,
+          "com entrega na tabela → Sim: %r" % line)
+    check("registra entregas" in line,
+          "obs documental recalculada: %r" % line)
+
+    vazio = ("▶ COMPROVAÇÃO NR-6\n"
+             "• Ficha registra o fornecimento (🔄) — [X]Sim [ ]Não · obs: texto antigo\n")
+    line2 = next(l for l in ce.fill_nr6_ficha(vazio).splitlines()
+                 if "Ficha registra o fornecimento" in l)
+    check("[ ]Sim" in line2 and "[X]Não" in line2,
+          "sem entrega na tabela → Não: %r" % line2)
+
 
 def t9c_solar_nao_e_epi_certificavel():
     """Regressão VICTOR (Run #30, 2026-07-10): "Protetor solar" casava CERTIFIABLE_HINTS pelo
@@ -733,7 +753,7 @@ def main():
     for t in (t0_extract_ca, t1_creme_regra_absoluta, t2_gap_unico, t3_morte_por_mil_cortes,
               t4_split_sem_falso_positivo, t5_cobertura_continua, t6_inject_flags,
               t7_sem_epi_continuo, t8_idempotencia_arquivo, t9_nr6_frequencia,
-              t9b_nr6_ca, t9c_solar_nao_e_epi_certificavel,
+              t9b_nr6_ca, t9b2_nr6_ficha_fornecimento, t9c_solar_nao_e_epi_certificavel,
               t9d_creme_cosmetico_nao_e_epi, t9e_nr6_escopo_observacional,
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,

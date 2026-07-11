@@ -1211,6 +1211,30 @@ NR6_FREQ_RE = re.compile(
 NR6_CA_RE = re.compile(
     r'(Anota[cç][aã]o do C\.A\., s[oó] EPI certific[aá]vel[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
     re.I | re.M)
+NR6_FICHA_RE = re.compile(
+    r'(Ficha registra o fornecimento[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
+    re.I | re.M)
+
+
+def fill_nr6_ficha(body):
+    """Crava a linha NR-6 'Ficha registra o fornecimento' a partir da tabela de EPI.
+
+    Havendo pelo menos uma entrega na tabela, a ficha documenta fornecimento. Sem tabela
+    ou sem entregas, marca Não. É uma linha documental, não decisão pericial.
+    """
+    has_row = any(is_data_row(split_row(raw)) for raw in body.splitlines())
+    if has_row:
+        mark_sim, mark_nao = 'X', ' '
+        obs = 'Ficha de EPI registra entregas de EPI/itens ao trabalhador.'
+    else:
+        mark_sim, mark_nao = ' ', 'X'
+        obs = 'não foram identificadas entregas na tabela de EPI.'
+
+    def repl(m):
+        return '%s[%s]Sim%s[%s]Não%s %s' % (
+            m.group(1), mark_sim, m.group(2), mark_nao, m.group(3), obs)
+
+    return NR6_FICHA_RE.sub(repl, body, count=1)
 
 
 def fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent):
@@ -1593,6 +1617,8 @@ def main():
     # das entregas do imprescrito — substitui o trabalho de consolidação que era do modelo (v1.34).
     # Não toca o segmento de cobertura preenchido acima.
     body = fill_resumo_items(body, src_lines, cadict, caepi)
+    # crava a linha documental NR-6 'Ficha registra o fornecimento' a partir da tabela de entregas.
+    body = fill_nr6_ficha(body)
     # crava a linha NR-6 'Anotação do C.A.' distinguindo EPI certificável de item complementar
     body = fill_nr6_ca(body)
     # crava a linha NR-6 'Frequência regular de fornecimento' a partir da MESMA cobertura/gaps:
