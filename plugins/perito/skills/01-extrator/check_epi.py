@@ -1238,6 +1238,128 @@ def fill_nr6_frequencia(body, cov_by_agent, gaps_by_agent):
     return NR6_FREQ_RE.sub(repl, body, count=1)
 
 
+# ═══ NR-6 por agente — camada OBSERVACIONAL ═══════════════════════════════════════════════
+# Escopa a linha "Anotação do C.A." ao agente insalubre periciado: um EPI certificável sem
+# C.A. só "importa" se puder neutralizar um agente PRESENTE no formulário (ruído→auditivo,
+# An.13→creme/luva química, umidade→impermeável, …). Esta camada NÃO decide — fill_nr6_ca
+# continua marcando exatamente como hoje. Ela só INFORMA, por um canal à parte (scope_notes)
+# que NUNCA entra na lista `flags` do exit. O extrator aconselha; o perito decide.
+AN3 = 'Calor (An.3)'
+AN5 = 'Radiação ionizante (An.5)'
+AN6 = 'Pressões anormais (An.6)'
+AN8 = 'Vibração (An.8)'
+AN9 = 'Frio (An.9)'
+AN10 = 'Umidade (An.10)'
+AN12 = 'Poeiras minerais (An.12)'
+AN14 = 'Biológico (An.14)'
+# Chave = número do ANEXO no cabeçalho do bloco (imune a acento/caixa do nome do agente).
+ANEXO_AGENTE = {'1': AN1, '2': AN1, '3': AN3, '5': AN5, '6': AN6, '7': AN7,
+                '8': AN8, '9': AN9, '10': AN10, '11': AN11, '12': AN12,
+                '13': AN13, '14': AN14}
+# Agentes cujo risco um EPI pode neutralizar/reduzir. Fora daqui (calor, biológico, ionizante,
+# pressões, vibração) → presença sem régua vira AVISO, nunca decisão da linha.
+AGENTES_COM_REGRA = frozenset({AN1, AN7, AN9, AN10, AN11, AN12, AN13})
+
+_AGENTE_HEADER_RE = re.compile(r'^\s*[A-M]\.\s+.*\(ANEXO\s+([^)]+)\)', re.I)
+_STATUS_LINE_RE = re.compile(r'^\s*Status\s*:', re.I)
+_PRESENTE_RE = re.compile(r'\[\s*[xX]\s*\]\s*Presente')
+
+
+def agentes_presentes(body):
+    """Set dos agentes de insalubridade com Status [X] Presente no bloco ▶ AGENTES.
+    Chave = número do ANEXO no cabeçalho. Bloco ausente / Status não marcado → simplesmente
+    não entra (sem opinião). Mesma gramática que o prep_laudo lê — escrita LOCAL de propósito
+    (o gêmeo do plugin não pode importar do squad de laudo)."""
+    out = set()
+    lines = (body or '').splitlines()
+    for i, line in enumerate(lines):
+        m = _AGENTE_HEADER_RE.match(line)
+        if not m:
+            continue
+        nums = re.findall(r'\d+', m.group(1))
+        for j in range(i + 1, min(i + 8, len(lines))):
+            if _AGENTE_HEADER_RE.match(lines[j]):
+                break                     # entrou no próximo bloco sem achar Status → sem opinião
+            if _STATUS_LINE_RE.match(lines[j]):
+                if _PRESENTE_RE.search(lines[j]):
+                    for n in nums:
+                        ag = ANEXO_AGENTE.get(n)
+                        if ag:
+                            out.add(ag)
+                break
+    return out
+
+
+def agente_por_descricao(desc):
+    """Agentes que este EPI PODERIA neutralizar (um item serve a vários). Set vazio = EPI de
+    proteção geral / não mapeado a agente insalubre. Reusa os vocabulários que já classificam
+    EPI no arquivo; over-inclui de propósito — para a camada observacional é o lado seguro
+    (menos falso "irrelevante")."""
+    d = (desc or '').lower()
+    out = set()
+    if any(t in d for t in ('auric', 'auditiv', 'plug', 'plugue', 'concha', 'abafador')):
+        out.add(AN1)
+    if _e_creme_protetivo(d) or _creme_sem_qualificador(d):
+        out.add(AN13)
+    if (any(t in d for t in _IMPERM_KW) or 'impermeáv' in d or 'impermeav' in d
+            or re.search(r'\bcapa\b', d)):    # 'capa' com fronteira — NÃO casar "capacete"
+        out.add(AN10)                     # material impermeável → umidade
+    if 'luva' in d and (any(t in d for t in QUIM) or any(t in d for t in _IMPERM_KW)):
+        out.add(AN13)                     # luva química ou impermeável → barreira dérmica An.13
+    if any(t in d for t in ('avental', 'mangote', 'manga')) and any(t in d for t in QUIM):
+        out.add(AN13)
+    if 'térmic' in d or 'termic' in d or 'japona' in d:
+        out.add(AN9)
+    if any(t in d for t in ('lente', 'viseira', 'escudo', 'solda')):
+        out.add(AN7)
+    if 'respir' in d or 'pff' in d or 'filtro' in d or 'máscara' in d or 'mascara' in d:
+        out.update((AN11, AN12))
+    return out
+
+
+def nr6_escopo_flags(body):
+    """Camada OBSERVACIONAL da linha 'Anotação do C.A.' escopada ao agente periciado.
+    Devolve avisos informativos (trecho, msg) p/ o perito — NUNCA altera fill_nr6_ca nem o
+    exit. Silêncio quando não há agente presente com que comparar (fallback conservador)."""
+    agentes = agentes_presentes(body)
+    if not agentes:
+        return []
+    presentes_txt = ', '.join(sorted(agentes))
+    notes = []
+    for raw in (body or '').splitlines():
+        cells = split_row(raw)
+        if not is_data_row(cells):
+            continue
+        desc, ca = cells[-2], extract_ca(raw)
+        if ca or not _is_certifiable(desc, ca):
+            continue                      # só os itens que HOJE derrubam a linha (cert. sem C.A.)
+        cands = agente_por_descricao(desc)
+        if cands & agentes:
+            continue                      # relevante a um agente presente → não comenta
+        if cands:
+            msg = ('protege %s — não neutraliza agente presente (%s); na régua por agente a '
+                   'linha tenderia a [X]Sim — confira' % (', '.join(sorted(cands)), presentes_txt))
+        else:
+            msg = ('EPI de proteção geral (não mapeado a agente insalubre) — derruba a linha '
+                   '"Anotação do C.A." sem neutralizar %s; confira se deveria contar' % presentes_txt)
+        notes.append((desc.strip()[:80], msg))
+    for ag in sorted(agentes):
+        if ag not in AGENTES_COM_REGRA:
+            notes.append((ag, 'agente presente sem régua de EPI neutralizador — confira '
+                              'manualmente a linha da NR-6'))
+    return notes
+
+
+def _scope_notes_lines(scope_notes):
+    """Linhas do bloco informativo NR-6-por-agente. Canal à parte de `flags` — não afeta o exit."""
+    if not scope_notes:
+        return []
+    out = ['\nℹ️ NR-6 por agente (informativo — NÃO altera a marcação da linha nem o exit code):']
+    for trecho, msg in scope_notes:
+        out.append('• %s → %s' % (trecho, msg))
+    return out
+
+
 def fill_nr6_ca(body):
     """Crava a linha NR-6 'Anotação do C.A.' com base na ficha.
 
@@ -1485,6 +1607,10 @@ def main():
                     if _gap_lines else None)
     body = inject_flags_epi(body, _gap_summary)
 
+    # OBSERVACIONAL — escopo da NR-6 por agente presente. Canal à PARTE de `flags`: informa,
+    # não decide, NÃO entra no exit (fill_nr6_ca segue dono da marcação da linha).
+    scope_notes = nr6_escopo_flags(body)
+
     age = caepi.age_days()
     stale = age is not None and age > 90
 
@@ -1508,17 +1634,23 @@ def main():
             bloco_mec = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n',
                          '⚠ **%d entrega(s) com C.A. na ficha, mas NENHUMA classifica p/ agente NR-15** — todos mecânicos/gerais (%s).' % (len(mecanicos), amostra),
                          'Nenhum dos EPIs fornecidos é **barreira química (An.13)** nem **proteção térmica (An.3)**: a ré forneceu EPI, porém inadequado ao risco insalubre alegado. Confronte com os agentes presentes na diligência.']
+            bloco_mec += _scope_notes_lines(scope_notes)
             new_mec = insert_block(body, '\n'.join(bloco_mec))
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(new_mec)
             print('⚠ check_epi: %d entrega(s) com C.A., nenhuma classifica p/ agente NR-15 (todos mecânicos/gerais).' % len(mecanicos))
+            for _t, _m in scope_notes:
+                print('ℹ️ NR-6 escopo: %s → %s' % (_t, _m))
             sys.exit(0)
         bloco_vazio = [MARK + ' (C.A. é a chave — fonte: CA-dicionario + base oficial CAEPI; o nome NÃO classifica)\n',
                        '✅ Nenhuma entrega de EPI com C.A. na ficha — guard encerrado sem classificação.']
+        bloco_vazio += _scope_notes_lines(scope_notes)
         new_empty = insert_block(body, '\n'.join(bloco_vazio))
         with open(path, 'w', encoding='utf-8') as f:
             f.write(new_empty)
         print('✅ check_epi: nenhuma entrega de EPI com C.A. para classificar.')
+        for _t, _m in scope_notes:
+            print('ℹ️ NR-6 escopo: %s → %s' % (_t, _m))
         sys.exit(0)
 
     base_ok = caepi.con is not None
@@ -1554,6 +1686,7 @@ def main():
     if stale:
         bloco.append('\n**⏰ Base CAEPI com %d dias** (build %s) — re-baixe o RelatorioCA do MTE e rode `build_caepi_index.py`.'
                      % (age, caepi.build_date))
+    bloco += _scope_notes_lines(scope_notes)
     new = insert_block(body, '\n'.join(bloco))
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new)
@@ -1562,6 +1695,8 @@ def main():
         print('🔧 C.A. %s → %s [%s]' % (ca, agente, src))
     for trecho, msg in flags:
         print('🚩 %s → %s' % (trecho, msg))
+    for trecho, msg in scope_notes:
+        print('ℹ️ NR-6 escopo: %s → %s' % (trecho, msg))
     if nao_cat:
         print('📇 não catalogados: %s' % ', '.join(nao_cat))
     for r in cob_res:

@@ -8,6 +8,7 @@ Motivo: em 06/06 o guard ficou MORTO por dias sem ninguém notar (parser mudou).
 falha na hora se uma mudança futura quebrar a classificação, o gap ou a cobertura.
 """
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -379,6 +380,110 @@ def t9d_creme_cosmetico_nao_e_epi():
           "creme hidratante sem C.A. não derruba a linha da NR-6: %r" % linha)
 
 
+def t9e_nr6_escopo_observacional():
+    """Diff 1 — NR-6 por agente, camada OBSERVACIONAL. As flags escopadas INFORMAM, mas NÃO
+    mudam a marcação de fill_nr6_ca nem o exit code. Canal à parte (nr6_escopo_flags)."""
+    print("T9e — NR-6 escopo por agente (observacional)")
+
+    NR6 = "• Anotação do C.A., só EPI certificável (🔄) — [ ]Sim [X]Não · obs: —\n"
+    HDRS = [("A", "RUÍDO", "ANEXO 1 e 2"), ("B", "CALOR", "ANEXO 3"),
+            ("H", "FRIO", "ANEXO 9"), ("I", "UMIDADE", "ANEXO 10"),
+            ("L", "AGENTES QUÍMICOS — Contato Dérmico", "ANEXO 13"),
+            ("M", "AGENTES BIOLÓGICOS", "ANEXO 14")]
+
+    def bloco_agentes(*presentes):
+        pres = set(presentes)
+        out = ["▶ AGENTES — Insalubridade"]
+        for letra, nome, anexo in HDRS:
+            st = "[ ] Ausente  [X] Presente" if letra in pres else "[ ] Ausente  [ ] Presente"
+            out += ["%s. %s (%s)" % (letra, nome, anexo), "Status: %s" % st]
+        return "\n".join(out) + "\n"
+
+    def row(desc, ca="n/a"):
+        return "• 22/04/2025 · 01un · %s · CA %s\n" % (desc, ca)
+
+    def form(agentes_block, *rows):
+        return ("▶ COMPROVAÇÃO NR-6\n" + NR6 + agentes_block +
+                "TABELA DE FORNECIMENTO DE EPIs\n" + "".join(rows) + "▶ OBSERVAÇÕES GERAIS\n")
+
+    def sem_agentes(*rows):
+        return ("▶ COMPROVAÇÃO NR-6\n" + NR6 +
+                "TABELA DE FORNECIMENTO DE EPIs\n" + "".join(rows) + "▶ OBSERVAÇÕES GERAIS\n")
+
+    def nr6_line(body):
+        return next(l for l in ce.fill_nr6_ca(body).splitlines() if "Anotação do C.A." in l)
+
+    def notes_txt(body):
+        return " || ".join("%s → %s" % (t, m) for t, m in ce.nr6_escopo_flags(body))
+
+    # 1) ruído presente + botina/capacete geral SEM C.A. → aviso, mas marcação INALTERADA
+    b = form(bloco_agentes("A"), row("Botina de segurança"))
+    check("[X]Não" in nr6_line(b),
+          "ruído+botina s/CA: fill_nr6_ca segue [X]Não (inalterado): %r" % nr6_line(b))
+    check("proteção geral" in notes_txt(b),
+          "ruído+botina s/CA: gera aviso observacional: %r" % notes_txt(b))
+    check("proteção geral" in notes_txt(form(bloco_agentes("A"), row("Capacete"))),
+          "ruído+capacete s/CA: aviso de proteção geral")
+
+    # 2) ruído + protetor auricular SEM C.A. → relevante, SEM aviso de irrelevância
+    b = form(bloco_agentes("A"), row("Protetor auricular"))
+    check(notes_txt(b) == "", "ruído+auricular s/CA: relevante, sem aviso: %r" % notes_txt(b))
+
+    # 3) An.13 presente + creme protetivo / luva química / luva nitrílica SEM C.A. → relevante
+    for item in ("Creme protetivo", "Luva nitrílica química", "Luva nitrílica"):
+        b = form(bloco_agentes("L"), row(item))
+        check(notes_txt(b) == "", "An.13+%r s/CA: relevante, sem aviso: %r" % (item, notes_txt(b)))
+
+    # 4) umidade presente + luva PVC impermeável SEM C.A. → relevante
+    #    (uso luva, não "bota": bota não está em CERTIFIABLE_HINTS, então nem derruba a linha —
+    #    mexer nisso mudaria a DECISÃO de fill_nr6_ca, proibido neste diff)
+    check(notes_txt(form(bloco_agentes("I"), row("Luva PVC"))) == "",
+          "umidade+luva PVC s/CA: relevante, sem aviso")
+    # 4b) ruído presente + luva PVC SEM C.A. (umidade AUSENTE) → aviso (protege An.10/An.13, não An.1)
+    b = form(bloco_agentes("A"), row("Luva PVC"))
+    check("Umidade (An.10)" in notes_txt(b) and "não neutraliza" in notes_txt(b),
+          "ruído+luva PVC s/CA (umidade ausente): aviso de escopo: %r" % notes_txt(b))
+
+    # 5) calor / biológico presente sem régua → aviso informativo "sem régua"
+    check("sem régua" in notes_txt(form(bloco_agentes("B"), row("Protetor auricular", "19578"))),
+          "calor presente: aviso 'sem régua'")
+    check("sem régua" in notes_txt(form(bloco_agentes("M"), row("Protetor auricular", "19578"))),
+          "biológico presente: aviso 'sem régua'")
+
+    # 6) SEM seção ▶ AGENTES → nenhum aviso (fallback conservador, sem falso alarme)
+    check(ce.nr6_escopo_flags(sem_agentes(row("Botina de segurança"))) == [],
+          "sem bloco AGENTES: nenhum aviso")
+
+    # 7) fill_nr6_ca BYTE-IDÊNTICO com e sem o bloco AGENTES (a camada não toca a linha)
+    check(nr6_line(form(bloco_agentes("A"), row("Botina de segurança")))
+          == nr6_line(sem_agentes(row("Botina de segurança"))),
+          "linha NR-6 idêntica com/sem AGENTES (decisão inalterada)")
+
+    # 8) unidades: agentes_presentes (ANEXO 1 e 2) e agente_por_descricao (item multi-agente)
+    check(ce.agentes_presentes(bloco_agentes("A")) == {ce.AN1},
+          "agentes_presentes: ruído (ANEXO 1 e 2) → {AN1}")
+    check(ce.agentes_presentes(bloco_agentes("A", "L")) == {ce.AN1, ce.AN13},
+          "agentes_presentes: ruído + An.13")
+    check(ce.agente_por_descricao("Luva nitrílica") == {ce.AN13, ce.AN10},
+          "agente_por_descricao: luva nitrílica → An.13 e An.10 (multi-agente)")
+    check(ce.agente_por_descricao("Capacete") == set(),
+          "agente_por_descricao: capacete → set() (proteção geral)")
+
+    # 9) EXIT CODE não muda por aviso observacional — subprocesso real, rc deve ser 0
+    with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as fh:
+        fh.write(form(bloco_agentes("A"), row("Botina de segurança")))
+        form_path = fh.name
+    try:
+        r = subprocess.run([sys.executable, ce.__file__, form_path],
+                           capture_output=True, text=True)
+        check(r.returncode == 0,
+              "exit 0 com só aviso observacional (rc=%s): %s" % (r.returncode, r.stderr[:120]))
+        check("ℹ️ NR-6 escopo" in r.stdout,
+              "aviso observacional emitido no stdout: %r" % r.stdout[-200:])
+    finally:
+        os.unlink(form_path)
+
+
 def t10_clamp_fim_contrato():
     print("T10 — clamp da janela ao fim do contrato (sem exposição pós-demissão)")
     # imprescrito vai até a data da ação (17/09/2025), mas o contrato terminou em 11/10/2024.
@@ -629,7 +734,7 @@ def main():
               t4_split_sem_falso_positivo, t5_cobertura_continua, t6_inject_flags,
               t7_sem_epi_continuo, t8_idempotencia_arquivo, t9_nr6_frequencia,
               t9b_nr6_ca, t9c_solar_nao_e_epi_certificavel,
-              t9d_creme_cosmetico_nao_e_epi,
+              t9d_creme_cosmetico_nao_e_epi, t9e_nr6_escopo_observacional,
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,
               t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento):
