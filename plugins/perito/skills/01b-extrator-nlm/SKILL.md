@@ -1,6 +1,6 @@
 ---
 name: perito-extrator-nlm
-description: Use SÓ no Claude Code quando o perito disser "extrair do NotebookLM", "buscar do NLM", "extração automática", "montar formulário sem colar", "rodar o extrator no notebook do processo", ou informar o notebook/nº do processo para o plugin buscar sozinho. Faz o MESMO que a 01-extrator, mas em vez de o perito colar os 5 outputs, busca as Partes 1, 2, 3a, 3b e 4 direto do NotebookLM via MCP (notebook_query) e entrega ao pipeline da 01-extrator. Não funciona no Cowork (que não enxerga o MCP).
+description: Use SÓ no Claude Code quando o perito disser "extrair do NotebookLM", "buscar do NLM", "extração automática", "montar formulário sem colar", "rodar o extrator no notebook do processo", "extrair da pasta do processo", "cria o notebook e extrai", ou informar um notebook/nº do processo OU uma PASTA com as 4 partes do processo. Faz o MESMO que a 01-extrator, mas busca as Partes 1, 2, 3a, 3b e 4 direto do NotebookLM via MCP em vez de o perito colar. Tem 2 modos: (A) notebook já pronto; (B) pasta com os 4 PDFs → cria um notebook EFÊMERO, sobe as 4 fontes, extrai e APAGA o notebook no fim. Não funciona no Cowork (que não enxerga o MCP).
 ---
 
 # Perito Extrator NLM — extração automática do NotebookLM (exclusiva do Claude Code)
@@ -8,6 +8,15 @@ description: Use SÓ no Claude Code quando o perito disser "extrair do NotebookL
 Esta skill faz **exatamente o que a `01-extrator` faz**, com **uma única diferença**: em vez de o perito colar manualmente os 5 outputs do NotebookLM, ela os **busca sozinha** via MCP `notebooklm-mcp` e monta o mesmo `_bundle`. Daí em diante, **o pipeline é o da `01-extrator`, intocado** (`montar_formulario.py` + Fase 2).
 
 > **Fonte única das regras:** esta skill **NÃO** redefine as regras de extração. Tudo que é TIPO de laudo, agentes, EPI, quesitos, roteamento de anexo, formato Notas-do-iPhone, `[NÃO LOCALIZADO]`, AUTO-CHECK, etc. vive na `01-extrator/SKILL.md`. Aqui só trocamos a **entrada** (paste → MCP). Se algo divergir, vale a `01-extrator`.
+
+## Dois modos de entrada
+
+O que muda é **só como o notebook chega** — daí em diante (Passos 2→4) é idêntico.
+
+- **Modo A — notebook já pronto** (comportamento original): o perito aponta um notebook que **já tem as 4 fontes subidas**. Segue direto para o **Passo 1A**.
+- **Modo B — pasta → notebook efêmero** (novo): o perito aponta uma **pasta com os 4 PDFs do processo** (`1-INICIAL`, `2-CONTESTAÇÃO E DOCUMENTOS`, `3-EPI`, `4-ATA E QUESITOS`). A skill **cria** um notebook, **sobe as 4 fontes**, extrai e, no fim, **APAGA** o notebook automaticamente. Faça o **Passo 1B** no lugar do 1A.
+
+Como decidir: se o perito deu **caminho de pasta / nome de pasta / "os 4 arquivos"** → Modo B. Se deu **nome de notebook / nº do processo já com notebook** → Modo A. Na dúvida, **pergunte**.
 
 ## Passo 0 — Pré-requisitos (Code + MCP + config)
 
@@ -19,13 +28,25 @@ Esta skill faz **exatamente o que a `01-extrator` faz**, com **uma única difere
 3. **`perito-config.json`** na **raiz do projeto** — mesmo padrão das outras skills (schema em `_perito-config.md`). Identidade = `config.perito`; caminhos = `config.caminhos`.
 4. **Caminho dos prompts** = `config.notebooklm.prompts_extracao` (**caminho ABSOLUTO** — no Code é disco real, não sandbox). Ausente no config → **pergunte** ao perito o caminho do arquivo de prompts (ex.: `G:\Meu Drive\Base Perícia Irineu\prompts-extracao-notebooklm.md`) e **ofereça salvar** no config (bloco `notebooklm.prompts_extracao`) para não perguntar de novo.
 
-## Passo 1 — Identificar o notebook do processo
+## Passo 1A — (Modo A) Identificar o notebook do processo
 
 1. O perito informa **nº do processo**, **reclamante** ou **nome do notebook**.
 2. `mcp__notebooklm-mcp__notebook_list` → casar pelo que ele deu.
 3. **1 candidato claro** → **confirme com o perito** (mostre `nome` + `id`) **antes** de consultar.
 4. **Vários / nenhum** → liste os candidatos e pergunte qual é.
-5. ⛔ **NUNCA** rodar query sem o notebook **confirmado** — a consulta custa e precisa mirar o alvo certo. A divisão do PDF em 4 partes e o **upload das fontes no notebook continuam manuais** (julgamento de fronteira de documento); esta skill **assume que o notebook já tem as fontes**.
+5. ⛔ **NUNCA** rodar query sem o notebook **confirmado** — a consulta custa e precisa mirar o alvo certo. No Modo A, a skill **assume que o notebook já tem as 4 fontes** (upload feito antes, na mão). → siga para o **Passo 2**.
+
+## Passo 1B — (Modo B) Criar notebook efêmero a partir da pasta
+
+> Modo efêmero **puro**: o notebook criado aqui existe só para esta extração e é **apagado no fim** (Passo 5). Confirmado pelo perito como padrão — **não** pare para pedir permissão de criar/apagar a cada rodada.
+
+1. **Localizar a pasta.** O perito dá o **caminho absoluto** da pasta (ex.: `G:\Meu Drive\Base Perícia Irineu\Irineu teste\SAMANTA ...`) **ou** o nome de uma subpasta sob `config.notebooklm.pasta_processos` (se esse campo existir). Ausente → **pergunte** o caminho. ⚠ **Caminho do Windows real** (disco, não sandbox): o servidor MCP roda nesta máquina e lê `G:\...`, `C:\...` diretamente.
+2. **Achar os 4 PDFs.** `ls`/`Glob` na pasta. Espere **4 partes**: **inicial**, **contestação (+docs)**, **EPI/ficha**, **ata+quesitos**. Os nomes variam (`1-INICIAL.pdf`, `2-CONTESTAÇÃO E DOCUMENTOS.pdf`, `3-EPI.pdf`, `4-ATA E QUESITOS.pdf` — ou `1-peticao inicial`, `4-ficha de epi`, etc.). Case pela **posição/número no nome** e pelo assunto. Ignore arquivos que **não** são das 4 partes (ex.: `FORMULÁRIO DE CAMPO.pdf`, `LAUDO.pdf` — são saída, não entrada).
+   - **≠ 4 arquivos, ou não dá pra mapear as 4 partes com confiança** → **PARE e mostre ao perito** a lista de arquivos e o mapeamento que você inferiu; peça confirmação/ajuste antes de subir. Nunca chute fronteira de documento.
+3. **Criar o notebook.** `mcp__notebooklm-mcp__notebook_create(title="EFÊMERO — <nome da pasta>")`. O prefixo `EFÊMERO —` é a rede de segurança: se o Passo 5 não apagar (falha na extração), dá pra achar e limpar depois. Guarde o `notebook_id`.
+4. **Subir as 4 fontes, esperando a indexação.** Para **cada** PDF: `mcp__notebooklm-mcp__source_add(notebook_id=<id>, source_type="file", file_path="<caminho Windows do PDF>", wait=True, wait_timeout=300)`. O `wait=True` **segura até o NotebookLM terminar de processar** aquela fonte — é o que impede query cedo demais (que voltaria vazia e viraria `[NÃO LOCALIZADO]` silencioso). Se um `source_add` **estourar o timeout** ou voltar erro, **repita** aquele arquivo (ou aumente `wait_timeout`); PDF pesado (contestação com docs) pode demorar.
+5. **Conferir que as 4 indexaram.** `mcp__notebooklm-mcp__notebook_get(notebook_id=<id>)` → confirme **4 fontes** presentes/processadas. **< 4 fontes prontas** → **não consulte ainda**: re-suba a que faltou (Passo 1B.4) e só então avance. Consultar com fonte faltando = formulário pela metade.
+6. Notebook pronto e confirmado → siga para o **Passo 2** (daqui é igual ao Modo A). Leve o `notebook_id` e a **flag "efêmero"** até o Passo 5.
 
 ## Passo 2 — Ler os 5 prompts (verbatim, do arquivo)
 
@@ -55,20 +76,35 @@ A partir do `_bundle`, siga a **`01-extrator/SKILL.md` letra por letra** (é a s
 
 ⛔ **NÃO copie nem reescreva as regras de extração nesta skill.** Se você se pegar decidindo TIPO de laudo, roteamento de anexo ou classificação de EPI "na mão", pare — isso é trabalho do `montar_formulario.py` + Fase 2 da `01-extrator`. Esta skill entrega o bundle; a `01-extrator` faz o resto.
 
+## Passo 5 — (só Modo B) Apagar o notebook efêmero
+
+Só quando veio do **Passo 1B** (flag "efêmero"). No Modo A **nunca** apague — o notebook é do perito.
+
+**Trava de sucesso — apague só quando a extração deu certo.** Considere sucesso quando: as 5 partes retornaram conteúdo real (nenhuma vazia por auth/indexação) **E** a Fase 1 chegou em **`VALIDAÇÃO OK`** com o bundle gravado. Isso protege o pedaço caro (construir o notebook): se algo falhou antes, o notebook fica de pé para você inspecionar/re-rodar sem reconstruir.
+
+- **Sucesso** → `mcp__notebooklm-mcp__notebook_delete(notebook_id=<id>, confirm=True)`. A escolha do perito pelo fluxo efêmero **é** a aprovação padrão — **não** pare para perguntar "posso apagar?" a cada rodada; apague e **registre no relatório** que apagou (nome + id).
+- **Falhou** (parte vazia, timeout de indexação, `VALIDAÇÃO` não-OK, ou você não tem certeza de que o formulário saiu bom) → **NÃO apague**. Mantenha o notebook, diga o **nome + id** (`EFÊMERO — …`) e o que falhou, e ofereça: re-rodar as queries no mesmo notebook, ou apagar mesmo assim se ele confirmar.
+
+⚠ `notebook_delete` é **IRREVERSÍVEL**. Confira que o `notebook_id` é o que **você criou no Passo 1B** (título `EFÊMERO — …`) — nunca apague um notebook do Modo A nem outro qualquer.
+
 ## Regras de ouro
 
 1. **Só Code + MCP autenticado.** Sem MCP (Cowork) → mandar usar `/01-extrator` manual. Auth `stale` → `nlm login`.
 2. **Conteúdo intocado.** Nunca inventar nem reescrever o conteúdo (mesma trava da 01-extrator: organiza, não cria). A única limpeza permitida é tirar as citações `[n]` (e opcionalmente `**`) do Passo 3.
 3. **Encadear as 5 queries no mesmo `conversation_id`** (os prompts se cruzam) e **confirmar o notebook antes de consultar** (query custa e precisa mirar o alvo certo).
 4. **Bundle na ordem 1→2→3a→3b→4**, concatenado como um paste manual. O gate do script confirma no fim: alvo é `VALIDAÇÃO OK`.
-5. **Upload das fontes no notebook = manual.** A skill não sobe PDF nem decide fronteira de documento; assume o notebook pronto.
+5. **Fronteira de documento nunca se chuta.** No Modo A o upload é manual (notebook já pronto). No Modo B a skill sobe os 4 PDFs **já separados na pasta** — ela **não divide** PDF; se não achar as 4 partes claras, para e confirma com o perito.
+6. **Efêmero só apaga no sucesso** (Modo B). Notebook `EFÊMERO — …`, apagado com `confirm=True` após `VALIDAÇÃO OK`; falhou → fica de pé. Modo A **nunca** apaga.
 
 ## Relatório final
 
 ```
 ## 📥 EXTRAÇÃO AUTOMÁTICA (NotebookLM → formulário)
-Notebook: [nome] · [id]
+Modo: [A — notebook pronto] | [B — pasta → efêmero]
+Notebook: [nome] · [id]   (Modo B: "EFÊMERO — …")
+Fontes (Modo B): 4 subidas · indexadas [✓/⚠]
 Partes buscadas: P1 [✓/⚠] · P2 [✓/⚠] · P3a [✓/⚠] · P3b [✓/⚠] · P4 [✓/⚠]
 Bundle: _bundle-<nº>.md  (cópia crua dos 5 outputs)
+Notebook efêmero: [APAGADO ✓ | MANTIDO — <motivo>]   (só Modo B)
 ```
 Em seguida, **o relatório normal da `01-extrator`** (resultado 🔧/🚩/📇/📐 do guard + AUTO-CHECK + CAMPOS A VERIFICAR + FLAGS).
