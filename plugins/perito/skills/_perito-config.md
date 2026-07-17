@@ -31,7 +31,10 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
     "saida_laudos": "Laudos-Gerados",
     "formularios_campo": "Formularios-Campo"
   },
-  "email_alertas": "perito@exemplo.com"
+  "email_alertas": "perito@exemplo.com",
+  "notebooklm": {
+    "prompts_extracao": "G:\\Meu Drive\\Base Perícia Irineu\\prompts-extracao-notebooklm.md"
+  }
 }
 ```
 
@@ -51,6 +54,12 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
   formulário de campo `.md` (insumo da diligência); separada dos laudos finais. Ausente no
   config (perfis antigos) → o Extrator usa o default `Formularios-Campo`.
 - `email_alertas` — destinatário do planejamento de prazos (Skill 7).
+- `notebooklm` *(opcional — só usado pela `01b-extrator-nlm`, no Claude Code)*:
+  - `prompts_extracao` — **caminho ABSOLUTO** do arquivo `.md` com os 5 prompts de extração
+    (Partes 1, 2, 3a, 3b, 4) que a extração automática roda no NotebookLM via MCP. **Exceção à
+    regra dos caminhos relativos:** a `01b-extrator-nlm` roda no Claude Code (disco real do
+    Windows, não sandbox), então aqui vale caminho absoluto (`G:\...`, `C:\...`). Ausente →
+    a skill pergunta o caminho e oferece salvar. As demais skills ignoram este bloco.
 
 ## Padrão "ler config / se não existir, configurar" (toda skill, no início)
 

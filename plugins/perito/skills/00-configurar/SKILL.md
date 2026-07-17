@@ -46,6 +46,12 @@ Caminhos (relativos à raiz do projeto — confira que existem na pasta):
 Alertas:
 - **E-mail** para o planejamento de prazos (Skill 7)
 
+Extração automática do NotebookLM *(opcional — só serve no Claude Code)*:
+- Caminho **absoluto** do arquivo `.md` com os 5 prompts de extração (Partes 1–4) →
+  grava em `notebooklm.prompts_extracao`. É o que a skill `01b-extrator-nlm` roda no
+  NotebookLM via MCP em vez de o perito colar. Perito que só usa o Cowork pode pular
+  (a `01-extrator` manual não precisa disso). No Code, ainda é preciso `nlm login` uma vez.
+
 ## Gravar
 
 - Montar o JSON no schema de `_perito-config.md`, **UTF-8, indentado**.

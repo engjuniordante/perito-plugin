@@ -16,7 +16,8 @@ projeto** que o perito conecta no Cowork, descritos em um `perito-config.json` n
 | Comando | O que faz |
 |---|---|
 | `/configurar` | Cria/edita o `perito-config.json` (identidade + caminhos). Roda 1 vez. |
-| Extrator | Consolida os 5 outputs do NotebookLM no formulário de campo. |
+| Extrator | Consolida os 5 outputs do NotebookLM (colados) no formulário de campo. |
+| Extrator NLM *(só Claude Code)* | Busca os 5 outputs direto do NotebookLM via MCP e monta o formulário — sem colar. Precisa de `nlm login` na máquina. |
 | Redator Insal/Peric | Monta o laudo NR-15/NR-16 (`.docx`) no template do perito. |
 | Redator Ergonômico | Monta o laudo NR-17 a partir da planilha de avaliação. |
 | Responde Impugnação | Formata a minuta de esclarecimentos no template. |
