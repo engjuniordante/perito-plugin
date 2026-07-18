@@ -113,6 +113,11 @@ Papel:
 **Função [Nome] (se houver segunda função):**
 
 
+## ▶ DIVERGÊNCIAS FÁTICAS *(item 3.1 do laudo — campo de campo)*
+*(Só preencher se **houver** divergência entre o que o(a) Reclamante alega e o que foi constatado/o que a Reclamada afirma. **Em branco** → o laudo entra com o texto-padrão: "Durante a diligência pericial não houve divergência fática, sendo as atividades do(a) Reclamante confirmadas pela Reclamada.")*
+
+
+
 ## ▶ CITAÇÕES / DEPOIMENTOS *(campo de campo — preencher in loco com o que as partes disserem; vem EM BRANCO da extração, salvo se a ata já trouxer depoimento)*
 **Reclamante disse:**
 

@@ -297,6 +297,10 @@ def gate_formulario(data, form_text):
 _INSAL = 'Descaracterizada a insalubridade.'
 _PERIC = 'Descaracterizada a periculosidade.'
 _NC = 'Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposição a %s nos termos do Anexo nº %s da NR-%s.'
+# Item 3.1 — texto-padrão do Irineu quando NÃO há divergência fática (o modelo só manda
+# {{DIVERGENCIAS_FATICAS}} em blocks quando HÁ divergência; ausente = esta frase).
+DIVERGENCIA_FATICA_PADRAO = ('Durante a diligência pericial não houve divergência fática, '
+                             'sendo as atividades do(a) Reclamante confirmadas pela Reclamada.')
 ABSENT_ANALISE = {
     # NR-15
     'ANALISE_RUIDO_CONTINUO':   [_NC % ('ruído contínuo ou intermitente', '1', '15'), _INSAL],
@@ -386,6 +390,15 @@ def fill_absent_analises(document):
             set_block(p, ABSENT_ANALISE[m.group(1)])
             filled.append(m.group(1))
     return filled
+
+def fill_default_divergencia(document):
+    """Item 3.1: se o {{DIVERGENCIAS_FATICAS}} sobrou (o modelo não mandou em blocks,
+    logo NÃO há divergência), preenche com o texto-padrão. Devolve True se preencheu."""
+    for p in all_paragraphs(document):
+        if '{{DIVERGENCIAS_FATICAS}}' in p.text:
+            set_block(p, [DIVERGENCIA_FATICA_PADRAO])
+            return True
+    return False
 
 def set_cell_text(cell, text, bold=None):
     p = cell.paragraphs[0]
@@ -554,6 +567,9 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
     auto = fill_absent_analises(doc)
     if auto:
         print('Agentes ausentes preenchidos pelo script (%d): %s' % (len(auto), ', '.join(a.replace('ANALISE_', '') for a in auto)))
+    # item 3.1: sem divergência informada -> texto-padrão "não houve divergência fática..."
+    if fill_default_divergencia(doc):
+        print('Item 3.1 (Divergências Fáticas): sem divergência no JSON — usado o texto-padrão.')
 
     scalars = dict(data.get('scalars', {}))
     # anos do EPI no cabeçalho
