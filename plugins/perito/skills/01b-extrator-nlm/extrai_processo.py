@@ -9,21 +9,19 @@ esperando indexar, roda os 5 prompts de extração (Partes 1, 2, 3a, 3b, 4)
 ENCADEADOS no mesmo conversation_id, limpa as citações [n], grava o
 _bundle-<nº>.md e APAGA o notebook. Zero token de modelo.
 
-Depois, quem chama (a skill / o perito) roda o montar_formulario.py sobre o
+Dois modos:
+  • UMA pasta:  python extrai_processo.py "<pasta com os 4 PDFs>"
+  • LOTE (fila): python extrai_processo.py --lote ["<pasta-mãe>"]
+      Processa CADA subpasta (nº do processo) da pasta-mãe em fila; a cada
+      sucesso MOVE a subpasta para "<pasta-mãe>/Processados/". Sem argumento,
+      a pasta-mãe sai de config.notebooklm.pasta_processos.
+
+Depois, quem chama (a skill / o perito) roda o montar_formulario.py sobre cada
 bundle. O bundle basta para o pipeline — o notebook não é mais necessário —,
 por isso é seguro apagá-lo assim que o bundle é gravado.
 
-Uso típico (a skill preenche os caminhos a partir do perito-config.json):
-    python extrai_processo.py "<pasta com os 4 PDFs>" \
-        --prompts "<...>/prompts-extracao-notebooklm.md" \
-        --out "<...>/Formularios-Campo/_bundle-<nº>.md"
-
-Uso "na mão" (auto-descobre config subindo a partir da pasta):
-    python extrai_processo.py "G:/.../Irineu teste/<SUBPASTA>"
-
-Saída: escreve o caminho do bundle na ÚLTIMA linha do stdout, prefixado por
-"BUNDLE: ". Sai com código != 0 se algo falhar (e, nesse caso, NÃO apaga o
-notebook — deixa de pé para inspeção, informando o id).
+Saída: para cada pasta processada imprime "BUNDLE: <caminho>". Sai com código
+!= 0 se a (única) pasta falhar; em lote, segue a fila e resume no fim.
 """
 import argparse
 import json
@@ -43,8 +41,12 @@ except Exception:
 
 # PDFs que ficam na mesma pasta mas NÃO são entrada (são saída do fluxo).
 DENYLIST = ("formulario", "formulário", "laudo")
+# Nome da subpasta de destino no modo lote.
+DIR_PROCESSADOS = "Processados"
+# Limite prático de tamanho por mensagem de query do NotebookLM (~4.8k chars).
+LIMITE_QUERY = 4700
 
-# As 5 partes na ordem do bundle + a chave de cada heading no arquivo de prompts.
+# As partes na ordem do bundle + a chave de cada heading no arquivo de prompts.
 PARTES = [
     ("REGRAS", r"REGRAS\s+GERAIS"),
     ("P1", r"PARTE\s+1\b"),
@@ -53,15 +55,18 @@ PARTES = [
     ("P3b", r"PARTE\s+3b\b"),
     ("P4", r"PARTE\s+4\b"),
 ]
+ORDEM = ["P1", "P2", "P3a", "P3b", "P4"]
 
 
 def log(msg):
     print(msg, flush=True)
 
 
-def die(msg, code=1):
-    print(f"ERRO: {msg}", file=sys.stderr, flush=True)
-    sys.exit(code)
+class FalhaPasta(RuntimeError):
+    """Falha ao processar uma pasta; carrega o id do notebook mantido (se houver)."""
+    def __init__(self, msg, notebook_id=None):
+        super().__init__(msg)
+        self.notebook_id = notebook_id
 
 
 # ── localizar o executável nlm ────────────────────────────────────────────────
@@ -69,25 +74,22 @@ def achar_nlm(explicit=None):
     if explicit:
         if Path(explicit).exists():
             return explicit
-        die(f"--nlm apontado não existe: {explicit}")
+        sys.exit(f"ERRO: --nlm apontado não existe: {explicit}")
     found = shutil.which("nlm")
     if found:
         return found
-    # caminho conhecido no Windows (nlm.exe não costuma estar no PATH)
     appdata = os.environ.get("APPDATA", "")
-    for base in (appdata,):
-        if not base:
-            continue
+    if appdata:
         for py in ("Python312", "Python311", "Python313", "Python310"):
-            cand = Path(base) / "Python" / py / "Scripts" / "nlm.exe"
+            cand = Path(appdata) / "Python" / py / "Scripts" / "nlm.exe"
             if cand.exists():
                 return str(cand)
-    die("não encontrei o executável `nlm`. Rode `nlm login` uma vez ou passe --nlm <caminho>.")
+    sys.exit("ERRO: não encontrei o executável `nlm`. Rode `nlm login` uma vez ou passe --nlm <caminho>.")
 
 
-# ── localizar e ler o perito-config.json (subindo a partir da pasta) ──────────
-def achar_config(pasta):
-    p = Path(pasta).resolve()
+# ── localizar e ler o perito-config.json (subindo a partir do caminho) ────────
+def achar_config(caminho):
+    p = Path(caminho).resolve()
     for cand in [p, *p.parents]:
         cfg = cand / "perito-config.json"
         if cfg.exists():
@@ -97,11 +99,8 @@ def achar_config(pasta):
 
 # ── extrair os blocos de prompt do arquivo .md ────────────────────────────────
 def ler_prompts(prompts_path):
-    txt = Path(prompts_path).read_text(encoding="utf-8")
-    linhas = txt.splitlines()
-    # mapeia heading -> índice da linha
+    linhas = Path(prompts_path).read_text(encoding="utf-8").splitlines()
     blocos = {}
-    heading_atual = None
     dentro = False
     buff = []
     key_ativa = None
@@ -109,8 +108,7 @@ def ler_prompts(prompts_path):
     def casa_heading(linha):
         if not linha.lstrip().startswith("#"):
             return None
-        # ignora explicitamente o prompt de Impugnação (é da Skill 4)
-        if re.search(r"Impugna", linha, re.I):
+        if re.search(r"Impugna", linha, re.I):   # ignora o prompt de Impugnação (Skill 4)
             return "IGNORAR"
         for key, pat in PARTES:
             if re.search(pat, linha, re.I):
@@ -124,17 +122,14 @@ def ler_prompts(prompts_path):
             continue
         if linha.strip().startswith("```"):
             if not dentro:
-                # abre bloco: só captura se a heading ativa é uma das nossas
                 if key_ativa and key_ativa != "IGNORAR" and key_ativa not in blocos:
                     dentro = True
                     buff = []
                 continue
-            else:
-                # fecha bloco
-                blocos[key_ativa] = "\n".join(buff).strip()
-                dentro = False
-                key_ativa = None
-                continue
+            blocos[key_ativa] = "\n".join(buff).strip()
+            dentro = False
+            key_ativa = None
+            continue
         if dentro:
             buff.append(linha)
 
@@ -144,15 +139,11 @@ def ler_prompts(prompts_path):
 
 # ── achar os 4 PDFs de entrada ────────────────────────────────────────────────
 def achar_pdfs(pasta):
-    p = Path(pasta)
-    if not p.is_dir():
-        die(f"pasta não encontrada: {pasta}")
     pdfs = []
-    for f in sorted(p.iterdir()):
+    for f in sorted(Path(pasta).iterdir()):
         if f.suffix.lower() != ".pdf":
             continue
-        nome = f.stem.lower()
-        if any(bad in nome for bad in DENYLIST):
+        if any(bad in f.stem.lower() for bad in DENYLIST):
             continue
         pdfs.append(f)
     return pdfs
@@ -161,188 +152,261 @@ def achar_pdfs(pasta):
 # ── chamadas ao nlm ───────────────────────────────────────────────────────────
 def nlm_run(nlm, args, timeout=None):
     """Roda `nlm ...` (sem --json). Devolve (stdout, erro-ou-None)."""
-    cp = subprocess.run(
-        [nlm, *args],
-        capture_output=True, text=True, encoding="utf-8", timeout=timeout,
-    )
+    cp = subprocess.run([nlm, *args], capture_output=True, text=True,
+                        encoding="utf-8", timeout=timeout)
     if cp.returncode != 0:
         return None, (cp.stderr or cp.stdout or f"exit {cp.returncode}").strip()
     return (cp.stdout or "").strip(), None
 
 
 def nlm_json(nlm, args, timeout=None):
-    """Roda `nlm ... --json` e devolve o dict do stdout."""
-    cp = subprocess.run(
-        [nlm, *args, "--json"],
-        capture_output=True, text=True, encoding="utf-8", timeout=timeout,
-    )
+    """Roda `nlm ... --json` e devolve (dict, erro-ou-None)."""
+    cp = subprocess.run([nlm, *args, "--json"], capture_output=True, text=True,
+                        encoding="utf-8", timeout=timeout)
     if cp.returncode != 0:
         return None, (cp.stderr or cp.stdout or f"exit {cp.returncode}").strip()
     out = (cp.stdout or "").strip()
-    # o nlm às vezes emite linhas de log antes do JSON; pega o último bloco {...}
-    m = re.search(r"\{.*\}\s*$", out, re.S)
-    raw = m.group(0) if m else out
+    m = re.search(r"\{.*\}\s*$", out, re.S)   # o nlm às vezes loga antes do JSON
     try:
-        return json.loads(raw), None
+        return json.loads(m.group(0) if m else out), None
     except json.JSONDecodeError:
-        return None, f"resposta não-JSON do nlm: {out[:400]}"
+        return None, f"resposta não-JSON do nlm: {out[:300]}"
+
+
+def limpar(s):
+    """Tira citações [n]/[1, 2]/[2-5] (preserva [X] [ ] [NÃO...]); tira ** e espaços órfãos."""
+    s = re.sub(r"\[\d[\d,\s\-–]*\]", "", s)
+    s = s.replace("**", "")
+    s = re.sub(r"[ \t]+([.,;:])", r"\1", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return s.strip()
+
+
+# ── processar UMA pasta: pasta → bundle (cria/sobe/consulta/limpa/apaga) ──────
+def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
+                    regras_mode, keep):
+    pasta = Path(pasta)
+    pdfs = achar_pdfs(pasta)
+    if len(pdfs) != 4:
+        listagem = ", ".join(p.name for p in pdfs) or "(nenhum)"
+        raise FalhaPasta(f"esperava 4 PDFs de entrada, achei {len(pdfs)}: {listagem}")
+    log("📄 PDFs: " + " · ".join(p.name for p in pdfs))
+
+    titulo = f"EFÊMERO — {pasta.name}"
+    nb, err = nlm_json(nlm, ["notebook", "create", titulo])
+    if not nb:
+        raise FalhaPasta(f"falha ao criar notebook: {err}")
+    nb_id = nb.get("id") or nb.get("notebook_id") or (nb.get("notebook") or {}).get("id")
+    if not nb_id:
+        raise FalhaPasta(f"não achei o id do notebook criado: {nb}")
+    log(f"🆕 notebook: {nb_id}")
+
+    def apagar_ok():
+        if keep:
+            log(f"🧷 --keep: notebook mantido ({nb_id}).")
+            return
+        _o, e = nlm_run(nlm, ["notebook", "delete", nb_id, "-y"])
+        log(f"🗑️  notebook apagado: {nb_id}" if not e else f"⚠ não apaguei {nb_id}: {e}")
+
+    try:
+        # subir os 4 PDFs esperando indexar (source add NÃO tem --json)
+        for p in pdfs:
+            _o, err = nlm_run(nlm, ["source", "add", nb_id, "--file", str(p),
+                                    "--wait", "--wait-timeout", str(wait_timeout)],
+                              timeout=wait_timeout + 60)
+            if err:
+                raise FalhaPasta(f"falha ao subir/indexar '{p.name}': {err}", nb_id)
+            log(f"   ✓ indexado: {p.name}")
+
+        # queries encadeadas
+        def query(texto, key, conv):
+            if len(texto) > LIMITE_QUERY:
+                log(f"   ⚠ {key}: {len(texto)} chars (> {LIMITE_QUERY}) — pode dar INVALID_ARGUMENT.")
+            qargs = ["notebook", "query", nb_id, texto, "--timeout", str(query_timeout)]
+            if conv:
+                qargs += ["-c", conv]
+            res, err = nlm_json(nlm, qargs, timeout=query_timeout + 60)
+            if err or not res:
+                raise FalhaPasta(f"falha na query {key}: {err}", nb_id)
+            return res
+
+        conv_id = None
+        prompts = dict(blocos)
+        # REGRAS: off (padrão) = não manda; priming = turno próprio; inline = cola na P1
+        if regras_mode == "priming" and prompts.get("REGRAS"):
+            res = query(prompts["REGRAS"], "REGRAS(priming)", None)
+            conv_id = res.get("conversation_id")
+            log(f"   ✓ REGRAS (priming) — conv {conv_id}")
+        elif regras_mode == "inline" and prompts.get("REGRAS") and prompts.get("P1"):
+            candidato = prompts["REGRAS"] + "\n\n" + prompts["P1"]
+            if len(candidato) <= LIMITE_QUERY:
+                prompts["P1"] = candidato
+            else:
+                log(f"   ⚠ REGRAS+P1 = {len(candidato)} chars > {LIMITE_QUERY}: caindo p/ priming.")
+                res = query(prompts["REGRAS"], "REGRAS(priming)", None)
+                conv_id = res.get("conversation_id")
+
+        respostas = {}
+        for key in ORDEM:
+            prompt = prompts.get(key)
+            if not prompt:
+                respostas[key] = ""   # ausente → [NÃO LOCALIZADO] no pipeline
+                log(f"   ⚠ {key}: ausente no arquivo de prompts")
+                continue
+            res = query(prompt, key, conv_id)
+            conv_id = conv_id or res.get("conversation_id")
+            ans = (res.get("answer") or "").strip()
+            if not ans:
+                raise FalhaPasta(f"query {key} voltou VAZIA (fonte faltando/indexação?)", nb_id)
+            respostas[key] = ans
+            log(f"   ✓ {key}: {len(ans)} chars")
+
+        # montar bundle
+        bundle = "\n\n".join(limpar(respostas[k]) for k in ORDEM if respostas.get(k))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(bundle, encoding="utf-8")
+        log(f"📦 bundle: {out_path}  ({len(bundle)} chars)")
+    except FalhaPasta:
+        if not keep:
+            log(f"🧷 notebook MANTIDO para inspeção: {nb_id} (título: {titulo}).")
+        raise
+
+    apagar_ok()   # sucesso: bundle gravado → o pipeline reprocessa do bundle
+    return out_path
+
+
+def nome_bundle(pasta, cfg, cfg_path, out_override=None):
+    if out_override:
+        return Path(out_override)
+    base_out = (cfg.get("caminhos", {}) or {}).get("formularios_campo")
+    raiz = Path(cfg_path).parent if cfg_path else Path(pasta)
+    out_dir = (raiz / base_out) if base_out else Path(pasta)
+    # nome do processo: o próprio nome da subpasta se parecer nº CNJ, senão genérico
+    nome = Path(pasta).name
+    m = re.search(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}", nome)
+    slug = m.group(0) if m else re.sub(r"[^\w.-]+", "-", nome)[:60].strip("-")
+    return out_dir / f"_bundle-{slug}.md"
+
+
+def mover_processado(pasta, raiz_lote):
+    dest_dir = Path(raiz_lote) / DIR_PROCESSADOS
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / Path(pasta).name
+    if dest.exists():
+        i = 2
+        while (dest_dir / f"{Path(pasta).name} ({i})").exists():
+            i += 1
+        dest = dest_dir / f"{Path(pasta).name} ({i})"
+    shutil.move(str(pasta), str(dest))
+    return dest
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Extrai processo → NotebookLM efêmero → bundle.")
-    ap.add_argument("pasta", help="pasta com os 4 PDFs do processo")
+    ap = argparse.ArgumentParser(description="Extrai processo(s) → NotebookLM efêmero → bundle.")
+    ap.add_argument("pasta", nargs="?", help="pasta com os 4 PDFs (modo single)")
+    ap.add_argument("--lote", nargs="?", const="__CONFIG__", default=None,
+                    help="modo LOTE: processa cada subpasta da pasta-mãe (default: config.notebooklm.pasta_processos)")
     ap.add_argument("--prompts", help="caminho do prompts-extracao-notebooklm.md (senão lê do config)")
-    ap.add_argument("--out", help="caminho do _bundle-<nº>.md a gerar (senão deriva do nº do processo)")
-    ap.add_argument("--config", help="perito-config.json (senão auto-localiza subindo da pasta)")
+    ap.add_argument("--out", help="[single] caminho do _bundle-<nº>.md (senão deriva)")
+    ap.add_argument("--config", help="perito-config.json (senão auto-localiza)")
     ap.add_argument("--nlm", help="caminho do executável nlm (senão auto-localiza)")
-    ap.add_argument("--wait-timeout", type=float, default=600.0, help="seg. p/ indexar cada fonte (def. 600)")
-    ap.add_argument("--query-timeout", type=float, default=300.0, help="seg. por query (def. 300)")
+    ap.add_argument("--regras", choices=["off", "priming", "inline"], default="off",
+                    help="REGRAS GERAIS: off (padrão, P1 sozinha e cheia) | priming (turno próprio) | inline (cola na P1)")
+    ap.add_argument("--wait-timeout", type=float, default=600.0)
+    ap.add_argument("--query-timeout", type=float, default=300.0)
     ap.add_argument("--keep", action="store_true", help="NÃO apagar o notebook ao fim (debug)")
     args = ap.parse_args()
+
+    if not args.pasta and args.lote is None:
+        ap.error("informe uma pasta (single) ou --lote.")
 
     nlm = achar_nlm(args.nlm)
     log(f"🔧 nlm: {nlm}")
 
-    # config (para prompts e pasta de saída)
-    cfg = {}
-    cfg_path = Path(args.config) if args.config else achar_config(args.pasta)
+    ancora = args.pasta or (args.lote if args.lote and args.lote != "__CONFIG__" else None)
+    cfg, cfg_path = {}, (Path(args.config) if args.config else None)
+    if not cfg_path:
+        cfg_path = achar_config(ancora) if ancora else achar_config(Path.cwd())
     if cfg_path and Path(cfg_path).exists():
         cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
         log(f"🔧 config: {cfg_path}")
 
     prompts_path = args.prompts or (cfg.get("notebooklm", {}) or {}).get("prompts_extracao")
-    if not prompts_path:
-        die("prompts não informado e config sem notebooklm.prompts_extracao — passe --prompts.")
-    if not Path(prompts_path).exists():
-        die(f"arquivo de prompts não existe: {prompts_path}")
-
+    if not prompts_path or not Path(prompts_path).exists():
+        sys.exit(f"ERRO: prompts não encontrados ({prompts_path!r}) — passe --prompts.")
     blocos, faltando = ler_prompts(prompts_path)
-    if "REGRAS" in faltando or "P1" in faltando:
-        die(f"prompts essenciais ausentes no arquivo: {faltando}")
+    if "P1" in faltando:
+        sys.exit(f"ERRO: PARTE 1 ausente no arquivo de prompts: {faltando}")
     if faltando:
-        log(f"⚠ partes ausentes no arquivo de prompts (viram [NÃO LOCALIZADO]): {faltando}")
+        log(f"⚠ partes ausentes (viram [NÃO LOCALIZADO]): {faltando}")
 
-    pdfs = achar_pdfs(args.pasta)
-    if len(pdfs) != 4:
-        listagem = "\n".join(f"  - {p.name}" for p in pdfs) or "  (nenhum)"
-        die(f"esperava 4 PDFs de entrada na pasta, achei {len(pdfs)}:\n{listagem}\n"
-            f"Confira/renomeie (1-inicial, 2-contestação, 3-EPI, 4-ata+quesitos) e rode de novo.")
-    log("📄 PDFs de entrada:")
-    for p in pdfs:
-        log(f"   • {p.name}")
+    comum = dict(blocos=blocos, wait_timeout=args.wait_timeout,
+                 query_timeout=args.query_timeout, regras_mode=args.regras, keep=args.keep)
 
-    titulo = f"EFÊMERO — {Path(args.pasta).name}"
+    # ── modo SINGLE ──────────────────────────────────────────────────────────
+    if args.lote is None:
+        pasta = Path(args.pasta)
+        if not pasta.is_dir():
+            sys.exit(f"ERRO: pasta não encontrada: {pasta}")
+        out_path = nome_bundle(pasta, cfg, cfg_path, args.out)
+        try:
+            bundle = processar_pasta(nlm, pasta, out_path=out_path, **comum)
+        except FalhaPasta as e:
+            sys.exit(f"ERRO: {e}")
+        print(f"BUNDLE: {bundle}")
+        return
 
-    # 1) criar notebook
-    nb, err = nlm_json(nlm, ["notebook", "create", titulo])
-    if not nb:
-        die(f"falha ao criar notebook: {err}")
-    nb_id = nb.get("id") or nb.get("notebook_id") or (nb.get("notebook") or {}).get("id")
-    if not nb_id:
-        die(f"não achei o id do notebook criado: {nb}")
-    log(f"🆕 notebook: {nb_id} ({titulo})")
-
-    def apagar(motivo_ok):
-        if args.keep:
-            log(f"🧷 --keep: notebook MANTIDO ({nb_id}).")
-            return
-        if not motivo_ok:
-            log(f"🧷 notebook MANTIDO para inspeção: {nb_id} (título: {titulo}).")
-            return
-        cp = subprocess.run([nlm, "notebook", "delete", nb_id, "-y"],
-                            capture_output=True, text=True, encoding="utf-8")
-        if cp.returncode == 0:
-            log(f"🗑️  notebook efêmero apagado: {nb_id}")
-        else:
-            log(f"⚠ não consegui apagar o notebook {nb_id}: {(cp.stderr or cp.stdout).strip()}")
-
-    # 2) subir os 4 PDFs, esperando indexar (source add NÃO tem --json)
-    for p in pdfs:
-        _out, err = nlm_run(
-            nlm,
-            ["source", "add", nb_id, "--file", str(p), "--wait",
-             "--wait-timeout", str(args.wait_timeout)],
-            timeout=args.wait_timeout + 60,
-        )
-        if err:
-            apagar(motivo_ok=False)
-            die(f"falha ao subir/indexar '{p.name}': {err}")
-        log(f"   ✓ indexado: {p.name}")
-
-    # 3) rodar as queries encadeadas.
-    # ⚠ A query do NotebookLM tem LIMITE de tamanho (~4.8k chars por mensagem).
-    # Por isso as REGRAS GERAIS não são coladas na P1 (REGRAS+P1 estoura o
-    # limite): vão como um TURNO DE PRIMING próprio — o contexto fica na
-    # conversa — e cada Parte segue encadeada no mesmo conversation_id.
-    LIMITE = 4700
-
-    def query(texto, key, conv):
-        if len(texto) > LIMITE:
-            log(f"   ⚠ {key}: prompt tem {len(texto)} chars (> {LIMITE}) — o NotebookLM pode rejeitar (INVALID_ARGUMENT).")
-        qargs = ["notebook", "query", nb_id, texto, "--timeout", str(args.query_timeout)]
-        if conv:
-            qargs += ["-c", conv]
-        res, err = nlm_json(nlm, qargs, timeout=args.query_timeout + 60)
-        if err or not res:
-            apagar(motivo_ok=False)
-            die(f"falha na query {key}: {err}")
-        return res
-
-    # priming com as REGRAS GERAIS (a resposta é descartada; serve de contexto)
-    res = query(blocos["REGRAS"], "REGRAS(priming)", None)
-    conv_id = res.get("conversation_id")
-    if not conv_id:
-        apagar(motivo_ok=False)
-        die("priming das REGRAS não devolveu conversation_id.")
-    log(f"   ✓ REGRAS (priming) — conv {conv_id}")
-
-    ordem = ["P1", "P2", "P3a", "P3b", "P4"]
-    respostas = {}
-    for key in ordem:
-        prompt = blocos.get(key)
-        if not prompt:
-            respostas[key] = ""  # ausente → [NÃO LOCALIZADO] no pipeline
-            log(f"   ⚠ {key}: ausente no arquivo de prompts")
-            continue
-        res = query(prompt, key, conv_id)
-        ans = (res.get("answer") or "").strip()
-        if not ans:
-            apagar(motivo_ok=False)
-            die(f"query {key} voltou VAZIA — provável fonte faltando/indexação. Notebook mantido.")
-        respostas[key] = ans
-        log(f"   ✓ {key}: {len(ans)} chars")
-
-    # 4) limpar citações e montar o bundle
-    def limpar(s):
-        s = re.sub(r"\[\d[\d,\s\-–]*\]", "", s)   # tira [4] [1, 2] [2-5]; preserva [X] [ ] [NÃO...]
-        s = s.replace("**", "")
-        s = re.sub(r"[ \t]+([.,;:])", r"\1", s)
-        s = re.sub(r"[ \t]{2,}", " ", s)
-        return s.strip()
-
-    bundle = "\n\n".join(limpar(respostas[k]) for k in ordem if respostas.get(k))
-
-    # nº do processo (para nomear o bundle) — do P1
-    m = re.search(r"N[ºo]\s*:?\s*([\d.\-]{15,})", respostas.get("P1", ""))
-    num = (m.group(1).strip(" .") if m else "").rstrip(".")
-
+    # ── modo LOTE ────────────────────────────────────────────────────────────
+    raiz = Path(args.lote) if args.lote != "__CONFIG__" else None
+    if raiz is None:
+        p = (cfg.get("notebooklm", {}) or {}).get("pasta_processos")
+        if not p:
+            sys.exit("ERRO: --lote sem pasta e config sem notebooklm.pasta_processos.")
+        raiz = Path(p)
+    if not raiz.is_dir():
+        sys.exit(f"ERRO: pasta-mãe do lote não existe: {raiz}")
     if args.out:
-        out_path = Path(args.out)
-    else:
-        base_out = (cfg.get("caminhos", {}) or {}).get("formularios_campo")
-        cfg_dir = Path(cfg_path).parent if cfg_path else Path(args.pasta)
-        out_dir = (cfg_dir / base_out) if base_out else Path(args.pasta)
-        nome = f"_bundle-{num}.md" if num else "_bundle.md"
-        out_path = out_dir / nome
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(bundle, encoding="utf-8")
-    log(f"📦 bundle: {out_path}  ({len(bundle)} chars)")
+        log("⚠ --out é ignorado no modo lote (cada bundle é nomeado pelo nº do processo).")
 
-    # 5) apagar o notebook (bundle já salvo = sucesso; pipeline reprocessa do bundle)
-    apagar(motivo_ok=True)
+    subs = [d for d in sorted(raiz.iterdir())
+            if d.is_dir() and d.name != DIR_PROCESSADOS]
+    if not subs:
+        log(f"(nada a fazer: nenhuma subpasta de processo em {raiz})")
+        return
+    log(f"📚 LOTE: {len(subs)} subpasta(s) em {raiz}")
 
-    # última linha, para quem chamou capturar o caminho
-    print(f"BUNDLE: {out_path}")
+    ok, pulados, falhas = [], [], []
+    for i, sub in enumerate(subs, 1):
+        log(f"\n──────── [{i}/{len(subs)}] {sub.name} ────────")
+        out_path = nome_bundle(sub, cfg, cfg_path)
+        try:
+            processar_pasta(nlm, sub, out_path=out_path, **comum)
+        except FalhaPasta as e:
+            msg = str(e)
+            if "esperava 4 PDFs" in msg:
+                log(f"⏭️  PULADO: {msg}")
+                pulados.append((sub.name, msg))
+            else:
+                log(f"❌ FALHOU: {msg}")
+                falhas.append((sub.name, msg, e.notebook_id))
+            continue
+        dest = mover_processado(sub, raiz)
+        log(f"📁 movido → {dest}")
+        ok.append((sub.name, out_path))
+        print(f"BUNDLE: {out_path}")
+
+    # resumo
+    log("\n════════ RESUMO DO LOTE ════════")
+    log(f"✅ processados: {len(ok)}   ⏭️ pulados: {len(pulados)}   ❌ falhas: {len(falhas)}")
+    for nome, _ in ok:
+        log(f"   ✅ {nome}")
+    for nome, msg in pulados:
+        log(f"   ⏭️ {nome} — {msg}")
+    for nome, msg, nbid in falhas:
+        extra = f" [notebook mantido: {nbid}]" if nbid else ""
+        log(f"   ❌ {nome} — {msg}{extra}")
+    if falhas:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

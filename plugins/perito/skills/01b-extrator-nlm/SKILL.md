@@ -14,7 +14,7 @@ Esta skill faz **exatamente o que a `01-extrator` faz**, com **uma única difere
 O que muda é **só como o notebook (ou o bundle) chega**.
 
 - **Modo A — notebook já pronto** (comportamento original): o perito aponta um notebook que **já tem as 4 fontes subidas**. Vá para o **Passo 1A** e siga os Passos 2→4 (você roda as 5 queries pela MCP).
-- **Modo B — pasta → notebook efêmero** (o "extrair processo"): o perito aponta uma **pasta com os 4 PDFs do processo** (`1-INICIAL`, `2-CONTESTAÇÃO E DOCUMENTOS`, `3-EPI`, `4-ATA E QUESITOS`). Vá para o **Passo 1B**, que **dispara o script `extrai_processo.py`**: ele cria o notebook, sobe as 4 fontes, roda os 5 prompts, grava o `_bundle` e **apaga** o notebook — **tudo no terminal, sem gastar token**. Você recebe o bundle pronto e vai direto ao **Passo 4** (pipeline + Fase 2).
+- **Modo B — pasta → notebook efêmero** (o "extrair processo"): o perito joga as subpastas de processo (nome = nº, 4 PDFs cada — `1-INICIAL`, `2-CONTESTAÇÃO E DOCUMENTOS`, `3-EPI`, `4-ATA E QUESITOS`) dentro de `config.notebooklm.pasta_processos` (a pasta `Extração-notebooklm`). Vá para o **Passo 1B**, que **dispara o script `extrai_processo.py`**: para cada subpasta ele cria o notebook, sobe as 4 fontes, roda os 5 prompts, grava o `_bundle`, **apaga** o notebook e **move a subpasta para `Processados/`** — **em fila, tudo no terminal, sem gastar token**. Você recebe os bundles prontos e vai ao **Passo 4** (pipeline + Fase 2) para cada um.
 
 Como decidir: se o perito deu **caminho de pasta / nome de pasta / "os 4 arquivos"** → Modo B. Se deu **nome de notebook / nº do processo já com notebook** → Modo A. Na dúvida, **pergunte**.
 
@@ -40,22 +40,29 @@ Como decidir: se o perito deu **caminho de pasta / nome de pasta / "os 4 arquivo
 
 > Modo efêmero **puro**: um script faz **toda a parte mecânica** — cria o notebook, sobe os 4 PDFs esperando indexar, roda os 5 prompts encadeados, limpa as citações, grava o `_bundle-<nº>.md` e **apaga o notebook**. Isso roda no **terminal, via o CLI `nlm`, sem gastar token de modelo**. Quando o perito disser "extrair processo" e apontar uma **pasta**, é isto que você dispara — você **não** faz as chamadas MCP uma a uma.
 
-1. **Localizar a pasta.** O perito dá o **caminho absoluto** da pasta (ex.: `G:\Meu Drive\Base Perícia Irineu\Irineu teste\SAMANTA ...`) **ou** o nome de uma subpasta sob `config.notebooklm.pasta_processos`. Ausente → **pergunte** o caminho.
-2. **Disparar o script** (Windows/Code: **`python`**, não `python3`):
-   ```
-   python <plugin>/skills/01b-extrator-nlm/extrai_processo.py "<pasta>" --out "<config.caminhos.formularios_campo>/_bundle-<nº|auto>.md"
-   ```
-   - O script **auto-descobre** o `perito-config.json` (subindo a partir da pasta) e lê dele os `prompts_extracao` e a pasta de saída — então, se a pasta estiver **dentro** da base, basta `python extrai_processo.py "<pasta>"`. Passe `--prompts`/`--out`/`--config` só para sobrescrever.
-   - Ele acha o `nlm` sozinho (inclusive o `nlm.exe` fora do PATH no Windows).
-3. **Ler o resultado no stdout.** O script imprime o progresso (`✓ indexado`, `✓ P1…P4`, `🗑️ notebook apagado`) e, na **última linha**, `BUNDLE: <caminho>`. Pegue esse caminho — é o insumo do Passo 4.
-4. **Tratar as saídas de erro** (o script sai com código ≠ 0 e mensagem clara):
-   - `≠ 4 PDFs` na pasta → ele lista o que achou e **para**. Mostre ao perito e peça pra ajustar/renomear (o script **não** decide fronteira de documento; só sobe 4 arquivos já separados, ignorando `FORMULÁRIO…`/`LAUDO…`).
-   - `auth`/`nlm login` → credenciais expiraram: rode `nlm login` (conta do perito) e re-dispare.
-   - `query VAZIA` / `INVALID_ARGUMENT` / falha → o script **mantém o notebook de pé** (título `EFÊMERO — …`) e informa o id, para inspeção/re-run. Avise o perito qual parte falhou (costuma ser fonte faltando ou prompt longo demais).
-5. **Sucesso** → o notebook **já foi apagado pelo script** (apaga assim que o bundle é gravado; o `montar_formulario.py` reprocessa a partir do bundle, não precisa do notebook). Vá para o **Passo 4** com o caminho do bundle. **Pule o Passo 2, 3 e 5** (o script já fez).
+**Duas formas de disparar** (Windows/Code: **`python`**, não `python3`; o script auto-descobre o `perito-config.json` subindo do caminho e acha o `nlm` sozinho):
+
+- **LOTE (o padrão do "extrair processo")** — processa **em fila** cada subpasta de `config.notebooklm.pasta_processos` (a pasta `Extração-notebooklm`) e, a cada sucesso, **move a subpasta para `Processados/`**:
+  ```
+  python <plugin>/skills/01b-extrator-nlm/extrai_processo.py --lote "<config.notebooklm.pasta_processos>"
+  ```
+  É o que você dispara quando o perito diz só **"extrair processo"** (sem apontar pasta específica). Cada subpasta = 1 processo (nome = nº do processo, 4 PDFs dentro). Passe o caminho explícito de `pasta_processos` (o auto-config precisa de um caminho-âncora).
+- **UMA pasta** — quando o perito aponta uma pasta específica:
+  ```
+  python <plugin>/skills/01b-extrator-nlm/extrai_processo.py "<pasta>"
+  ```
+
+1. **Ler o stdout.** O script imprime o progresso (`✓ indexado`, `✓ P1…P4`, `🗑️ notebook apagado`, `📁 movido → Processados`) e, para **cada** pasta que der certo, uma linha `BUNDLE: <caminho>`. No lote, fecha com um **RESUMO** (✅ processados / ⏭️ pulados / ❌ falhas). Colete os `BUNDLE:` — são os insumos do Passo 4 (um por processo).
+2. **Tratar as saídas** (o script continua a fila mesmo se uma pasta falhar):
+   - `⏭️ PULADO — esperava 4 PDFs` → a subpasta **não** tem exatamente 4 PDFs de entrada; ele **deixa no lugar** (não move) e segue. Mostre ao perito pra ajustar/renomear (o script **não** decide fronteira de documento; ignora `FORMULÁRIO…`/`LAUDO…`).
+   - `auth`/`nlm login` → credenciais expiraram: rode `nlm login` (conta do perito) e re-dispare. (A sessão do NLM é frágil — expira em dias e um corte de rede derruba; renovar é rápido.)
+   - `❌ FALHOU` (query vazia / `INVALID_ARGUMENT` / erro) → o script **mantém aquele notebook de pé** (título `EFÊMERO — …`, id no resumo) e **não move** a subpasta, para inspeção/re-run; segue para a próxima.
+3. **Sucesso** → o notebook **já foi apagado** e a subpasta **já foi movida** pelo script. Vá para o **Passo 4** com cada bundle. **Pule os Passos 2, 3 e 5** (o script já fez). No lote, rode o Passo 4 (pipeline + Fase 2) **para cada** bundle da fila.
+
+> **REGRAS GERAIS:** por padrão o script roda **sem** o bloco REGRAS (`--regras off`) — cada Parte já traz as próprias regras, e a P1 sai mais completa sozinha. Se algum dia precisar, `--regras priming` (turno próprio) ou `--regras inline` (cola na P1 se couber no limite).
 
 ### Fallback (script indisponível) — MCP passo a passo
-Se por algum motivo o script não puder rodar (CLI `nlm` ausente e sem conserto na hora), dá para fazer o mesmo pela MCP, **na mão**: `notebook_create(title="EFÊMERO — <pasta>")` → para cada PDF `source_add(source_type="file", file_path="<Windows>", wait=True, wait_timeout=300)` → `notebook_get` conferindo 4 fontes → siga o **Passo 2/3** (as 5 queries) → e o **Passo 5** (apagar). ⚠ Atenção ao **limite de ~4,8k chars por query**: mande as **REGRAS GERAIS como um turno de priming** próprio e cada Parte encadeada no mesmo `conversation_id` — **não** cole REGRAS+P1 juntos (estoura o limite e volta `INVALID_ARGUMENT`).
+Se o script não puder rodar (CLI `nlm` ausente e sem conserto na hora), faça o mesmo pela MCP, **na mão** (uma pasta por vez): `notebook_create(title="EFÊMERO — <pasta>")` → para cada PDF `source_add(source_type="file", file_path="<Windows>", wait=True, wait_timeout=300)` → `notebook_get` conferindo 4 fontes → **Passo 2/3** (as 5 queries) → **Passo 5** (apagar) → mova a subpasta para `Processados/`. ⚠ **Limite de ~4,8k chars por query**: **não** cole REGRAS+P1 juntos (estoura → `INVALID_ARGUMENT`). Rode a **P1 sozinha** (cabe) e cada Parte encadeada no mesmo `conversation_id`; se quiser as REGRAS, mande-as como um turno de priming separado.
 
 ## Passo 2 — Ler os 5 prompts (verbatim, do arquivo)
 
@@ -103,7 +110,7 @@ Só quando o notebook foi criado na mão pela MCP (fallback). No Modo A **nunca*
 1. **Só Code + `nlm` autenticado.** Sem MCP/CLI (Cowork) → mandar usar `/01-extrator` manual. Auth expirado → `nlm login` (conta do perito).
 2. **Conteúdo intocado.** Nunca inventar nem reescrever o conteúdo (mesma trava da 01-extrator: organiza, não cria). A única limpeza é tirar as citações `[n]` (e `**`) — o script já faz isso.
 3. **Modo B = disparar o script, não fazer MCP na mão.** O `extrai_processo.py` faz create→upload(4, wait)→5 queries encadeadas→bundle→delete no terminal, **sem token**. Só caia para a MCP passo a passo se o script não puder rodar (fallback do Passo 1B).
-4. **Limite de ~4,8k chars por query.** REGRAS GERAIS vão como **turno de priming** próprio; cada Parte encadeada no mesmo `conversation_id`. **Nunca** colar REGRAS+P1 juntos (estoura → `INVALID_ARGUMENT`). O script já respeita isso; no fallback MCP, você também.
+4. **Limite de ~4,8k chars por query.** Cada Parte encadeada no mesmo `conversation_id`; **nunca** colar REGRAS+P1 juntos (5,2k estoura → `INVALID_ARGUMENT`). Por padrão as REGRAS **não** vão (`--regras off`) — cada Parte já traz as próprias, e a P1 sai mais completa. O script já respeita isso; no fallback MCP, rode a P1 sozinha.
 5. **Bundle na ordem 1→2→3a→3b→4.** O gate do `montar_formulario.py` (Passo 4) confirma no fim: alvo é `VALIDAÇÃO OK`.
 6. **Fronteira de documento nunca se chuta.** O script sobe os 4 PDFs **já separados na pasta** (ignora `FORMULÁRIO…`/`LAUDO…`); se não houver exatamente 4, **para** e você confirma com o perito. Não divide PDF.
 7. **Efêmero apaga sozinho no sucesso** (Modo B). O script apaga assim que grava o bundle (o pipeline reprocessa do bundle, não precisa do notebook). Falha → mantém o `EFÊMERO — …` de pé para inspeção. Modo A **nunca** apaga.

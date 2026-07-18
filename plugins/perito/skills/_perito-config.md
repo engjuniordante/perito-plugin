@@ -34,7 +34,7 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
   "email_alertas": "perito@exemplo.com",
   "notebooklm": {
     "prompts_extracao": "G:\\Meu Drive\\Base Perícia Irineu\\prompts-extracao-notebooklm.md",
-    "pasta_processos": "G:\\Meu Drive\\Base Perícia Irineu\\Irineu teste"
+    "pasta_processos": "G:\\Meu Drive\\Base Perícia Irineu\\Extração-notebooklm"
   }
 }
 ```
@@ -61,11 +61,12 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
     regra dos caminhos relativos:** a `01b-extrator-nlm` roda no Claude Code (disco real do
     Windows, não sandbox), então aqui vale caminho absoluto (`G:\...`, `C:\...`). Ausente →
     a skill pergunta o caminho e oferece salvar. As demais skills ignoram este bloco.
-  - `pasta_processos` *(opcional)* — **caminho ABSOLUTO** da pasta-mãe onde ficam as subpastas
-    de processo (cada uma com os **4 PDFs**: inicial / contestação+docs / EPI / ata+quesitos).
-    Usado **só** pelo **Modo B** da `01b-extrator-nlm` (pasta → notebook efêmero): o perito pode
-    dar só o **nome da subpasta** e a skill acha sob este caminho. Ausente → a skill pede o
-    caminho completo da pasta do processo. Mesma exceção do `prompts_extracao` (disco real).
+  - `pasta_processos` *(opcional)* — **caminho ABSOLUTO** da pasta-mãe do **lote** (a pasta
+    `Extração-notebooklm`) onde o perito joga as **subpastas de processo** (nome = nº do processo,
+    cada uma com os **4 PDFs**: inicial / contestação+docs / EPI / ata+quesitos). Usado **só** pelo
+    **Modo B** da `01b-extrator-nlm`: `extrai_processo.py --lote` processa cada subpasta em fila e,
+    a cada sucesso, move a subpasta para `Extração-notebooklm/Processados/`. Ausente → a skill pede
+    o caminho. Mesma exceção do `prompts_extracao` (disco real, caminho absoluto).
 
 ## Padrão "ler config / se não existir, configurar" (toda skill, no início)
 
