@@ -18,7 +18,7 @@ Estrutura do JSON:
   "vibracao": [ ["Trator de Transbordo","1,00","16,50"], ["Colhedora","0,60","7,90"] ]   // opcional
 }
 """
-import sys, json, re, os, ntpath, sqlite3
+import sys, json, re, os, ntpath, sqlite3, unicodedata
 from copy import deepcopy
 from pathlib import Path
 
@@ -400,6 +400,85 @@ def fill_default_divergencia(document):
             return True
     return False
 
+def _norm_txt(s):
+    """minúsculas sem acento (compara tipo de público)."""
+    return ''.join(c for c in unicodedata.normalize('NFD', str(s))
+                   if unicodedata.category(c) != 'Mn').lower().strip()
+
+def _tc_text(tc):
+    return ''.join(t.text or '' for t in tc.iter(qn('w:t')))
+
+def _tc_set(tc, text):
+    """seta o texto da 1ª <w:t> da célula (preserva a formatação do run); zera as demais."""
+    nodes = list(tc.iter(qn('w:t')))
+    if nodes:
+        nodes[0].text = text
+        for e in nodes[1:]:
+            e.text = ''
+
+def fill_banheiro(document, banheiro):
+    """Item 3 — tabela de 'banheiros de grande circulação'. Só aparece quando o perito
+    preencheu o bloco no formulário (JSON traz `banheiro` com `locais`): clona uma linha
+    por local, soma os totais e preenche a rotatividade pelos tipos informados (remove os
+    tipos em branco). SEM dados → REMOVE a tabela inteira (o gate de órfão exige que nenhum
+    {{BANH_*}} sobre). Devolve True se preencheu, False se removeu/ausente."""
+    tb = find_table(document, '{{BANH_LOCAL}}')
+    if tb is None:
+        return False
+    tbl = tb._tbl
+    WTR, WTC = qn('w:tr'), qn('w:tc')
+    locais = (banheiro or {}).get('locais') or []
+    if not locais:
+        tbl.getparent().remove(tbl)     # caso não-banheiro: tabela some por completo
+        return False
+    # 1) uma linha por local (clona a linha-modelo {{BANH_LOCAL}}), somando os totais
+    tmpl_tr = next(tr for tr in tbl.findall(WTR)
+                   if any('{{BANH_LOCAL}}' in _tc_text(tc) for tc in tr.findall(WTC)))
+    tot_b = tot_v = 0
+    tot_ok = True
+    for loc in locais:
+        b, v, local = str(loc.get('banheiros', '')), str(loc.get('vasos', '')), str(loc.get('local', ''))
+        new_tr = deepcopy(tmpl_tr)
+        for tc in new_tr.findall(WTC):
+            txt = _tc_text(tc)
+            if '{{BANH_QTD}}' in txt:     _tc_set(tc, b)
+            elif '{{BANH_VASOS}}' in txt: _tc_set(tc, v)
+            elif '{{BANH_LOCAL}}' in txt: _tc_set(tc, local)
+        tmpl_tr.addprevious(new_tr)
+        try: tot_b += int(b); tot_v += int(v)
+        except ValueError: tot_ok = False
+    tmpl_tr.getparent().remove(tmpl_tr)
+    # 2) totais (em branco se algum valor não for numérico)
+    for tr in tbl.findall(WTR):
+        for tc in tr.findall(WTC):
+            txt = _tc_text(tc)
+            if '{{BANH_QTD_TOTAL}}' in txt:   _tc_set(tc, str(tot_b) if tot_ok else '')
+            elif '{{BANH_VASOS_TOTAL}}' in txt: _tc_set(tc, str(tot_v) if tot_ok else '')
+    # 3) rotatividade: preenche os tipos informados; remove as linhas dos tipos em branco
+    rot = {_norm_txt(k): str(v) for k, v in ((banheiro or {}).get('rotatividade') or {}).items() if str(v).strip()}
+    marker_tipo = {'{{BANH_ROT_ALUNOS}}': 'alunos', '{{BANH_ROT_CLIENTES}}': 'clientes',
+                   '{{BANH_ROT_FUNC}}': 'funcionarios', '{{BANH_ROT_PAC}}': 'pacientes'}
+    kept = 0
+    for tr in list(tbl.findall(WTR)):
+        marker = next((m for m in marker_tipo
+                       if any(m in _tc_text(tc) for tc in tr.findall(WTC))), None)
+        if marker is None:
+            continue
+        tipo = marker_tipo[marker]
+        if tipo in rot:
+            for tc in tr.findall(WTC):
+                if marker in _tc_text(tc): _tc_set(tc, rot[tipo])
+            kept += 1
+        else:
+            tr.getparent().remove(tr)
+    # nenhuma rotatividade informada -> remove o cabeçalho "Rotatividade" e a linha separadora
+    if kept == 0:
+        for tr in list(tbl.findall(WTR)):
+            txts = [_tc_text(tc).strip() for tc in tr.findall(WTC)]
+            if (txts and txts[0].startswith('Rotatividade')) or txts == ['', '', '']:
+                tr.getparent().remove(tr)
+    return True
+
 def set_cell_text(cell, text, bold=None):
     p = cell.paragraphs[0]
     for extra in cell.paragraphs[1:]:
@@ -624,6 +703,12 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
     # tabela de vibração (substitui @@TABELA_VIBRACAO@@)
     if data.get('vibracao'):
         build_vibracao_table(doc, data['vibracao'])
+
+    # item 3 — tabela de banheiros de grande circulação (só se o perito preencheu o bloco;
+    # sem dados a tabela é REMOVIDA por completo, senão sobraria {{BANH_*}} órfão)
+    if fill_banheiro(doc, data.get('banheiro')):
+        print('Item 3: tabela de banheiros de grande circulação preenchida (%d local/ais).'
+              % len(data['banheiro'].get('locais', [])))
 
     # ---- validações ----
     full = '\n'.join(p.text for p in all_paragraphs(doc))

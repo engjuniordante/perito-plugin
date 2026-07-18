@@ -113,6 +113,20 @@ Papel:
 **Função [Nome] (se houver segunda função):**
 
 
+## ▶ BANHEIROS DE GRANDE CIRCULAÇÃO *(item 3 — quadro; SÓ para limpeza de sanitários de uso coletivo)*
+*(Preencher **somente** quando a caracterização for por **higienização de banheiros/instalações sanitárias de grande circulação** (Anexo 14 — biológicos, grau máximo). **Em branco → não entra tabela nenhuma** no laudo. Uma linha por local; a rotatividade só nos tipos de público que existem no local.)*
+
+**Locais** *(Local · nº de banheiros · nº de vasos sanitários):*
+- Local: ____ | Banheiros: ____ | Vasos: ____
+-
+
+**Rotatividade diária** *(nº de pessoas/dia por tipo — deixar em branco os que não se aplicam):*
+- Alunos: ____
+- Clientes: ____
+- Funcionários: ____
+- Pacientes: ____
+
+
 ## ▶ DIVERGÊNCIAS FÁTICAS *(item 3.1 do laudo — campo de campo)*
 *(Só preencher se **houver** divergência entre o que o(a) Reclamante alega e o que foi constatado/o que a Reclamada afirma. **Em branco** → o laudo entra com o texto-padrão: "Durante a diligência pericial não houve divergência fática, sendo as atividades do(a) Reclamante confirmadas pela Reclamada.")*
 
