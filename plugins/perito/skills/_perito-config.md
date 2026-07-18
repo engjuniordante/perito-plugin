@@ -76,6 +76,14 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
     `Impugnações-notebooklm/Processados/`. O prompt de impugnação sai do **mesmo** `prompts_extracao`
     (heading "Impugnação"). Ausente → a skill pede o caminho. Mesma exceção (disco real, absoluto).
 
+> ⚠️ **Conta Google do NotebookLM = a conta DO PRÓPRIO PERITO daquela máquina.** O `nlm login`
+> (que autentica o `nlm`/MCP) usa a **conta Google pessoal do perito** — a mesma onde ficam os
+> **notebooks dele**. **Cada perito usa a SUA própria conta.** **Nunca** a conta do desenvolvedor
+> nem a do dono/usuário da máquina de teste (ex.: no PC do Irineu é a conta do **Irineu**, não a
+> `eng.juniordante@gmail.com`, que é a do desenvolvedor). É o mesmo princípio da identidade
+> (`perito.nome` vem do config, nunca do usuário): a conta do login = a conta onde estão os
+> notebooks que aquele perito vai consultar. Logar com a conta errada → "conecta, mas 0 notebooks".
+
 ## Padrão "ler config / se não existir, configurar" (toda skill, no início)
 
 1. Procurar `perito-config.json` na **raiz da pasta do projeto**.

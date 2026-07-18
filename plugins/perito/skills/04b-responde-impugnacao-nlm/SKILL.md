@@ -12,7 +12,7 @@ Esta skill faz **o que a `04-responde-impugnacao` faz**, com **uma diferença**:
 ## Passo 0 — Pré-requisitos (Code + CLI nlm + config)
 
 1. **Só Claude Code.** Se o CLI `nlm` / MCP `notebooklm` **não existir** nesta sessão (Cowork/app), **PARE** e diga: *"O modo automático só roda no Claude Code. No Cowork, use `/04-responde-impugnacao` e cole a minuta do NotebookLM manualmente."*
-2. **`nlm` autenticado.** Auth expirado → instrua `nlm login` (conta Google do perito) e re-dispare. (A sessão do NLM é frágil — expira em dias.)
+2. **`nlm` autenticado.** Auth expirado → instrua `nlm login` na **conta Google do PRÓPRIO perito** (a dele, onde estão os notebooks dele — **nunca** a do desenvolvedor/dono da máquina) e re-dispare. (A sessão do NLM é frágil — expira em dias.)
 3. **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.md`). Identidade = `config.perito`; caminhos = `config.caminhos`.
 4. **Prompt de impugnação:** vive no MESMO arquivo `config.notebooklm.prompts_extracao` (o heading que casa "Impugnação", que o extrator ignora). O script o extrai sozinho. Ausente → **pergunte** o caminho do arquivo de prompts.
 5. **Pasta-mãe do lote:** `config.notebooklm.pasta_impugnacoes` (a pasta `Impugnações-notebooklm`). Ausente → **pergunte** e **ofereça salvar** no config.
