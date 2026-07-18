@@ -34,10 +34,12 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
    - `{{NUMERO_PROCESSO}}` → número do processo
    - `{{NOME_RECLAMANTE}}` → nome do reclamante
    - `{{NOME_RECLAMADA}}` → nome da reclamada
-   - `{{ID_IMPUGNACAO}}` → Id. do documento no PJE
+   - `{{INTRO_IMPUGNANTE}}` → **frase de abertura** com a(s) parte(s) impugnante(s) + Id. (ver abaixo)
    - `{{DATA_EXTENSO}}` → data atual por extenso (2 ocorrências: fecho p.1 + fecho final)
-2. **Preencha o dropdown de parte impugnante** (SDT/dropdown no XML): "Reclamante" ou "Reclamada" conforme PARTE_IMPUGNANTE.
-3. **Insira o corpo dos esclarecimentos** no marcador `{{ESCLARECIMENTOS_CORPO}}`:
+2. **Componha `{{INTRO_IMPUGNANTE}}`** a partir da parte impugnante e do Id. (substitui o antigo dropdown de parte — o template já não tem SDT):
+   - **1 parte:** `para a impugnação protocolada pelo Ilustre Patrono do(a) Reclamada conforme Id. xyz`
+   - **2 partes** (reclamante *e* reclamada num só documento): `para as impugnações protocoladas pelos Ilustres Patronos do(a) Reclamante conforme Id. abc e do(a) Reclamada conforme Id. xyz`
+3. **Insira o corpo dos esclarecimentos** no marcador `{{ESCLARECIMENTOS_CORPO}}` — **um bloco `ESCLARECIMENTOS SOLICITADOS PELA X` por parte** (1 ou 2):
    - Título "ESCLARECIMENTOS SOLICITADOS PELA [PARTE]" (heading Título 1)
    - Parágrafos de fundamentação (se houver)
    - Quesitos numerados: número + texto da pergunta, seguido de "**Resposta:**" + texto
@@ -56,17 +58,16 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
 
 1. **Montar o JSON** `data-impugnacao.json` (⛔ não abra `data-impugnacao.EXEMPLO.json` — não existe mais no plugin — nem o código do script, que é caixa-preta; o contrato é só este):
    - `perito_nome`: `config.perito.nome` (do `perito-config.json`).
-   - `scalars`: `CIDADE_VARA`, `NUMERO_PROCESSO`, `NOME_RECLAMANTE`, `NOME_RECLAMADA`, `ID_IMPUGNACAO` (do output do NLM; ausente → `____` + flag). **`CIDADE_VARA` = cidade da vara DO PROCESSO** (do NLM), **nunca** a jurisdição-base do perito (Mogi Guaçu).
+   - `scalars`: `CIDADE_VARA`, `NUMERO_PROCESSO`, `NOME_RECLAMANTE`, `NOME_RECLAMADA`, `INTRO_IMPUGNANTE` (a frase de abertura composta no passo 2). **`CIDADE_VARA` = cidade da vara DO PROCESSO** (do NLM), **nunca** a jurisdição-base do perito (Mogi Guaçu).
    - **`DATA_EXTENSO` = a DATA DE HOJE** (geração do documento), **não vem do NLM**. Preencher SEMPRE com a data corrente no formato do Irineu ("DD de MMMM de AAAA" — ex.: "10 de junho de 2026"). Nunca deixar `____` por não achar no NLM.
-   - `parte_impugnante`: `"Reclamante"` ou `"Reclamada"` (define o dropdown SDT).
-   - `esclarecimentos`: lista de parágrafos do corpo (do NLM). O script **auto-formata**: linha que começa com `ESCLARECIMENTOS SOLICITADOS` → título em negrito; linha que começa com `Resposta:` → "Resposta:" em negrito + resto normal; demais → parágrafo normal. **Não reescrever o conteúdo técnico do NLM.**
+   - `esclarecimentos`: lista de parágrafos do corpo (do NLM). O script **auto-formata**: linha que começa com `ESCLARECIMENTOS SOLICITADOS` → título em negrito; linha que começa com `Resposta:` → "Resposta:" em negrito + resto normal; demais → parágrafo normal. **Com duas partes, use dois blocos de título** (`…PELA RECLAMANTE` e `…PELA RECLAMADA`). **Não reescrever o conteúdo técnico do NLM.**
    - ⚠ **Limpar o markdown antes de montar o JSON:** o NLM costuma entregar `**Resposta:**` e títulos com asteriscos. Remover os `**` (e `#`, `*`) das linhas — o script casa por `startswith('Resposta:')` / `startswith('ESCLARECIMENTOS SOLICITADOS')`; se sobrar `**`, o negrito não aplica. A linha deve começar exatamente em `Resposta:` (sem asterisco).
+   - 💡 **Retrocompat:** se você passar `parte_impugnante` + `scalars.ID_IMPUGNACAO` (formato antigo, 1 parte) em vez de `INTRO_IMPUGNANTE`, o script compõe a frase sozinho. Para **duas partes**, use `INTRO_IMPUGNANTE` (o formato antigo só cobre uma).
 
    ```json
    {
      "perito_nome": "Irineu de Freitas Branco Junior",
-     "scalars": { "CIDADE_VARA": "Araraquara", "NUMERO_PROCESSO": "0010xxx-xx.2026.5.15.0079", "NOME_RECLAMANTE": "Fulano", "NOME_RECLAMADA": "Empresa X", "ID_IMPUGNACAO": "a1b2c3", "DATA_EXTENSO": "13 de junho de 2026" },
-     "parte_impugnante": "Reclamada",
+     "scalars": { "CIDADE_VARA": "Araraquara", "NUMERO_PROCESSO": "0010xxx-xx.2026.5.15.0079", "NOME_RECLAMANTE": "Fulano", "NOME_RECLAMADA": "Empresa X", "INTRO_IMPUGNANTE": "para a impugnação protocolada pelo Ilustre Patrono do(a) Reclamada conforme Id. a1b2c3", "DATA_EXTENSO": "13 de junho de 2026" },
      "esclarecimentos": ["ESCLARECIMENTOS SOLICITADOS PELA RECLAMADA", "1) Quanto ao agente ruído...", "Resposta: Mantenho o laudo, conforme item 6.1."]
    }
    ```
@@ -75,7 +76,7 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
    - **Template (1º arg) tem FALLBACK BUNDLED automático:** no Cowork o **bash não enxerga o Drive** → o script cai sozinho no `template-impugnacao.docx` **bundled** em `assets/templates/` (imprime `ℹ️ usando o BUNDLED`). Passe o caminho do Drive normalmente. **Nunca formate o .docx à mão.**
    - **SAÍDA = `/tmp/perito/esclarecimentos-<processo>.docx`** (pasta de trabalho do bash — no Cowork o script não grava no Drive). **Entregue o arquivo ao perito**, que salva em `Base Perícia Irineu/Laudos-Gerados/`.
    (saída dentro do workspace montado — nunca no Desktop).
-3. **Ler o relatório do script** — avisa marcador residual, dropdown não encontrado, identidade. Aviso → corrigir o JSON e rodar de novo.
+3. **Ler o relatório do script** — avisa marcador residual, identidade, vazamento. Aviso → corrigir o JSON e rodar de novo.
 
 ### Ao final, liste em separado:
 - Campos do cabeçalho que ficaram como `[PREENCHER]` ou `NÃO LOCALIZADO` (ex.: ID_IMPUGNACAO não encontrado)
@@ -84,7 +85,7 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
 - Qualquer inconsistência entre a minuta e o que se esperaria do laudo (numeração de itens, agentes mencionados)
 
 ## O que o script faz (determinístico — você não faz à mão)
-`scripts/build_impugnacao.py` (python-docx): substitui os escalares (`CIDADE_VARA` ×3, `DATA_EXTENSO` ×2, etc.), define o **dropdown SDT "Partes"** (Reclamante/Reclamada), insere o corpo no `{{ESCLARECIMENTOS_CORPO}}` (título em negrito + quesitos + "Resposta:" em negrito), preserva timbre/cabeçalho/rodapé e os blocos fixos ("Inicialmente venho esclarecer…" e "Pelo exposto…"), e valida (marcador residual, identidade).
+`scripts/build_impugnacao.py` (python-docx): substitui os escalares (`CIDADE_VARA` ×3, `DATA_EXTENSO` ×2, `INTRO_IMPUGNANTE`, etc.), insere o corpo no `{{ESCLARECIMENTOS_CORPO}}` (um ou dois títulos em negrito + quesitos + "Resposta:" em negrito), preserva timbre/cabeçalho/rodapé e os blocos fixos ("Inicialmente venho esclarecer…" e "Pelo exposto…"), e valida (marcador residual, identidade, vazamento).
 
 ## Auto-conferência (no relatório final)
-- Perito = Irineu (não o dono da máquina)? · Marcadores `{{...}}` residuais? (script avisa) · Dropdown de parte correto? · "Resposta:" em negrito? · Cidade/data nos locais certos? · Blocos fixos preservados?
+- Perito = Irineu (não o dono da máquina)? · Marcadores `{{...}}` residuais? (script avisa) · Frase de abertura (`INTRO_IMPUGNANTE`) com a(s) parte(s)/Id. certos? · "Resposta:" em negrito? · Cidade/data nos locais certos? · Blocos fixos preservados?

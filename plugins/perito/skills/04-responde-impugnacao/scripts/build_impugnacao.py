@@ -4,14 +4,24 @@ build_impugnacao.py — monta os esclarecimentos/impugnação (.docx) a partir d
 Uso: python3 build_impugnacao.py <template-impugnacao.docx> <data.json> <saida.docx>
 
 O MODELO produz só o JSON (campos + corpo dos esclarecimentos, vindos do output do NLM).
-O SCRIPT monta o .docx (escalares + dropdown de parte + corpo formatado), determinístico.
+O SCRIPT monta o .docx (escalares + frase de abertura + corpo formatado), determinístico.
+
+Frase de abertura (1 OU 2 partes): o template tem o marcador {{INTRO_IMPUGNANTE}} no
+lugar do antigo dropdown de parte + {{ID_IMPUGNACAO}}. Passe `scalars.INTRO_IMPUGNANTE`
+já composto (1 parte: "para a impugnação protocolada pelo Ilustre Patrono do(a) Reclamada
+conforme Id. xyz"; 2 partes: "para as impugnações protocoladas pelos Ilustres Patronos
+do(a) Reclamante conforme Id. abc e do(a) Reclamada conforme Id. xyz"). RETROCOMPAT: se
+INTRO_IMPUGNANTE não vier, o script o compõe (1 parte) de `parte_impugnante` +
+`scalars.ID_IMPUGNACAO` — mantém o JSON antigo da Skill 4 (paste manual) funcionando.
+
+O corpo aceita 1 OU 2 blocos "ESCLARECIMENTOS SOLICITADOS PELA X" (duas partes num só
+documento) sem nenhum ajuste — cada título vira negrito.
 
 JSON:
 {
   "perito_nome": "Irineu de Freitas Branco Junior",
   "scalars": { "CIDADE_VARA":..., "NUMERO_PROCESSO":..., "NOME_RECLAMANTE":...,
-               "NOME_RECLAMADA":..., "ID_IMPUGNACAO":..., "DATA_EXTENSO":... },
-  "parte_impugnante": "Reclamada",   // ou "Reclamante" (dropdown SDT)
+               "NOME_RECLAMADA":..., "INTRO_IMPUGNANTE":..., "DATA_EXTENSO":... },
   "esclarecimentos": [               // corpo; o script auto-formata:
      "ESCLARECIMENTOS SOLICITADOS PELA RECLAMADA",   // -> título (negrito)
      "[parágrafo de fundamentação, se houver]",
@@ -74,21 +84,17 @@ def replace_scalar(document, mapping):
                     if k in t: t = t.replace(k, str(v))
                 run.text = t
 
-def set_sdt_party(document, parte):
-    """Define o valor exibido do dropdown SDT (alias 'Partes')."""
-    body = document.element.body
-    for sdt in body.iter(qn('w:sdt')):
-        pr = sdt.find(qn('w:sdtPr'))
-        alias = pr.find(qn('w:alias')) if pr is not None else None
-        if alias is not None and alias.get(qn('w:val')) == 'Partes':
-            content = sdt.find(qn('w:sdtContent'))
-            ts = list(content.iter(qn('w:t')))
-            if ts:
-                ts[0].text = parte
-                for extra in ts[1:]:
-                    extra.text = ''
-            return True
-    return False
+def compose_intro(data):
+    """Frase de abertura (marcador {{INTRO_IMPUGNANTE}}). Usa o valor pronto se veio nos
+    scalars; senão compõe a de 1 parte (retrocompat com o JSON antigo da Skill 4)."""
+    scalars = data.get('scalars', {})
+    intro = scalars.get('INTRO_IMPUGNANTE') or scalars.get('{{INTRO_IMPUGNANTE}}')
+    if intro:
+        return intro
+    parte = data.get('parte_impugnante', 'Reclamada')
+    idimp = scalars.get('ID_IMPUGNACAO') or scalars.get('{{ID_IMPUGNACAO}}') or '____'
+    return ('para a impugnação protocolada pelo Ilustre Patrono do(a) %s conforme Id. %s'
+            % (parte, idimp))
 
 def render_esclarecimentos(document, itens):
     # localizar o parágrafo do marcador
@@ -167,13 +173,11 @@ def build(template, data_path, out_path):
     warnings = []
     fatal = []   # compromete o documento → bloqueia a saída (exit 2)
 
-    scal = {(k if k.startswith('{{') else '{{%s}}' % k): v
-            for k, v in data.get('scalars', {}).items()}
+    scalars = dict(data.get('scalars', {}))
+    scalars['INTRO_IMPUGNANTE'] = compose_intro(data)   # 1 ou 2 partes (composto ou pronto)
+    scalars.pop('ID_IMPUGNACAO', None)                   # legado: já embutido na INTRO; sem marcador no template
+    scal = {(k if k.startswith('{{') else '{{%s}}' % k): v for k, v in scalars.items()}
     replace_scalar(doc, scal)
-
-    parte = data.get('parte_impugnante', 'Reclamada')
-    if not set_sdt_party(doc, parte):
-        warnings.append('dropdown SDT "Partes" não encontrado — ajuste manualmente')
 
     if not render_esclarecimentos(doc, data.get('esclarecimentos', [])):
         fatal.append('marcador {{ESCLARECIMENTOS_CORPO}} não encontrado — corpo dos esclarecimentos não entrou')
@@ -193,7 +197,9 @@ def build(template, data_path, out_path):
         return False
 
     doc.save(out_path)
-    print('OK ->', out_path, '| parte impugnante:', parte)
+    blocos = sum(1 for it in data.get('esclarecimentos', [])
+                 if it.strip().upper().startswith('ESCLARECIMENTOS SOLICITADOS'))
+    print('OK ->', out_path, '| blocos de esclarecimento:', blocos)
     if warnings:
         print('\n⚠ AVISOS (revise antes de assinar):')
         for w in warnings: print('  -', w)

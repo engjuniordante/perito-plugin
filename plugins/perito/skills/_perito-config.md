@@ -34,7 +34,8 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
   "email_alertas": "perito@exemplo.com",
   "notebooklm": {
     "prompts_extracao": "G:\\Meu Drive\\Base Perícia Irineu\\prompts-extracao-notebooklm.md",
-    "pasta_processos": "G:\\Meu Drive\\Base Perícia Irineu\\Extração-notebooklm"
+    "pasta_processos": "G:\\Meu Drive\\Base Perícia Irineu\\Extração-notebooklm",
+    "pasta_impugnacoes": "G:\\Meu Drive\\Base Perícia Irineu\\Impugnações-notebooklm"
   }
 }
 ```
@@ -67,6 +68,13 @@ perito**: a identidade e os caminhos saem daqui, não ficam fixos no código das
     **Modo B** da `01b-extrator-nlm`: `extrai_processo.py --lote` processa cada subpasta em fila e,
     a cada sucesso, move a subpasta para `Extração-notebooklm/Processados/`. Ausente → a skill pede
     o caminho. Mesma exceção do `prompts_extracao` (disco real, caminho absoluto).
+  - `pasta_impugnacoes` *(opcional)* — **caminho ABSOLUTO** da pasta-mãe do **lote de impugnações**
+    (a pasta `Impugnações-notebooklm`) onde o perito joga as **subpastas de processo** (nome = nº do
+    processo, cada uma com o **laudo** + a(s) **petição(ões) de impugnação** em PDF — de uma parte só
+    ou das duas). Usado **só** pela `04b-responde-impugnacao-nlm`: `responde_impugnacao.py --lote`
+    processa cada subpasta em fila, monta o `esclarecimentos-<nº>.docx` e move a subpasta para
+    `Impugnações-notebooklm/Processados/`. O prompt de impugnação sai do **mesmo** `prompts_extracao`
+    (heading "Impugnação"). Ausente → a skill pede o caminho. Mesma exceção (disco real, absoluto).
 
 ## Padrão "ler config / se não existir, configurar" (toda skill, no início)
 
