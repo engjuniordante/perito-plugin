@@ -182,15 +182,38 @@ def limpar(s):
     return s.strip()
 
 
+CNJ_RE = r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}"
+
+
+def injetar_numero(bundle, pasta_name):
+    """Se a linha '- Nº:' do bundle não tiver um nº CNJ válido e o NOME DA PASTA
+    tiver, preenche a linha com o nº da pasta. Devolve (bundle, nº ou None)."""
+    m = re.search(CNJ_RE, pasta_name)
+    if not m:
+        return bundle, None
+    num = m.group(0)
+
+    def repl(mo):
+        if re.search(CNJ_RE, mo.group(0)):   # já veio um CNJ da extração → respeita
+            return mo.group(0)
+        return f"- Nº: {num} (do nome da pasta)"
+
+    novo, n = re.subn(r"(?m)^-\s*Nº:.*$", repl, bundle, count=1)
+    if n == 0:   # não havia linha de Nº — prepende
+        return f"- Nº: {num} (do nome da pasta)\n" + bundle, num
+    return novo, (num if novo != bundle else None)
+
+
 # ── processar UMA pasta: pasta → bundle (cria/sobe/consulta/limpa/apaga) ──────
 def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                     regras_mode, keep):
     pasta = Path(pasta)
     pdfs = achar_pdfs(pasta)
-    if len(pdfs) != 4:
-        listagem = ", ".join(p.name for p in pdfs) or "(nenhum)"
-        raise FalhaPasta(f"esperava 4 PDFs de entrada, achei {len(pdfs)}: {listagem}")
-    log("📄 PDFs: " + " · ".join(p.name for p in pdfs))
+    if not pdfs:
+        raise FalhaPasta("nenhum PDF de entrada na pasta (só FORMULÁRIO/LAUDO, ou vazia)")
+    parcial = "" if len(pdfs) >= 4 else \
+        f"  (PARCIAL — {len(pdfs)}/4 partes; o que faltar sai como [NÃO LOCALIZADO])"
+    log(f"📄 {len(pdfs)} PDF(s): " + " · ".join(p.name for p in pdfs) + parcial)
 
     titulo = f"EFÊMERO — {pasta.name}"
     nb, err = nlm_json(nlm, ["notebook", "create", titulo])
@@ -263,6 +286,12 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
 
         # montar bundle
         bundle = "\n\n".join(limpar(respostas[k]) for k in ORDEM if respostas.get(k))
+        # fallback do Nº: se a extração não achou (típico quando só há a inicial —
+        # o número é atribuído no protocolo, não consta na peça), usa o nº do
+        # NOME DA PASTA (o perito nomeia a subpasta pelo processo).
+        bundle, num_injetado = injetar_numero(bundle, pasta.name)
+        if num_injetado:
+            log(f"   ↳ Nº preenchido pelo nome da pasta: {num_injetado}")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(bundle, encoding="utf-8")
         log(f"📦 bundle: {out_path}  ({len(bundle)} chars)")
@@ -383,7 +412,7 @@ def main():
             processar_pasta(nlm, sub, out_path=out_path, **comum)
         except FalhaPasta as e:
             msg = str(e)
-            if "esperava 4 PDFs" in msg:
+            if "nenhum PDF" in msg:
                 log(f"⏭️  PULADO: {msg}")
                 pulados.append((sub.name, msg))
             else:
