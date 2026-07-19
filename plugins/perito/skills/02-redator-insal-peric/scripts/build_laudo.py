@@ -226,35 +226,33 @@ def caracteriza_insalubridade(paragrafos):
     return bool(re.search(r'caracterizad[ao]\s+a?\s*insalubridade|insalubr\w*\s+em\s+grau', t))
 
 
-def caracteriza_periculosidade(paragrafos):
-    """True quando o bloco ANALISE_PERIC_* afirma periculosidade. Mesmo cuidado do
-    detector de insalubridade: apaga as formas negativas antes de checar o radical."""
-    t = _sem_acento(' '.join(paragrafos if isinstance(paragrafos, list) else [str(paragrafos)]))
-    t = re.sub(r'descaracterizad[ao]\w*', ' ', t)
-    t = re.sub(r'nao\s+(?:se\s+|foi\s+|foram\s+|resta\s+|restou\s+)?caracteriz\w*', ' ', t)
-    t = re.sub(r'nao\s+(?:sao\s+|e\s+)?perigos\w*', ' ', t)
-    return bool(re.search(r'caracterizad[ao]\s+a?\s*periculosidade', t))
+# frases-padrão do Irineu p/ a negativa acrescentada à conclusão/ementa (voz do perito)
+_CONCL_NEG_PERIC = ('O(A) Reclamante não exerceu atividades ou operações perigosas, sendo '
+                    'descaracterizada a periculosidade, conforme regulamenta a NR-16, da '
+                    'Portaria 3.214, de 08 de junho de 1978.')
+_CONCL_NEG_INSAL = ('Não foram constatadas atividades ou operações insalubres, sendo '
+                    'descaracterizada a insalubridade, conforme regulamenta a NR-15, da '
+                    'Portaria 3.214, de 08 de junho de 1978.')
 
 
-def _sintese_veredictos(blocks):
-    """Síntese determinística (2 linhas) dos veredictos de insalubridade e periculosidade,
-    calculada dos blocos ANALISE_* do modelo (ausente = descaracterizado, logo não conta).
-    Só é usada no laudo insal+peric — garante que a conclusão e a ementa sempre declarem
-    OS DOIS veredictos, mesmo que o modelo esqueça um deles."""
-    insal_mk = [m for m in blocks if m.startswith('ANALISE_') and not m.startswith('ANALISE_PERIC')]
-    peric_mk = [m for m in blocks if m.startswith('ANALISE_PERIC')]
-    insal = any(caracteriza_insalubridade(blocks[m]) for m in insal_mk)
-    peric = any(caracteriza_periculosidade(blocks[m]) for m in peric_mk)
-    grau = ''
-    if insal:
-        for m in insal_mk:
-            g = re.search(r'grau\s+(maximo|medio|minimo)', _sem_acento(' '.join(blocks[m])))
-            if g:
-                grau = ' em grau %s' % {'maximo': 'máximo', 'medio': 'médio', 'minimo': 'mínimo'}[g.group(1)]
-                break
-    li = ('a insalubridade restou CARACTERIZADA%s' % grau) if insal else 'a insalubridade restou NÃO CARACTERIZADA'
-    lp = 'a periculosidade restou CARACTERIZADA' if peric else 'a periculosidade restou NÃO CARACTERIZADA'
-    return ['Síntese conclusiva: (i) %s; e (ii) %s.' % (li, lp)]
+def _negativas_conclusao(blocks, cobre_insal, cobre_peric):
+    """No laudo insal+peric o modelo lista SÓ os caracterizados em CONCLUSAO_ITENS. Quando UM
+    dos dois é caracterizado e o OUTRO não, o não-caracterizado fica de fora — o perito quer
+    que ele apareça (ex.: insalubridade caracterizada + periculosidade não). Lê o que a
+    conclusão JÁ afirma (pelo texto, sem recalcular dos blocos) e devolve a frase-padrão da
+    negativa que falta. NÃO altera o que o modelo escreveu; nada a acrescentar se ambos
+    caracterizados (o modelo já lista os dois) ou nenhum (o modelo já usa a negativa-padrão)."""
+    concl = _sem_acento(' '.join(blocks.get('CONCLUSAO_ITENS', []) or []))
+    c = re.sub(r'descaracterizad\w*', ' ', concl)
+    c = re.sub(r'nao\s+(?:se\s+|foi\s+|foram\s+|resta\s+|restou\s+|ha\s+|houve\s+)?caracteriz\w*', ' ', c)
+    insal_carac = bool(re.search(r'caracterizad[ao]\s+a?\s*insalubridade|insalubr\w*\s+em\s+grau', c))
+    peric_carac = bool(re.search(r'caracterizad[ao]\s+a?\s*periculosidade|opera\w*\s+perigos', c))
+    extras = []
+    if cobre_peric and insal_carac and not peric_carac:
+        extras.append(_CONCL_NEG_PERIC)
+    if cobre_insal and peric_carac and not insal_carac:
+        extras.append(_CONCL_NEG_INSAL)
+    return extras
 
 
 def neutralizacao_por_agente(form_text):
@@ -503,6 +501,8 @@ def fill_banheiro(document, banheiro):
     marker_tipo = {'{{BANH_ROT_ALUNOS}}': 'alunos', '{{BANH_ROT_CLIENTES}}': 'clientes',
                    '{{BANH_ROT_FUNC}}': 'funcionarios', '{{BANH_ROT_PAC}}': 'pacientes'}
     kept = 0
+    last_tr = None
+    soma, soma_ok = 0, True
     for tr in list(tbl.findall(WTR)):
         marker = next((m for m in marker_tipo
                        if any(m in _tc_text(tc) for tc in tr.findall(WTC))), None)
@@ -513,8 +513,21 @@ def fill_banheiro(document, banheiro):
             for tc in tr.findall(WTC):
                 if marker in _tc_text(tc): _tc_set(tc, rot[tipo])
             kept += 1
+            last_tr = tr
+            digs = re.sub(r'[^\d]', '', rot[tipo])
+            if digs: soma += int(digs)
+            else: soma_ok = False
         else:
             tr.getparent().remove(tr)
+    # linha de soma: 'Total' + a soma das rotatividades informadas (ex.: 10 + 45 = 55)
+    if kept and last_tr is not None:
+        total_tr = deepcopy(last_tr)
+        tcs = total_tr.findall(WTC)
+        if len(tcs) >= 3:
+            _tc_set(tcs[0], '')
+            _tc_set(tcs[-2], 'Total')
+            _tc_set(tcs[-1], str(soma) if soma_ok else '')
+        last_tr.addnext(total_tr)
     # nenhuma rotatividade informada -> remove o cabeçalho "Rotatividade" e a linha separadora
     if kept == 0:
         for tr in list(tbl.findall(WTR)):
@@ -684,16 +697,19 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
     else:
         warnings.append('sem --form: gates de neutralização e NR-6 NÃO verificados')
 
-    # síntese dos dois veredictos na ementa E na conclusão final (só laudo insal+peric):
-    # o template cobre insalubridade E periculosidade -> a conclusão precisa declarar os dois,
-    # caracterizado ou não. {{CONCLUSAO_ITENS}} aparece nos dois lugares, então basta anexar.
+    # conclusão/ementa (só laudo insal+peric): o modelo lista os caracterizados; se um dos
+    # dois (insal/peric) NÃO foi caracterizado e o outro sim, acrescenta a negativa que falta
+    # — mantendo intacto o que o modelo escreveu. {{CONCLUSAO_ITENS}} aparece nos dois lugares
+    # (ementa + conclusão final), então basta anexar ao bloco.
     _blocks = data.get('blocks', {})
     _tmpl_mk = set(re.findall(r'\{\{(ANALISE_[A-Z0-9_]+)\}\}', '\n'.join(p.text for p in all_paragraphs(doc))))
     _cobre_peric = any(m.startswith('ANALISE_PERIC') for m in _tmpl_mk)
     _cobre_insal = any(m.startswith('ANALISE_') and not m.startswith('ANALISE_PERIC') for m in _tmpl_mk)
-    if _cobre_peric and _cobre_insal and 'CONCLUSAO_ITENS' in _blocks:
-        _blocks['CONCLUSAO_ITENS'] = list(_blocks['CONCLUSAO_ITENS']) + _sintese_veredictos(_blocks)
-        print('Conclusão/ementa: síntese dos dois veredictos (insalubridade + periculosidade) anexada.')
+    if 'CONCLUSAO_ITENS' in _blocks:
+        _neg = _negativas_conclusao(_blocks, _cobre_insal, _cobre_peric)
+        if _neg:
+            _blocks['CONCLUSAO_ITENS'] = list(_blocks['CONCLUSAO_ITENS']) + _neg
+            print('Conclusão/ementa: acrescentada a negativa do veredicto não caracterizado (%d).' % len(_neg))
 
     # blocos (multi-parágrafo) primeiro, depois escalares
     replace_blocks(doc, _blocks)
