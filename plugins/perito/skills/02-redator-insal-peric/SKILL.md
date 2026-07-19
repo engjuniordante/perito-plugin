@@ -211,6 +211,7 @@ A conclusão lista **as duas caracterizações**, cada uma na frase-padrão dele
 > *"O(A) Reclamante exerceu atividades ou operações perigosas com inflamáveis, sendo **caracterizada a periculosidade durante todo o período laboral, sendo o período imprescrito de [dd/mm/aaaa a dd/mm/aaaa]**, conforme regulamenta o Anexo nº 2, da NR 16, da Portaria 3.214, de 08 de junho de 1978."*
 
 Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x). *(Conhecimento técnico do art. 193 §2º permanece disponível se o perito pedir expressamente — mas, por padrão, não entra.)*
+- ⚙️ **Síntese dos dois veredictos — o SCRIPT faz (não o modelo).** No laudo `insal-peric`, o `build_laudo.py` acrescenta automaticamente ao FIM da ementa E da conclusão final uma linha determinística *"Síntese conclusiva: (i) a insalubridade restou CARACTERIZADA/NÃO CARACTERIZADA…; e (ii) a periculosidade restou CARACTERIZADA/NÃO CARACTERIZADA."*, calculada dos próprios blocos `ANALISE_*`. Garante que os DOIS veredictos apareçam mesmo quando um deles é negativo. **O modelo continua listando só os caracterizados em `CONCLUSAO_ITENS` — NÃO escreva você essa linha-resumo, senão duplica.**
 
 ### 4. Quesitos (`{{QUESITOS_RECLAMANTE}}` / `{{QUESITOS_RECLAMADA}}`)
 **Transcrever cada quesito (a pergunta, verbatim do formulário) seguido da resposta curta por remissão**, no formato EXATO: **`Resposta: Vide, por gentileza, item X no laudo.`** — **nunca responder por extenso** (não reescrever a análise já no corpo).

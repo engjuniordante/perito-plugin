@@ -226,6 +226,37 @@ def caracteriza_insalubridade(paragrafos):
     return bool(re.search(r'caracterizad[ao]\s+a?\s*insalubridade|insalubr\w*\s+em\s+grau', t))
 
 
+def caracteriza_periculosidade(paragrafos):
+    """True quando o bloco ANALISE_PERIC_* afirma periculosidade. Mesmo cuidado do
+    detector de insalubridade: apaga as formas negativas antes de checar o radical."""
+    t = _sem_acento(' '.join(paragrafos if isinstance(paragrafos, list) else [str(paragrafos)]))
+    t = re.sub(r'descaracterizad[ao]\w*', ' ', t)
+    t = re.sub(r'nao\s+(?:se\s+|foi\s+|foram\s+|resta\s+|restou\s+)?caracteriz\w*', ' ', t)
+    t = re.sub(r'nao\s+(?:sao\s+|e\s+)?perigos\w*', ' ', t)
+    return bool(re.search(r'caracterizad[ao]\s+a?\s*periculosidade', t))
+
+
+def _sintese_veredictos(blocks):
+    """Síntese determinística (2 linhas) dos veredictos de insalubridade e periculosidade,
+    calculada dos blocos ANALISE_* do modelo (ausente = descaracterizado, logo não conta).
+    Só é usada no laudo insal+peric — garante que a conclusão e a ementa sempre declarem
+    OS DOIS veredictos, mesmo que o modelo esqueça um deles."""
+    insal_mk = [m for m in blocks if m.startswith('ANALISE_') and not m.startswith('ANALISE_PERIC')]
+    peric_mk = [m for m in blocks if m.startswith('ANALISE_PERIC')]
+    insal = any(caracteriza_insalubridade(blocks[m]) for m in insal_mk)
+    peric = any(caracteriza_periculosidade(blocks[m]) for m in peric_mk)
+    grau = ''
+    if insal:
+        for m in insal_mk:
+            g = re.search(r'grau\s+(maximo|medio|minimo)', _sem_acento(' '.join(blocks[m])))
+            if g:
+                grau = ' em grau %s' % {'maximo': 'máximo', 'medio': 'médio', 'minimo': 'mínimo'}[g.group(1)]
+                break
+    li = ('a insalubridade restou CARACTERIZADA%s' % grau) if insal else 'a insalubridade restou NÃO CARACTERIZADA'
+    lp = 'a periculosidade restou CARACTERIZADA' if peric else 'a periculosidade restou NÃO CARACTERIZADA'
+    return ['Síntese conclusiva: (i) %s; e (ii) %s.' % (li, lp)]
+
+
 def neutralizacao_por_agente(form_text):
     """{marcador ANALISE_*: 'SIM'|'NAO'} por bloco de agente cuja linha 'Neutralizado
     pelo EPI' traz um [X]. Linha em branco → ausente do dict (perito não opinou)."""
@@ -366,11 +397,19 @@ def set_block(p, lines):
     for r in list(p.runs):
         r._r.getparent().remove(r._r)
     def add_line(par, text):
-        run = par.add_run(text)
-        if rpr is not None:
-            ex = run._r.find(qn('w:rPr'))
-            if ex is not None: run._r.remove(ex)
-            run._r.insert(0, deepcopy(rpr))
+        # Rótulo "Resposta:" dos quesitos em negrito; o restante segue a formatação do corpo.
+        m = re.match(r'(?i)(resposta:)(.*)', text)
+        segs = [(m.group(1), True), (m.group(2), False)] if m else [(text, False)]
+        for seg, bold in segs:
+            if seg == '' and len(segs) > 1:
+                continue
+            run = par.add_run(seg)
+            if rpr is not None:
+                ex = run._r.find(qn('w:rPr'))
+                if ex is not None: run._r.remove(ex)
+                run._r.insert(0, deepcopy(rpr))
+            if bold:
+                run.bold = True
     if not lines: lines = ['']
     add_line(p, lines[0]); anchor = p
     for line in lines[1:]:
@@ -645,8 +684,19 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
     else:
         warnings.append('sem --form: gates de neutralização e NR-6 NÃO verificados')
 
+    # síntese dos dois veredictos na ementa E na conclusão final (só laudo insal+peric):
+    # o template cobre insalubridade E periculosidade -> a conclusão precisa declarar os dois,
+    # caracterizado ou não. {{CONCLUSAO_ITENS}} aparece nos dois lugares, então basta anexar.
+    _blocks = data.get('blocks', {})
+    _tmpl_mk = set(re.findall(r'\{\{(ANALISE_[A-Z0-9_]+)\}\}', '\n'.join(p.text for p in all_paragraphs(doc))))
+    _cobre_peric = any(m.startswith('ANALISE_PERIC') for m in _tmpl_mk)
+    _cobre_insal = any(m.startswith('ANALISE_') and not m.startswith('ANALISE_PERIC') for m in _tmpl_mk)
+    if _cobre_peric and _cobre_insal and 'CONCLUSAO_ITENS' in _blocks:
+        _blocks['CONCLUSAO_ITENS'] = list(_blocks['CONCLUSAO_ITENS']) + _sintese_veredictos(_blocks)
+        print('Conclusão/ementa: síntese dos dois veredictos (insalubridade + periculosidade) anexada.')
+
     # blocos (multi-parágrafo) primeiro, depois escalares
-    replace_blocks(doc, data.get('blocks', {}))
+    replace_blocks(doc, _blocks)
     # agentes AUSENTES que o modelo não enviou -> descaracterização-padrão automática
     auto = fill_absent_analises(doc)
     if auto:
@@ -697,6 +747,16 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
                 val = row_vals[ci] if ci < len(row_vals) else ''
                 set_cell_text(row.cells[ci], str(val))
         t2._tbl.remove(tmpl)   # remove a linha-modelo (some os {{EPI_*}} mesmo sem dados)
+        # campo 5 — nenhum EPI apto a neutralizar os agentes caracterizados (tabela por
+        # agente vazia): sinaliza logo abaixo da tabela, no lugar do vazio.
+        if not (data.get('epi', {}).get('linhas') or []):
+            _p = OxmlElement('w:p'); _r = OxmlElement('w:r')
+            _rpr = OxmlElement('w:rPr'); _rf = OxmlElement('w:rFonts')
+            _rf.set(qn('w:cs'), 'Arial'); _rpr.append(_rf); _r.append(_rpr)
+            _t = OxmlElement('w:t')
+            _t.text = 'Não foram fornecidos EPIs aptos à neutralização dos agentes insalubres caracterizados.'
+            _r.append(_t); _p.append(_r); t2._tbl.addnext(_p)
+            print('Campo 5 (EPI): sem EPI apto a neutralizar — inserida a frase de sinalização.')
 
     # NR-6
     t3 = find_table(doc, 'NR-6 EQUIPAMENTO')
