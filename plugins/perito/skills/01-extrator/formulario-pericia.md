@@ -34,7 +34,7 @@ Laudo Base: (O perito irá colocar o laudo base caso tenha)
 - Local:
 - **Data da autuação / ação:** *(vai ao laudo — coluna "Autuação" da tabela de identificação)*
 
-## ▶ HONORÁRIOS *(manual — arbitrado pelo perito)*
+## ▶ HONORÁRIOS *(valor FIXO — R$ 5.800,00; não digitar, o laudo já crava)*
 - Valor (R$): 5.800,00
 - Valor por extenso: Cinco mil e oitocentos reais
 

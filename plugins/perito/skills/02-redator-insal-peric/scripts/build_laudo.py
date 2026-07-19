@@ -301,6 +301,11 @@ _NC = 'Não foi constatada, nas atividades exercidas pelo(a) Reclamante, exposi�
 # {{DIVERGENCIAS_FATICAS}} em blocks quando HÁ divergência; ausente = esta frase).
 DIVERGENCIA_FATICA_PADRAO = ('Durante a diligência pericial não houve divergência fática, '
                              'sendo as atividades do(a) Reclamante confirmadas pela Reclamada.')
+# Honorários FIXOS do Irineu — cravados aqui (fonte única). O perito não digita mais valor/extenso;
+# o build força estes valores no laudo, ignorando o que vier no JSON. Se o Irineu reajustar o padrão,
+# muda-se SÓ estas 2 linhas (e o default do formulário em 01-extrator/montar_formulario.py).
+HONORARIOS_VALOR_FIXO = '5.800,00'
+HONORARIOS_EXTENSO_FIXO = 'Cinco mil e oitocentos reais'
 ABSENT_ANALISE = {
     # NR-15
     'ANALISE_RUIDO_CONTINUO':   [_NC % ('ruído contínuo ou intermitente', '1', '15'), _INSAL],
@@ -651,6 +656,9 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
         print('Item 3.1 (Divergências Fáticas): sem divergência no JSON — usado o texto-padrão.')
 
     scalars = dict(data.get('scalars', {}))
+    # honorários FIXOS — sobrepõe qualquer valor do JSON/formulário (perito não digita mais)
+    scalars['HONORARIOS_VALOR'] = HONORARIOS_VALOR_FIXO
+    scalars['HONORARIOS_EXTENSO'] = HONORARIOS_EXTENSO_FIXO
     # anos do EPI no cabeçalho
     anos = data.get('epi', {}).get('anos', [])
     for i in range(3):

@@ -141,7 +141,7 @@ Preencher do formulário: `{{VARA}}`, `{{PROCESSO}}`, `{{RECLAMANTE}}`, `{{RECLA
   ```
   `locais` = uma entrada por local (o script soma os totais). `rotatividade` = só os tipos que existem no local (**Alunos / Clientes / Funcionários / Pacientes**); os não informados o script **remove** da tabela. **Bloco em branco → NÃO enviar `banheiro`:** o script **remove a tabela inteira** do laudo. Nunca inventar números — vêm da medição in loco do perito. (A caracterização em prosa do Anexo 14 sai normalmente do `08-Textos-Padrao/agentes-biologicos.md`, variante "sanitários coletivos + coleta de lixo"; a tabela é só o quadro quantitativo no item 3.)
 - Campos `[interno]` (turno, documentos coletados, paradigma) **não vão**. `[NÃO LOCALIZADO]` preserva.
-- **Honorários:** se o formulário trouxer `Valor (R$)` e `Por extenso` **preenchidos**, usar esses valores em `{{HONORARIOS_VALOR}}`/`{{HONORARIOS_EXTENSO}}`. Se vierem **em branco**, deixar um placeholder curto (`____`) e avisar no relatório — nunca arbitrar valor. (O perito arbitra e preenche no formulário; o Redator só transcreve.)
+- **Honorários:** valor **FIXO** — R$ 5.800,00 / "Cinco mil e oitocentos reais". Não precisa emitir `HONORARIOS_VALOR`/`HONORARIOS_EXTENSO` no JSON: o `build_laudo.py` **crava** esses valores no laudo (constantes `HONORARIOS_*_FIXO`), ignorando o que vier. O perito não digita mais valor/extenso.
 
 ### 2. Varredura dos agentes (cada `{{ANALISE_*}}`)
 Ler o status de cada agente no formulário. **Você só escreve no JSON os agentes que precisam de prosa própria — os AUSENTES o script preenche sozinho:**
@@ -242,7 +242,6 @@ Não listar os agentes descaracterizados na conclusão (ficam nos itens 6.x/7.x)
      "scalars": {
        "VARA": "2ª Vara do Trabalho de Araraquara", "PROCESSO": "0010094-14.2026.5.15.0079",
        "RECLAMANTE": "Fulano de Tal", "RECLAMADA": "Empresa X S.A.",
-       "HONORARIOS_VALOR": "3.500,00", "HONORARIOS_EXTENSO": "três mil e quinhentos reais",
        "CIDADE": "Araraquara", "DATA_PROTOCOLO": "13/06/2026",
        "DATA_VISTORIA": "10/06/2026", "HORARIO_VISTORIA": "09h00", "LOCAL_VISTORIA": "sede da Reclamada",
        "ESCOPO_AVALIACAO": "insalubridade e periculosidade", "NUMERO_FOLHAS": "—"
@@ -291,7 +290,7 @@ Você acabou de montar o `laudo-data.json` e tem **tudo em contexto**. Confira *
 - **Nunca copiar dado de caso do laudo base nem de `07-Laudos-Anteriores`** — forma, não conteúdo.
 - **Nunca chutar grau/percentual** — An.11/An.13 saem dos quadros.
 - **Preservar a voz do Irineu** (1ª pessoa, Anexo explícito, frases dele); citar/compor de `08-Textos-Padrão`, sem reescrever o estilo.
-- **Honorários: usar do formulário se preenchido; em branco → placeholder + flag — nunca arbitrar. Nunca submeter ao PJE.** Trecho sem texto-padrão da base → sinalizar.
+- **Honorários: FIXOS (R$ 5.800,00) — cravados pelo `build_laudo.py`, não digitar. Nunca submeter ao PJE.** Trecho sem texto-padrão da base → sinalizar.
 - Contradição entre fontes (observação × medição; laudo base × formulário) → **sinalizar, não decidir**.
 
 ## Relatório de validação (sempre ao final)
@@ -314,7 +313,6 @@ Agentes CARACTERIZADOS:
 Agentes descaracterizados/ausentes: [lista resumida]
 
 ⚠ A CONFERIR / PREENCHER MANUALMENTE
-- Honorários (valor + extenso)
 - Legendas das fotos (Item 4)
 - [campos [NÃO LOCALIZADO]]
 - [agentes sem texto-padrão na base — redigidos com técnica geral]

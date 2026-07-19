@@ -556,7 +556,7 @@ Laudo Base: (O perito irá colocar o laudo base caso tenha)
 - Local: {local}
 - **Data da autuação / ação:** {autuacao}
 
-## ▶ HONORÁRIOS *(manual — arbitrado pelo perito)*
+## ▶ HONORÁRIOS *(valor FIXO — R$ 5.800,00; não digitar, o laudo já crava)*
 - Valor (R$): 5.800,00
 - Valor por extenso: Cinco mil e oitocentos reais
 
@@ -619,6 +619,22 @@ Papel:
 **Versão do Reclamante (Inicial):** {ativ_recte}
 
 **Versão da Reclamada (Contestação):** {ativ_recda}
+
+## ▶ BANHEIROS DE GRANDE CIRCULAÇÃO *(item 3 — quadro; SÓ para limpeza de sanitários de uso coletivo)*
+*(Preencher **somente** quando a caracterização for por **higienização de banheiros/instalações sanitárias de grande circulação** (Anexo 14 — biológicos, grau máximo). **Em branco → não entra tabela nenhuma** no laudo. Uma linha por local; a rotatividade só nos tipos de público que existem no local.)*
+
+**Locais** *(Local · nº de banheiros · nº de vasos sanitários):*
+- Local: ____ | Banheiros: ____ | Vasos: ____
+-
+
+**Rotatividade diária** *(nº de pessoas/dia por tipo — deixar em branco os que não se aplicam):*
+- Alunos: ____
+- Clientes: ____
+- Funcionários: ____
+- Pacientes: ____
+
+## ▶ DIVERGÊNCIAS FÁTICAS *(item 3.1 do laudo — campo de campo)*
+*(Só preencher se **houver** divergência entre o que o(a) Reclamante alega e o que foi constatado/o que a Reclamada afirma. **Em branco** → o laudo entra com o texto-padrão: "Durante a diligência pericial não houve divergência fática, sendo as atividades do(a) Reclamante confirmadas pela Reclamada.")*
 
 ## ▶ CITAÇÕES / DEPOIMENTOS *(campo de campo — preencher in loco; vem EM BRANCO da extração, salvo se a ata já trouxer depoimento)*
 **Reclamante disse:** {cit_recte}
