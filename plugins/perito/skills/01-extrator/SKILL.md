@@ -56,6 +56,11 @@ Nome final: `Formulario-Campo-<Reclamante>-<nº processo>.md`. **Nunca** gravar 
 - **Observações sobre os EPIs:** as **4 flags de EPI** (ver Mapeamento) — EPI≠agente, entrega fora do imprescrito, EPI indicado mas não entregue, contestação×ficha.
 - **DOCUMENTOS COLETADOS `[interno]`:** marcar conforme status ambiental (PPP/PGR/PPRA/LTCAT).
 - **AFASTAMENTOS:** se o NLM disse que não há >15 dias, substituir o bloco em branco por **uma linha** ("Não há registro de afastamento previdenciário > 15 dias nas fontes juntadas.") + o ★ último dia.
+- **ATIVIDADES — sugestão do acervo (biblioteca de blocos por função):** para **cada função** da IDENTIFICAÇÃO, consultar a biblioteca `<base_conhecimento>/05-Setores-e-Funcoes/ATIVIDADES-POR-FUNCAO.md` (o **acervo de blocos de atividade** do perito, por empregador → função). **Economia de token — ler em 2 tempos:** (1) `Read` **só** o `## 🔎 Índice` do topo; (2) `Read` **só a seção do bloco escolhido** (por `offset`/`limit`), nunca a biblioteca inteira. Não existe/não alcançável → seguir sem ela.
+  - **Escopo por empregador:** blocos sob um empregador específico (**MAHLE**, **PREFEITURA**) só se aplicam quando a **Reclamada/contexto corresponde**; os de **INDÚSTRIA / COMÉRCIO / OBRAS** são genéricos do setor. Casar a função **pelo sentido** (não pelo nome literal): "Operador de torno CNC de motores" ≈ `Usinagem de Pistões`.
+  - **Match seguro** (uma função claramente corresponde a um bloco) → inserir no campo `▶ ATIVIDADES POR FUNÇÃO`, **acima** das versões dos autos, um bloco rotulado: `**Sugestão do acervo — [Função] (confirmar in loco):**` seguido do texto do bloco **verbatim**, preservando os **`XXX`** e as **notas `⚠ [NOTA DO PERITO]`/CAIXA-ALTA** (não apagar, não completar — é o perito que preenche in loco). O marcador `{{TABELA_BANHEIRO}}`, se houver, **não** entra (a tabela quantitativa é do item 6/bloco `banheiro`) — trocar por "(tabela de banheiros: preencher o bloco `banheiro`)".
+  - **Ambíguo** (mais de um candidato plausível, ou função só parecida) → **não colar**: listar os nomes dos candidatos no campo ("Acervo — candidatos: [Função A] · [Função B] — confirmar qual"). **Sem match** → não fazer nada (mantém só as versões dos autos). **Na dúvida nunca adivinha** — bloco errado no item 3 é erro grave.
+  - É **sugestão**, nunca constatação: o rótulo "(confirmar in loco)" é obrigatório; não some as versões Reclamante/Reclamada dos autos — o acervo **soma**, o perito concilia na diligência.
 - Fechar com `## ✅ AUTO-CHECK`, `## ⚠ CAMPOS A VERIFICAR IN LOCO`, `## 🚩 FLAGS PARA O PERITO` (modelo abaixo).
 
 A descrição da ficha é **intocável** (nome do produto verbatim — o guard bloqueia agente na descrição). A classificação por agente vive só no bloco 🔧/EPI-RESUMO.
@@ -91,7 +96,7 @@ A descrição da ficha é **intocável** (nome do produto verbatim — o guard b
 
 **AFASTAMENTOS (Parte 2, >15 dias):** **Se NÃO houver afastamento previdenciário > 15 dias nas fontes** → escrever **uma única linha** ("Não há registro de afastamento previdenciário > 15 dias nas fontes juntadas.") + preencher o ★ último dia efetivamente trabalhado. **Não trazer os campos vazios** de benefício/limbo/retorno (só poluem). **Se houver** → aí sim transcrever a **sequência completa** (último dia trabalhado / benefício+espécie / limbo / retorno). **Destacar "último dia efetivamente trabalhado"** (fecha a exposição). Cadeia sem retorno → consolidar no cabeçalho. ★ ausente → levar aos CAMPOS A VERIFICAR como prioridade. **Nunca incluir férias.**
 
-**ATIVIDADES (Parte 2):** por função (reclamante/reclamada) + paradigma.
+**ATIVIDADES (Parte 2):** por função (reclamante/reclamada) + paradigma. **+ sugestão do acervo:** casar a(s) função(ões) contra a biblioteca `05-Setores-e-Funcoes/ATIVIDADES-POR-FUNCAO.md` e pré-inserir o bloco pronto rotulado "Sugestão do acervo — [Função] (confirmar in loco)" — ver o passo na Fase 2. Match seguro cola; ambíguo lista candidatos; sem match não faz nada. Nunca substitui as versões dos autos.
 
 **CITAÇÕES (Parte 2):** ata com depoimento → transcrever; ata inicial sem depoimento → **deixar EM BRANCO** (não marcar `[NÃO LOCALIZADO]`). Se o NLM preencheu com `[NÃO LOCALIZADO]` + explicação, **apagar tudo e deixar o campo vazio** — **sem justificativa em lugar nenhum** (não poluir; o perito preenche in loco).
 
@@ -143,6 +148,7 @@ Lógica das fontes: **Inicial = pedido** (o que verificar). **Contestação defe
 - Tabela de EPI cobre todo o imprescrito? [Sim/Não — período coberto × descoberto]
 - Quesitos Juízo/Reclamante/Reclamada localizados? [Sim/Não]
 - Afastamentos (>15 dias) com a sequência? [Sim/Não]
+- Sugestão do acervo de atividades: se houve match, veio rotulada "confirmar in loco", com XXX/notas preservados e SEM apagar as versões dos autos? [Sim/Não/N-A]
 - CNAE em fonte primária + subclasse oficial? [Sim/Não]
 - Documentos críticos (PPP/PGR/PPRA/LTCAT/Ficha EPI): status real
 
