@@ -17,11 +17,21 @@ Ler **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.m
 ## O que extrair de cada laudo (4 dimensões)
 Um laudo não rende só agentes. Em cada um, garimpar:
 1. **Textos-padrão por agente** → `08-Textos-Padrao/[agente].md` (núcleo — Análise/Conclusão/Critérios/Argumentos). **Varrer TODAS as seções**, não só o agente que "dá nome" ao laudo: as **caracterizadas** E as **descaracterizadas que tenham texto próprio** (fundamentação, medição, critério). Um laudo de "calor caracterizado" frequentemente traz, escondidas, descaracterizações valiosas (inflamáveis por tubulação estanque, RNI por EPI regular, solvente eventual, vibração abaixo do LT, RX móvel...). Ver **Varredura completa** abaixo.
-2. **Perfil de setor/função** → `05-Setores-e-Funcoes/[setor].md`: nome da função, setor, **atividades típicas** (da seção "Atividades Desenvolvidas") e **agentes que apareceram** naquela função com o enquadramento. É o que deixa o Redator antecipar os agentes prováveis do caso.
+2. **Função → dois acervos consolidados (indexados por FUNÇÃO)** em `05-Setores-e-Funcoes/`:
+   - **Atividades (prosa do item 3)** → `ATIVIDADES-POR-FUNCAO.md` — a prosa da seção "Atividades Desenvolvidas", que o **Extrator (Skill 01)** cola no formulário. Ao trazer de um laudo real, **trocar os valores do caso por `XXX`** (ver "Normalização de atividades" abaixo) — a biblioteca é molde, não caso.
+   - **Agentes recorrentes** → `AGENTES-POR-FUNCAO.md` — os agentes que apareceram na função + o enquadramento (grau/Anexo/tese), que o **Redator (Skill 02)** lê p/ antecipar.
+   Os dois têm a **mesma função como chave** e um `## 🔎 Índice` no topo — mantê-los **em sincronia** (nova função entra no índice dos dois).
 3. **Padrões de EPI** → `04-EPIs/`: CA recorrentes por agente e o padrão da tabela NR-6 (quais itens vêm SIM/NÃO) — quando agregar valor novo.
 4. **Blocos reutilizáveis** (vocabulário técnico, respostas-padrão a quesitos recorrentes da mesma Reclamada) → quando o perito pedir; sinalizar que existem.
 
 Prioridade sempre: agentes (1) e setor/função (2). EPI (3) e blocos (4) só se houver ganho — não inflar a base com repetição.
+
+### Normalização de atividades (ao alimentar `ATIVIDADES-POR-FUNCAO.md`)
+A biblioteca de atividades é **molde reutilizável**, não o caso. Ao levar a prosa do item 3 de um laudo para lá:
+- **Trocar os valores quantitativos do caso por `XXX`** — corrente (`XXX A`), tensão (`XXX V`), tempo/frequência, temperatura, nº de banheiros/vasos, medidas. A atividade **qualitativa** passa; o número específico vira `XXX`.
+- Preservar as convenções do arquivo: `⚠ [NOTA DO PERITO]` (nota em CAIXA-ALTA do perito para si), e trocar qualquer tabela de banheiro por `{{TABELA_BANHEIRO}}` (a tabela quantitativa é montada pelo plugin, item 6 — não é prosa).
+- Manter a frase-guia no estilo do arquivo (_"Conforme informações durante a diligência pericial, as atividades do(a) Reclamante consistem em:"_) e os bullets na voz do perito.
+- **Placa/contexto de empregador:** blocos genéricos de setor (INDÚSTRIA/COMÉRCIO/OBRAS/SAÚDE…) casam por função; só criar/usar grupo de **empregador específico** (ex.: MAHLE, PREFEITURA) quando a Reclamada é aquela recorrente.
 
 > Esta é a versão "manutenção" do povoamento da Fase 1: a base **já existe**, então o modo é **MERGE** (acrescentar), não criação do zero.
 
@@ -86,7 +96,7 @@ Espelhar o padrão já existente em `08-Textos-Padrao/`. Cada `.md` de agente te
 | Pasta | A skill escreve? | O quê |
 |---|---|---|
 | `08-Textos-Padrao/` | **Sim (principal)** | 1 arquivo por agente (Análise/Conclusão/Critérios/Argumentos) + blocos `_` (ex.: `_bloco-vocabulario-tecnico.md`) |
-| `05-Setores-e-Funcoes/` | **Sim** | Perfil de função: atividades típicas + agentes recorrentes, em `[setor].md` |
+| `05-Setores-e-Funcoes/` | **Sim** | Dois acervos por função: **atividades** (item 3, com `XXX`) em `ATIVIDADES-POR-FUNCAO.md` e **agentes recorrentes** em `AGENTES-POR-FUNCAO.md` — cada um com seu `## 🔎 Índice`, mantidos em sincronia. *(Os antigos `[setor].md` foram consolidados nesses dois — não gravar mais neles.)* |
 | `04-EPIs/` | **Sim** | Padrões de EPI por eficácia/período + CA recorrentes (quando houver variante nova) |
 | `07-Laudos-Anteriores/[ano]/` | **Sim** | Move os laudos processados da inbox + atualiza `CATALOGO.md` |
 | `01-Insalubridade/` · `02-Periculosidade/` | **Opcional** | Só material de **apoio técnico** (FISPQ, quadros-critério, fundamentos) — não a voz do perito |
@@ -114,11 +124,16 @@ Regra: na dúvida sobre onde um conteúdo entra, gravar em `08-Textos-Padrao/` (
 1. Ler TODOS os .md de 09-Inbox/. VARREDURA COMPLETA: percorrer as 15 seções da NR-15
    (6.1–6.15) e as 6 da NR-16 (7.1–7.6) de CADA laudo — caracterizadas E descaracterizadas
    com texto próprio. (Ver "Varredura completa".)
-1b. Para cada laudo, capturar o PERFIL DE FUNÇÃO: função + setor (tabela de identificação),
-    atividades típicas (seção "Atividades Desenvolvidas") e os agentes caracterizados
-    naquela função. Fazer merge em 05-Setores-e-Funcoes/[setor].md:
-      • setor novo → criar arquivo (avisar); função nova → acrescentar como bloco;
-      • função já existente → só somar a fonte/atividade nova, sem duplicar.
+1b. Para cada laudo, capturar a FUNÇÃO (tabela de identificação) e alimentar os DOIS acervos
+    por função em 05-Setores-e-Funcoes/, cada um com merge no seu bloco `### [Função]` + índice:
+      • ATIVIDADES → prosa do item 3 ("Atividades Desenvolvidas"), NORMALIZADA (valores do caso
+        → XXX; ver "Normalização de atividades") → ATIVIDADES-POR-FUNCAO.md.
+      • AGENTES recorrentes → agentes que apareceram na função + enquadramento (grau/Anexo/tese)
+        → AGENTES-POR-FUNCAO.md.
+      • função nova → novo bloco `### [Função]` sob o grupo (setor/empregador) certo + entra no
+        `## 🔎 Índice` dos dois; função já existente → só somar bullets/fonte novos, sem duplicar.
+      • Sincronia: a mesma função é a chave nos dois arquivos. NÃO gravar mais nos `[setor].md`
+        antigos (foram consolidados nesses dois).
 2. Para cada laudo, identificar os AGENTES presentes (seções 6.x da NR-15 e 7.x da NR-16):
    • caracterizados (texto de análise + conclusão "caracterizada...")
    • descaracterizados COM texto próprio (ex.: umidade localizada, óleo eventual)
@@ -170,8 +185,8 @@ Lote: N laudos processados.
 - [agente] (arquivo.md) ← + variante [caracterizada/argumento X] — Fonte: Proc. NNNN
 - ...
 
-### Setores/funções atualizados
-- [função] em 05-Setores-e-Funcoes/[setor].md ← + atividades/agentes — Fonte: Proc. NNNN
+### Funções atualizadas (acervos por função)
+- [função]: + atividades (ATIVIDADES-POR-FUNCAO.md) / + agentes (AGENTES-POR-FUNCAO.md) — Fonte: Proc. NNNN
 
 ### Agentes novos criados (confirmados com o perito)
 - [agente] (arquivo-novo.md) — Fonte: Proc. NNNN

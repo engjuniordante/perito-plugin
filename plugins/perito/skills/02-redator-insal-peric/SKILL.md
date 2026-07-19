@@ -83,7 +83,7 @@ Este é o passo que mais queima token e **trava o Cowork**. Disciplina obrigató
 Os bans (INDICE, EXEMPLO.json, script, MAPA dos outros templates) e o mapa agente→arquivo já estão na **Regra de leitura** acima. Além daqueles, conforme a necessidade do caso:
 - `01-Insalubridade/Agentes-Quimicos/quadro-anexo-11-limites-tolerancia.md` (LT + grau por substância) · `quadro-anexo-13-enquadramento.md` (operações por grau) — só quando houver agente químico An.11/An.13 presente.
 - `04-EPIs/analise-epi-padrao.md` — EPI por eficácia/regularidade/período; recorte = quantidade × vida útil por CA.
-- `05-Setores-e-Funcoes/[setor].md` — só quando a função identifica o setor.
+- `05-Setores-e-Funcoes/AGENTES-POR-FUNCAO.md` — agentes recorrentes por função (ler o `## 🔎 Índice` → só o bloco da função). Só quando a função identifica o setor; é **prior/cruzamento, não a autoridade** — quem manda sobre o que existe/foi caracterizado é o formulário de campo preenchido.
 
 ## Saída
 Um `JSON de conteúdo` (`laudo-data.json`) → o **script** `scripts/build_laudo.py` gera o `.docx` final, nome: **`laudo-[processo].docx`**. Ao final, o relatório de validação do script + a sua auto-conferência de conteúdo.

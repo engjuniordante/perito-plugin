@@ -46,7 +46,8 @@ Mapeamento de destino — **ler APENAS o arquivo alvo**, nunca varrer a base int
 | Conclusão corrigida | `08-Textos-Padrao/[agente].md` | `## Conclusão` |
 | Critério técnico novo/alterado | `08-Textos-Padrao/[agente].md` | `## Critérios` |
 | Argumento novo | `08-Textos-Padrao/[agente].md` | `## Argumentos` |
-| Padrão de setor/função | `05-Setores-e-Funcoes/[setor].md` | seção pertinente |
+| Atividades por função (item 3) | `05-Setores-e-Funcoes/ATIVIDADES-POR-FUNCAO.md` | bloco `### [Função]` (+ índice) |
+| Agentes recorrentes por função | `05-Setores-e-Funcoes/AGENTES-POR-FUNCAO.md` | bloco `### [Função]` (+ índice) |
 | Padrão de EPI / vida útil de CA | `04-EPIs/analise-epi-padrao.md` | seção pertinente |
 | **Classificação de EPI por C.A.** (agente/anexo que o C.A. protege; correção de classificação ou C.A. novo) | `04-EPIs/CA-dicionario.json` | entrada por C.A. — **ver seção "CA-dicionário" abaixo** |
 | Ergonomia | `03-Ergonomia/[tema].md` | seção pertinente |
