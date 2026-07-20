@@ -83,7 +83,7 @@ A descrição da ficha é **intocável** (nome do produto verbatim — o guard b
 
 **TIPO DE LAUDO ★ (Parte 1 — PEDIDO da Inicial):** marcar o `[ ]` correspondente e indicar o template. Fonte canônica = "Dos Pedidos" da Inicial. **NÃO detectar pela ata** (modelo padrão). Não ampliar por agente que aparece em PPP/PGR/contestação mas não foi pleiteado. Inicial ausente → `[NÃO LOCALIZADO — confirmar o pedido na Inicial]`; pedido ambíguo → "Insal+Peric" + sinalizar.
 
-**PROCESSO (Parte 1):** Nº · Vara · Data/Horário/Local da diligência · **Data da autuação** (vai ao laudo).
+**PROCESSO (Parte 1):** Nº · Vara · Data/Horário/Local da diligência · **Data de entrega do laudo** (prazo da ata — só no formulário, NUNCA vai ao laudo) · **Data da autuação** (vai ao laudo).
 
 **HONORÁRIOS:** em branco (manual).
 

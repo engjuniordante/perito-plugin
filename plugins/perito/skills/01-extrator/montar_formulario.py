@@ -436,6 +436,10 @@ def build_form(bundle_path: Path) -> str:
     data_dilig = blank_if_nl(bullet_value(proc, "Data da diligência"))
     horario = blank_if_nl(bullet_value(proc, "Horário"))
     local = blank_if_nl(bullet_value(proc, "Local"))
+    # Prazo/data de entrega do laudo (vem da ata) — uso INTERNO: só no formulário, nunca no laudo.
+    entrega = blank_if_nl(bullet_value(proc, "Data de entrega do laudo")) \
+        or blank_if_nl(bullet_value(proc, "Prazo para entrega do laudo")) \
+        or blank_if_nl(bullet_value(proc, "Entrega do laudo"))
 
     tipo_idx = first_checked_label(tipo_block, [
         "insalubridade + periculosidade", "periculosidade", "insalubridade", "ergonomia"])
@@ -505,7 +509,7 @@ def build_form(bundle_path: Path) -> str:
 
     form = TEMPLATE.format(
         numero=numero, vara=vara, data_dilig=data_dilig, horario=horario, local=local,
-        autuacao=autuacao, part_recte=part_recte, cnae=cnae,
+        entrega=entrega, autuacao=autuacao, part_recte=part_recte, cnae=cnae,
         amb0=amb_marks[0], amb1=amb_marks[1], amb2=amb_marks[2], amb3=amb_marks[3],
         tipo0=tipo_marks[0], tipo1=tipo_marks[1], tipo2=tipo_marks[2], tipo3=tipo_marks[3],
         reclamante=reclamante, reclamada=reclamada, ident=ident_render,
@@ -554,6 +558,7 @@ Laudo Base: (O perito irá colocar o laudo base caso tenha)
 - Data da diligência: {data_dilig}
 - Horário: {horario}
 - Local: {local}
+- **Data de entrega do laudo:** {entrega} *(prazo da ata — controle do perito; NÃO vai ao laudo)*
 - **Data da autuação / ação:** {autuacao}
 
 ## ▶ HONORÁRIOS *(valor FIXO — R$ 5.800,00; não digitar, o laudo já crava)*

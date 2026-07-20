@@ -32,6 +32,7 @@ Laudo Base: (O perito irá colocar o laudo base caso tenha)
 - Data da diligência:
 - Horário:
 - Local:
+- **Data de entrega do laudo:** *(prazo da ata — controle do perito; NÃO vai ao laudo)*
 - **Data da autuação / ação:** *(vai ao laudo — coluna "Autuação" da tabela de identificação)*
 
 ## ▶ HONORÁRIOS *(valor FIXO — R$ 5.800,00; não digitar, o laudo já crava)*
