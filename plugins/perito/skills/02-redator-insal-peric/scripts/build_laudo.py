@@ -235,6 +235,41 @@ _CONCL_NEG_INSAL = ('Não foram constatadas atividades ou operações insalubres
                     'Portaria 3.214, de 08 de junho de 1978.')
 
 
+# O padrão do Irineu na ementa/conclusão é SEMPRE a forma neutra "O(A) Reclamante ...
+# exposto(a)" — mesmo quando o gênero do(a) reclamante é conhecido (o gabarito do SKILL.md
+# é "O(A) Reclamante ficava exposto(a) a agentes químicos, sendo caracterizada..."). O modelo
+# flexiona por conta própria ("A Reclamante ficava exposta"), o que destoa da negativa que o
+# próprio script acrescenta logo abaixo. Aqui normalizamos só o BLOCO DA CONCLUSÃO/EMENTA.
+_NEUTRO_ARTIGOS = [
+    (re.compile(r'\b[AO] Reclamante\b'), 'O(A) Reclamante'),
+    (re.compile(r'\b[ao] Reclamante\b'), 'o(a) Reclamante'),
+    (re.compile(r'\bpel[ao] Reclamante\b'), 'pelo(a) Reclamante'),
+    (re.compile(r'\bd[ao] Reclamante\b'), 'do(a) Reclamante'),
+    (re.compile(r'\bà Reclamante\b'), 'ao(à) Reclamante'),
+]
+# Particípio só quando ligado ao Reclamante por um verbo de ligação — nunca solto
+# (evita estragar "área exposta a intempéries", que nada tem a ver com gênero).
+_NEUTRO_PARTICIPIO = re.compile(
+    r'(Reclamante\s+(?:ficava|ficou|estava|esteve|permanecia|permaneceu|era|foi|é)\s+)'
+    r'(expost|submetid|sujeit)[ao]\b(?!\(a\))')  # lookahead: já-neutro não vira "exposto(a)(a)"
+
+
+def _neutraliza_genero_conclusao(itens):
+    """Devolve (itens_normalizados, n_alterados). Não toca em 'Reclamada' (a empresa,
+    sempre feminina) nem em nome de função ('Controladora de Acesso' é o cargo do
+    processo, não concordância)."""
+    out, mudou = [], 0
+    for item in itens:
+        novo = item
+        for rx, sub in _NEUTRO_ARTIGOS:
+            novo = rx.sub(sub, novo)
+        novo = _NEUTRO_PARTICIPIO.sub(lambda m: m.group(1) + m.group(2) + 'o(a)', novo)
+        if novo != item:
+            mudou += 1
+        out.append(novo)
+    return out, mudou
+
+
 def _negativas_conclusao(blocks, cobre_insal, cobre_peric):
     """No laudo insal+peric o modelo lista SÓ os caracterizados em CONCLUSAO_ITENS. Quando UM
     dos dois é caracterizado e o OUTRO não, o não-caracterizado fica de fora — o perito quer
@@ -706,6 +741,13 @@ def build(template_path, data_path, out_path, *epi_paths, form_path=None):
     _cobre_peric = any(m.startswith('ANALISE_PERIC') for m in _tmpl_mk)
     _cobre_insal = any(m.startswith('ANALISE_') and not m.startswith('ANALISE_PERIC') for m in _tmpl_mk)
     if 'CONCLUSAO_ITENS' in _blocks:
+        # forma neutra ANTES da negativa (que já nasce neutra): ementa e conclusão
+        # não podem misturar "A Reclamante ... exposta" com "O(A) Reclamante ...".
+        _itens, _n_neutro = _neutraliza_genero_conclusao(_blocks['CONCLUSAO_ITENS'])
+        if _n_neutro:
+            _blocks['CONCLUSAO_ITENS'] = _itens
+            print('Conclusão/ementa: %d item(ns) normalizado(s) para a forma neutra '
+                  '"O(A) Reclamante".' % _n_neutro)
         _neg = _negativas_conclusao(_blocks, _cobre_insal, _cobre_peric)
         if _neg:
             _blocks['CONCLUSAO_ITENS'] = list(_blocks['CONCLUSAO_ITENS']) + _neg
