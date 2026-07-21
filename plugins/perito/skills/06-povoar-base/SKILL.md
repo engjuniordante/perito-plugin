@@ -1,6 +1,6 @@
 ---
 name: perito-povoar-base
-description: Use quando o perito disser "povoar base", "atualizar segundo cérebro", "enriquecer a base", "processar laudos", "atualizar os textos-padrão", "revisar/varrer os laudos arquivados", ou quando subir/apontar um LOTE de laudos (.md) para alimentar o segundo cérebro. Lê os laudos da 09-Inbox (ou re-varre o acervo 07-Laudos-Anteriores), faz a VARREDURA COMPLETA das 15 seções da NR-15 e 6 da NR-16 extraindo agentes CARACTERIZADOS e DESCARACTERIZADOS com texto próprio (Análise/Conclusão/Critérios/Argumentos) na linguagem do perito, detecta duplicados pelo nº do processo, faz MERGE sem sobrescrever em 08-Textos-Padrao, confirma o diff e arquiva os laudos novos em 07-Laudos-Anteriores. NÃO usar para corrigir UM trecho de um laudo só (isso é a Skill Atualiza Base).
+description: Use quando o perito disser "povoar base", "atualizar segundo cérebro", "enriquecer a base", "processar laudos", "atualizar os textos-padrão", "revisar/varrer os laudos arquivados", ou quando subir/apontar um LOTE de laudos (.docx ou .md) para alimentar o segundo cérebro. Converte DOCX em Markdown com Pandoc sem tocar no original, lê os laudos da 09-Inbox (ou re-varre o acervo 07-Laudos-Anteriores), faz a VARREDURA COMPLETA das 15 seções da NR-15 e 6 da NR-16 extraindo agentes CARACTERIZADOS e DESCARACTERIZADOS com texto próprio (Análise/Conclusão/Critérios/Argumentos) na linguagem do perito, detecta duplicados pelo nº do processo, faz MERGE sem sobrescrever em 08-Textos-Padrao, confirma o diff e arquiva os laudos novos em 07-Laudos-Anteriores. NÃO usar para corrigir UM trecho de um laudo só (isso é a Skill Atualiza Base).
 ---
 
 # Povoar Base — povoamento da base de conhecimento em lote
@@ -70,12 +70,18 @@ Quando o perito pedir para **revisar/varrer os laudos já arquivados** atrás de
 - **NÃO usar:** correção pontual de UM trecho de um laudo já revisado → isso é a **Skill Atualiza Base** (1 trecho, uso diário). Aqui o objeto é um **lote**.
 
 ## Entrada
-1. Os laudos do lote já em `.md` dentro de **`Base Perícia Irineu/09-Inbox/`**.
-   - Laudos em PDF: o perito converte antes em https://www.pdftomarkdown.net/ e salva o `.md` na inbox. Laudos já em `.md` vão direto para a inbox.
-   - **Por que .md e não .docx:** a base toda é texto puro (menos token, leitura limpa). `.docx` só serve como template de saída, nunca como fonte.
+1. Os laudos do lote em `.docx` ou `.md` dentro de **`Base Perícia Irineu/09-Inbox/`**.
+   - **Sempre rodar primeiro o preparador** (Windows/Code: `python`, não `python3`):
+     `python <plugin>/skills/06-povoar-base/scripts/preparar_inbox.py "<base_conhecimento>/09-Inbox"`
+   - Ele converte cada `.docx` em Markdown (Pandoc, GFM) para `09-Inbox/.convertidos-md/` **preservando o DOCX original**, e valida o mínimo de cada laudo: nº CNJ presente e ao menos uma seção `6.x`/`7.x`. Laudos já em `.md` passam direto pela validação.
+   - Qualquer `INVÁLIDO`/`BLOQUEADO` **interrompe o fluxo**: não analisar, não gravar na base, não mover arquivo. Faltar só 6.x ou só 7.x é **aviso** (pode ser laudo exclusivamente de periculosidade ou de insalubridade) — confirmar o tipo com o perito e seguir.
+   - Ele também aponta **duplicado intra-lote** pelo nº do processo (`AVISO DUPLICADO`) — usar isso na Detecção de duplicados abaixo, sem refazer a conferência no olho.
+   - Sem Pandoc o script para e orienta a instalação (`winget install --id JohnMacFarlane.Pandoc`).
+   - **PDF continua fora:** o Pandoc não lê PDF como entrada. O perito converte antes em https://www.pdftomarkdown.net/ e salva o `.md` na inbox.
+   - **O Markdown é a fonte de leitura; o DOCX é o original documental** e é arquivado junto do seu `.md` depois da aprovação.
 2. O comando do perito: **"povoar base"**.
 
-Se a `09-Inbox/` estiver vazia, avise e peça para o perito colocar os `.md` lá (ou colar o conteúdo).
+Se a `09-Inbox/` estiver vazia, avise e peça para o perito colocar os laudos (`.docx` ou `.md`) lá — ou colar o conteúdo.
 
 ## Saída
 - Arquivos `.md` por agente atualizados (merge) em `Base Perícia Irineu/08-Textos-Padrao/`.
@@ -117,11 +123,16 @@ Regra: na dúvida sobre onde um conteúdo entra, gravar em `08-Textos-Padrao/` (
 ## Fluxo (passo a passo)
 
 ```
-0. DETECÇÃO DE DUPLICADOS (antes de tudo): ler o nº do processo de cada laudo do inbox,
-   conferir contra INDICE-TEXTOS.md e CATALOGO.md e entre si (duplicado intra-lote).
+0. PREPARAR A INBOX (antes de tudo): rodar scripts/preparar_inbox.py apontando para a 09-Inbox.
+   Converte os .docx para 09-Inbox/.convertidos-md/ e valida nº CNJ + seções 6.x/7.x.
+   Qualquer INVÁLIDO/BLOQUEADO interrompe o fluxo. Nunca sobrescrever nem apagar o DOCX original.
+0a. DETECÇÃO DE DUPLICADOS: ler o nº do processo de cada laudo preparado,
+   conferir contra INDICE-TEXTOS.md e CATALOGO.md e entre si (o script já sinaliza o
+   duplicado intra-lote com AVISO DUPLICADO).
    Processo já arquivado → extrair só variante/descaract. nova, sem re-arquivar.
    Duplicado idêntico → descartar. (Ver "Detecção de duplicados".)
-1. Ler TODOS os .md de 09-Inbox/. VARREDURA COMPLETA: percorrer as 15 seções da NR-15
+1. Ler TODOS os .md preparados (os da 09-Inbox/ + os de 09-Inbox/.convertidos-md/).
+   VARREDURA COMPLETA: percorrer as 15 seções da NR-15
    (6.1–6.15) e as 6 da NR-16 (7.1–7.6) de CADA laudo — caracterizadas E descaracterizadas
    com texto próprio. (Ver "Varredura completa".)
 1b. Para cada laudo, capturar a FUNÇÃO (tabela de identificação) e alimentar os DOIS acervos
@@ -155,12 +166,15 @@ Regra: na dúvida sobre onde um conteúdo entra, gravar em `08-Textos-Padrao/` (
    e a lista de lacunas (variantes/agentes ainda faltando).
 6. MOVER cada laudo processado de 09-Inbox/ para 07-Laudos-Anteriores/[ano]/
    (ano = data do laudo). Nome sugerido: "Reclamante x Reclamada - Nº - agentes.md".
+   Se a fonte era .docx, arquivar JUNTOS o DOCX original e o seu .md convertido.
    Nunca apagar — o 07 é o acervo de paradigmas que o Redator consulta.
 7. Emitir o RELATÓRIO DE DIFF (modelo abaixo).
 ```
 
 ## Regras de ouro
 - **Nunca sobrescrever** um `.md` existente sem mostrar o diff e pedir OK.
+- **DOCX original é imutável** — nunca sobrescrever, converter no mesmo caminho, apagar ou mover antes da aprovação. O `.md` de `.convertidos-md/` é intermediário rastreável.
+- **Entrada inválida não vira base** — se o preparador bloquear (sem CNJ, sem seção 6.x/7.x, dois processos no mesmo arquivo), parar e falar com o perito. Não "dar um jeito" lendo o arquivo mesmo assim.
 - **Preservar a linguagem do perito** — coletar e consolidar, jamais reescrever na "minha" voz.
 - **Nunca inventar** dado, valor de medição, CA, período ou tese que não esteja no laudo-fonte.
 - **Conflito não se resolve sozinho** — apresentar as duas redações e perguntar.
