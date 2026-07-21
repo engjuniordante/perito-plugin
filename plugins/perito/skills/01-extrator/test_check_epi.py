@@ -494,8 +494,13 @@ def t9e_nr6_escopo_observacional():
         fh.write(form(bloco_agentes("A"), row("Botina de segurança")))
         form_path = fh.name
     try:
+        # encoding explícito: o filho reconfigura o stdout p/ UTF-8 e imprime 'ℹ️'.
+        # Sem isto o pai decodifica com o locale (cp1252 no Windows) e o
+        # UnicodeDecodeError estoura na thread leitora do subprocess — que não
+        # propaga: r.stdout vira None e o teste morre com TypeError.
         r = subprocess.run([sys.executable, ce.__file__, form_path],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         check(r.returncode == 0,
               "exit 0 com só aviso observacional (rc=%s): %s" % (r.returncode, r.stderr[:120]))
         check("ℹ️ NR-6 escopo" in r.stdout,

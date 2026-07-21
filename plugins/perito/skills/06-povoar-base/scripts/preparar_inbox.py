@@ -61,6 +61,10 @@ def converter(docx: Path, destino: Path, pandoc: str):
         check=True,
         capture_output=True,
         text=True,
+        # encoding explícito: o stderr do pandoc traz o nome do arquivo (acentos)
+        # e o locale do Windows é cp1252 — sem isto a captura quebra em UnicodeDecodeError.
+        encoding='utf-8',
+        errors='replace',
     )
 
 
