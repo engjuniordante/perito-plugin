@@ -128,9 +128,55 @@ def t_gate_formulario():
     check(bl.gate_formulario(branco, FORM) == [], 'linha em branco no form preenchida pelo modelo → não bloqueia')
 
 
+def t_neutraliza_genero_conclusao():
+    """Ementa/conclusao sempre na forma neutra 'O(A) Reclamante ... exposto(a)' — o modelo
+    flexiona por conta propria e o laudo saia misturado com a negativa (que ja nasce neutra)."""
+    print("T — forma neutra na ementa/conclusao")
+
+    real = ("A Reclamante ficava exposta e mantinha contato com agentes biologicos no periodo "
+            "em que exerceu a funcao de Controladora de Acesso na Portaria, sendo caracterizada "
+            "a insalubridade em grau maximo, correspondente ao percentual de 40%.")
+    out, n = bl._neutraliza_genero_conclusao([real])
+    check(n == 1 and out[0].startswith('O(A) Reclamante ficava exposto(a)'),
+          'feminino flexionado vira "O(A) Reclamante ficava exposto(a)": %r' % out[0][:60])
+    check('Controladora de Acesso' in out[0],
+          'nome da funcao (cargo do processo) NAO e mexido')
+
+    out, n = bl._neutraliza_genero_conclusao(
+        ["O Reclamante ficava exposto a ruido, sendo caracterizada a insalubridade."])
+    check(n == 1 and out[0].startswith('O(A) Reclamante ficava exposto(a)'),
+          'masculino flexionado tambem e neutralizado')
+
+    ja_neutro = "O(A) Reclamante ficava exposto(a) a agentes quimicos, sendo caracterizada."
+    out, n = bl._neutraliza_genero_conclusao([ja_neutro])
+    check(n == 0 and out[0] == ja_neutro,
+          'item ja neutro fica intacto (sem "exposto(a)(a)"): %r' % out[0][:60])
+
+    # idempotencia: normalizar o proprio resultado nao muda mais nada
+    uma, _ = bl._neutraliza_genero_conclusao(["A Reclamante ficava exposta a ruido."])
+    duas, n2 = bl._neutraliza_genero_conclusao(uma)
+    check(n2 == 0 and duas == uma, 'segunda passada e no-op (idempotente)')
+
+    out, _ = bl._neutraliza_genero_conclusao(
+        ["A Reclamada confirmou as atividades da Reclamante em area exposta a intemperies."])
+    check('A Reclamada confirmou' in out[0], '"Reclamada" (a empresa) nao e neutralizada')
+    check('area exposta a intemperies' in out[0],
+          'participio solto ("area exposta") preservado — so concorda com Reclamante')
+    check('do(a) Reclamante' in out[0], '"da Reclamante" vira "do(a) Reclamante"')
+
+    out, _ = bl._neutraliza_genero_conclusao(
+        ["Nao foi constatada, nas atividades exercidas pela Reclamante, exposicao ao calor."])
+    check('pelo(a) Reclamante' in out[0], '"pela Reclamante" vira "pelo(a) Reclamante"')
+
+    # a negativa que o script acrescenta ja nasce neutra — tem de passar incolume
+    out, n = bl._neutraliza_genero_conclusao([bl._CONCL_NEG_PERIC, bl._CONCL_NEG_INSAL])
+    check(n == 0 and out == [bl._CONCL_NEG_PERIC, bl._CONCL_NEG_INSAL],
+          'frases-padrao de negativa do proprio script ficam intactas')
+
+
 if __name__ == '__main__':
     t_resolve_windows(); t_gate_tipo_windows(); t_replace_scalar_nao_str()
-    t_parsers_formulario(); t_gate_formulario()
+    t_parsers_formulario(); t_gate_formulario(); t_neutraliza_genero_conclusao()
     print()
     if FALHAS:
         print('FALHOU (%d): %s' % (len(FALHAS), '; '.join(FALHAS))); sys.exit(1)

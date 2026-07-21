@@ -76,6 +76,7 @@ Quando o perito pedir para **revisar/varrer os laudos já arquivados** atrás de
    - Ele converte cada `.docx` em Markdown (Pandoc, GFM) para `09-Inbox/.convertidos-md/` **preservando o DOCX original**, e valida o mínimo de cada laudo: nº CNJ presente e ao menos uma seção `6.x`/`7.x`. Laudos já em `.md` passam direto pela validação.
    - Qualquer `INVÁLIDO`/`BLOQUEADO` **interrompe o fluxo**: não analisar, não gravar na base, não mover arquivo. Faltar só 6.x ou só 7.x é **aviso** (pode ser laudo exclusivamente de periculosidade ou de insalubridade) — confirmar o tipo com o perito e seguir.
    - Ele também aponta **duplicado intra-lote** pelo nº do processo (`AVISO DUPLICADO`) — usar isso na Detecção de duplicados abaixo, sem refazer a conferência no olho.
+   - **Arquivos que não são laudo ficam na inbox e são ignorados:** qualquer nome começando com `_` (ex.: `_LAUDOS-QUE-FALTAM-pedir-ao-irineu.md`, memorando de pendências do perito), com `.` ou lock do Word (`~$`). O script os lista como `IGNORADO` e segue. **Não mover esses arquivos para fora** — a inbox não pode ficar vazia, senão o Google Drive deixa de exibir a pasta.
    - Sem Pandoc o script para e orienta a instalação (`winget install --id JohnMacFarlane.Pandoc`).
    - **PDF continua fora:** o Pandoc não lê PDF como entrada. O perito converte antes em https://www.pdftomarkdown.net/ e salva o `.md` na inbox.
    - **O Markdown é a fonte de leitura; o DOCX é o original documental** e é arquivado junto do seu `.md` depois da aprovação.

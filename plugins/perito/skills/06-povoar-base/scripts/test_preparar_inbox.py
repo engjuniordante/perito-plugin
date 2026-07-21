@@ -99,6 +99,33 @@ with tempfile.TemporaryDirectory() as td:
         rc_inexistente = pi.preparar(Path(td) / 'nao-existe')
     check(rc_vazia == 2 and rc_inexistente == 2, 'inbox vazia e inexistente retornam 2')
 
+print("T7 — memorando do perito (prefixo _) é ignorado, não bloqueia o lote")
+with tempfile.TemporaryDirectory() as td:
+    inbox = Path(td)
+    (inbox / '_LAUDOS-QUE-FALTAM-pedir-ao-irineu.md').write_text(
+        '# Pendências\n- pedir laudo de calor\n', encoding='utf-8')
+    (inbox / 'laudo.md').write_text(VALIDO, encoding='utf-8')
+    saida = StringIO()
+    with redirect_stdout(saida):
+        rc = pi.preparar(inbox)
+    texto = saida.getvalue()
+    check(rc == 0, 'lote com memorando + laudo válido passa (rc=%s)' % rc)
+    check('IGNORADO (não é laudo): _LAUDOS-QUE-FALTAM-pedir-ao-irineu.md' in texto,
+          'memorando aparece como IGNORADO no relatório')
+    check('INVÁLIDO' not in texto, 'memorando não vira INVÁLIDO')
+    check((inbox / '_LAUDOS-QUE-FALTAM-pedir-ao-irineu.md').is_file(),
+          'memorando continua na inbox (a pasta não pode ficar vazia no Drive)')
+
+print("T8 — inbox só com memorando: bloqueia dizendo que não há laudo")
+with tempfile.TemporaryDirectory() as td:
+    inbox = Path(td)
+    (inbox / '_LAUDOS-QUE-FALTAM-pedir-ao-irineu.md').write_text('# Pendências\n', encoding='utf-8')
+    saida, saida_err = StringIO(), StringIO()
+    with redirect_stdout(saida), redirect_stderr(saida_err):
+        rc = pi.preparar(inbox)
+    check(rc == 2 and 'só arquivos ignorados' in saida_err.getvalue(),
+          'sem laudo real, bloqueia com mensagem específica')
+
 print()
 if FALHAS:
     print('✗ %d verificação(ões) falharam' % len(FALHAS))

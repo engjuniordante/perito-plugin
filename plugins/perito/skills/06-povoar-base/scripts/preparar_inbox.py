@@ -33,6 +33,18 @@ PROCESSO_RE = re.compile(r'\b\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}\b')
 SECAO_RE = re.compile(r'(?<!\d)([67])\s*[.]\s*(\d{1,2})(?!\d)')
 
 
+def _ignorar(path: Path) -> bool:
+    """Arquivos que moram na inbox mas NÃO são laudos.
+
+    O perito mantém memorandos permanentes ali (ex.: `_LAUDOS-QUE-FALTAM-pedir-ao-irineu.md`)
+    — e a pasta não pode ficar vazia, senão o Google Drive deixa de exibi-la. Convenção do
+    plugin: prefixo `_` = arquivo de apoio, não conteúdo (mesma regra dos `_bloco-*.md`).
+    Também pula ocultos (`.`) e o lock do Word (`~$`).
+    """
+    nome = path.name
+    return nome.startswith('_') or nome.startswith('.') or nome.startswith('~$')
+
+
 def validar_markdown(path: Path):
     """Devolve (processos, seções, erros, avisos) do laudo em Markdown."""
     texto = path.read_text(encoding='utf-8', errors='replace')
@@ -73,11 +85,20 @@ def preparar(inbox: Path):
         print(f'ERRO: inbox não encontrada: {inbox}', file=sys.stderr)
         return 2
 
-    # ~$ = lock file do Word aberto; não é laudo.
-    docx_files = sorted(p for p in inbox.glob('*.docx') if not p.name.startswith('~$'))
-    md_files = sorted(inbox.glob('*.md'))
+    docx_files = sorted(p for p in inbox.glob('*.docx') if not _ignorar(p))
+    md_files = sorted(p for p in inbox.glob('*.md') if not _ignorar(p))
+
+    ignorados = sorted(p.name for p in list(inbox.glob('*.docx')) + list(inbox.glob('*.md'))
+                       if _ignorar(p))
+    for nome in ignorados:
+        print(f'IGNORADO (não é laudo): {nome}')
+
     if not docx_files and not md_files:
-        print(f'ERRO: nenhum .docx ou .md em {inbox}', file=sys.stderr)
+        if ignorados:
+            print(f'ERRO: nenhum laudo em {inbox} — só arquivos ignorados '
+                  f'({", ".join(ignorados)}).', file=sys.stderr)
+        else:
+            print(f'ERRO: nenhum .docx ou .md em {inbox}', file=sys.stderr)
         return 2
 
     pandoc = shutil.which('pandoc')
