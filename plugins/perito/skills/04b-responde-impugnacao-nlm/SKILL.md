@@ -13,6 +13,7 @@ Esta skill faz **o que a `04-responde-impugnacao` faz**, com **uma diferença**:
 
 1. **Só Claude Code.** Se o CLI `nlm` / MCP `notebooklm` **não existir** nesta sessão (Cowork/app), **PARE** e diga: *"O modo automático só roda no Claude Code. No Cowork, use `/04-responde-impugnacao` e cole a minuta do NotebookLM manualmente."*
 2. **`nlm` autenticado.** Auth expirado → instrua `nlm login` na **conta Google do PRÓPRIO perito** (a dele, onde estão os notebooks dele — **nunca** a do desenvolvedor/dono da máquina) e re-dispare. (A sessão do NLM é frágil — expira em dias.)
+   - ⚠️ **Antes de mandar relogar, confira a versão: `nlm --version` precisa ser ≥ `0.9.4`.** O NotebookLM migrou para o domínio `notebook.google.com`; versões ≤ 0.8.9 não reconhecem o domínio novo e o `nlm login` fica 5 min em *"Still waiting for sign-in…"* e morre em **`Login timeout` mesmo com o navegador já logado** — mandar relogar de novo não resolve. Se estiver abaixo, instrua **nesta ordem**: `Get-Process | Where-Object { $_.ProcessName -match 'notebooklm' } | Stop-Process -Force` → `python -m pip install --user --upgrade notebooklm-mcp-cli` → `nlm login` → **reiniciar o Claude Code**.
 3. **`perito-config.json`** na **raiz do projeto** (schema em `_perito-config.md`). Identidade = `config.perito`; caminhos = `config.caminhos`.
 4. **Prompt de impugnação:** vive no MESMO arquivo `config.notebooklm.prompts_extracao` (o heading que casa "Impugnação", que o extrator ignora). O script o extrai sozinho. Ausente → **pergunte** o caminho do arquivo de prompts.
 5. **Pasta-mãe do lote:** `config.notebooklm.pasta_impugnacoes` (a pasta `Impugnações-notebooklm`). Ausente → **pergunte** e **ofereça salvar** no config.
@@ -43,7 +44,7 @@ No Windows/Code use **`python`** (não `python3`). O script auto-descobre o `per
 1. **Ler o stdout.** O script imprime `✓ indexado`, `✓ minuta`, `📦 docx`, os `🚩` de campos não localizados, e uma linha `DOCX: <caminho>` por processo. No lote, fecha com **RESUMO** (✅/⏭️/❌).
 2. **Tratar as saídas** (a fila continua mesmo se uma pasta falhar):
    - `⏭️ PULADO — nenhuma fonte` → subpasta sem PDF de fonte; segue.
-   - `auth`/`nlm login` → credenciais expiraram: rode `nlm login` e re-dispare.
+   - `auth`/`nlm login` → credenciais expiraram: rode `nlm login` e re-dispare. **Se o `nlm login` der `Login timeout` mesmo com o navegador logado → é versão velha, veja a regra do `0.9.4` no Passo 0.**
    - `❌ FALHOU` (query vazia / `INVALID_ARGUMENT` / build recusou) → o script **mantém aquele notebook de pé** (título `EFÊMERO IMPUG — …`, id no resumo) e **não move** a subpasta, para inspeção/re-run.
 3. **Sucesso** → o notebook **já foi apagado** e a subpasta **movida** pelo script. **Entregue o(s) `.docx`** ao perito (salva em `Laudos-Gerados/`). O script grava um `esclarecimentos-<nº>.json` ao lado do `.docx` (o JSON que alimentou o build) — útil para depurar; não precisa abrir.
 
