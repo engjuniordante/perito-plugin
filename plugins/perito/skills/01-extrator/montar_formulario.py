@@ -84,6 +84,22 @@ def blank_if_nl(v: str) -> str:
     return "" if (not v or is_nao_localizado(v)) else cleanup_value(v)
 
 
+def reject_leaked_label(v: str) -> str:
+    """bullet_value() usa \\s* depois do ':' pra pegar valor na linha seguinte ao rótulo (ex.:
+    'Descrição da versão do Reclamante' — necessário, não mexer). Efeito colateral: quando o
+    campo vem VAZIO e o próximo rótulo também, o \\s* atravessa a quebra de linha e devolve o
+    próximo rótulo como se fosse valor (ex. 'Reclamante disse: - Reclamada disse:'). Usar só nos
+    campos de CITAÇÕES, onde um campo vazio é comum e legítimo — não generalizar pro bullet_value."""
+    v = (v or "").strip()
+    if not v:
+        return v
+    if v.rstrip().endswith(":"):
+        return ""
+    if re.fullmatch(r"-{3,}", v):
+        return ""
+    return v
+
+
 def _iso(d: str) -> str:
     """DD/MM/AAAA → AAAA-MM-DD (comparável). Vazio/inválido → ''."""
     m = re.match(r"(\d{2})/(\d{2})/(\d{4})", d or "")
@@ -401,12 +417,37 @@ def prefill_agentes(form: str, agentes: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def strip_nlm_suggestion_box(text: str) -> str:
+    """O NLM às vezes anexa uma caixinha de conversa ("💡 Sugestão de próximo passo: ...") que
+    não é dado do processo — já vazou pro bloco de Quesitos. Descarta a linha com 💡 e as linhas
+    de continuação (até uma linha em branco ou o próximo cabeçalho ▶/#)."""
+    lines = text.split("\n")
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        if not skipping and "💡" in line:
+            skipping = True
+            continue
+        if skipping:
+            s = line.strip()
+            if not s or s.startswith("▶") or s.startswith("#"):
+                skipping = False
+            else:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def build_form(bundle_path: Path) -> str:
     text = bundle_path.read_text(encoding="utf-8")
     # O NLM às vezes formata headers/labels/células em **negrito** ("▶ **PROCESSO...**", "- **Nº:**").
     # Neutraliza o negrito UMA vez na ingestão p/ nenhum campo silenciar por formatação (senão a chave
     # da seção vira "**PROCESSO" e o get_by_prefix devolve vazio, travando o form). Paridade c/ o squad.
     text = text.replace("**", "")
+    # Idem p/ heading markdown ("### ▶ NOME" em vez de "▶ NOME") — já aconteceu de zerar o form
+    # inteiro (nenhuma seção reconhecida, nem o nº do processo).
+    text = re.sub(r"^#+\s*(?=▶)", "", text, flags=re.M)
+    text = strip_nlm_suggestion_box(text)
     sec = split_subsections(text)
 
     proc = get_by_prefix(sec, "PROCESSO E EMPRESA")
@@ -478,9 +519,9 @@ def build_form(bundle_path: Path) -> str:
     ativ_recda = blank_if_nl(bullet_value(ativ_block, "Descrição (versão da Reclamada na Contestação / divergências, se houver)")) \
         or blank_if_nl(bullet_value(ativ_block, "Descrição (versão da Reclamada na Contestação"))
 
-    cit_recte = blank_if_nl(bullet_value(cit_block, "Reclamante disse"))
-    cit_recda = blank_if_nl(bullet_value(cit_block, "Reclamada disse"))
-    cit_parad = blank_if_nl(bullet_value(cit_block, "Paradigma (se houver)"))
+    cit_recte = reject_leaked_label(blank_if_nl(bullet_value(cit_block, "Reclamante disse")))
+    cit_recda = reject_leaked_label(blank_if_nl(bullet_value(cit_block, "Reclamada disse")))
+    cit_parad = reject_leaked_label(blank_if_nl(bullet_value(cit_block, "Paradigma (se houver)")))
 
     part_recte = ""
     for raw in part_block.splitlines():
