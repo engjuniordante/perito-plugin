@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from pathlib import Path
 
 # ── console UTF-8 (Windows cp1252 quebra com emoji/acentos) ──────────────────
@@ -286,6 +287,143 @@ def _ordem_data(d):
     """'dd/mm/aaaa' → chave ordenável (aaaa, mm, dd). Ordenar a string crua compara o DIA
     primeiro, e aí '31/01/2020' sairia DEPOIS de '01/02/2021'."""
     return d[6:10], d[3:5], d[0:2]
+
+
+# ── ORIGEM DA FICHA: medir, em vez de acreditar ──────────────────────────────────────
+# O bundle JÁ traz "▶ ORIGEM DA FICHA: [X] PDF digital nativo · [ ] Imagem escaneada…", mas
+# quem marca é o MODELO. E é essa linha que decide o peso da extração: em ficha com tabela
+# legível a contagem fecha exata; em ficha manuscrita duas gerações do mesmo artefato deram
+# 314 e 395 entregas (~20%), e ali a extração é ROTEIRO DE DILIGÊNCIA, não fonte de verdade.
+#
+# O que se mede NÃO é "o PDF é digital?" — medido nos PDFs do Irineu, a petição inicial tem
+# 2071 chars/página e MENOS de uma data distinta no documento inteiro. Densidade de texto
+# sozinha chamaria a petição de ficha. A pergunta certa é **"este PDF expõe uma tabela de
+# entregas legível?"**, e quem responde é a DIVERSIDADE DE DATAS por página:
+#
+#   ficha digital (0010094-14, 7 fls.) ..... 721 ch/pág · 17 datas distintas · 2,43/pág
+#   ficha escaneada (0017000-78, 1 fl.) .....  7 ch/pág ·  0 datas distintas · 0,00/pág
+#   petição inicial (controle, 30 fls.) .... 2071 ch/pág ·  1 data  distinta · 0,03/pág
+#   carimbo do PJe só (caso da auditoria) ... 330 ch/pág ·  1 data  distinta · 0,05/pág
+#
+# O último é o caso adversário: 20 páginas com a MESMA data (o carimbo), que a densidade de
+# texto classificaria errado e a diversidade de datas acerta. Margem ~50×, não é corte fino.
+#
+# Tudo stdlib de propósito: o extrai_processo roda no PC do Irineu sem instalação. Qualquer
+# falha de leitura vira 'indeterminado' e o comportamento é o de hoje — nunca pior.
+_PDF_STREAM_RE = re.compile(rb'stream\r?\n(.*?)endstream', re.S)
+# "show text" do PDF: [..]TJ ou (..)Tj/'/" — restringir a isto é o que impede parêntese
+# dentro de stream de IMAGEM binária de entrar na conta (sem o filtro deu 1,2 M chars/pág).
+_PDF_TJ_RE = re.compile(rb'\[[^\[\]]{0,4000}\]\s*TJ'
+                        rb"|\((?:\\.|[^\\()]){0,2000}\)\s*(?:Tj|'|\")", re.S)
+_PDF_STR_RE = re.compile(rb'\((?:\\.|[^\\()])*\)', re.S)
+_PDF_PAGE_RE = re.compile(rb'/Type\s*/Page[^sA-Za-z]')
+_DATA_BR_RE = re.compile(r'\b\d{2}/\d{2}/\d{4}\b')
+# Piso de datas distintas por página para dizer "tem tabela legível". O digital conhecido dá
+# 2,43 e o maior falso-candidato dá 0,05; 0,5 fica no meio, com folga dos dois lados.
+LIMIAR_DATAS_POR_PAGINA = 0.5
+
+
+def _pdf_texto(raw):
+    """Texto dos operadores de mostrar-texto. Aproximado de propósito: serve para CONTAR
+    datas, não para transcrever a ficha."""
+    partes = []
+    for m in _PDF_STREAM_RE.finditer(raw):
+        d = m.group(1)
+        for tenta in (zlib.decompress, lambda x: zlib.decompressobj().decompress(x)):
+            try:
+                infl = tenta(d)
+                break
+            except Exception:
+                infl = None
+        if not infl:
+            continue
+        for op in _PDF_TJ_RE.finditer(infl):
+            for g in _PDF_STR_RE.finditer(op.group(0)):
+                t = g.group(0)[1:-1]
+                if t and sum(1 for c in t if 32 <= c < 127 or c in (9, 10, 13)) >= 0.7 * len(t):
+                    partes.append(t)
+    return b' '.join(partes).decode('latin-1', 'replace')
+
+
+def sondar_origem_ficha(pdf_path):
+    """(origem, medidas) medidos no PDF. origem ∈ 'digital' | 'escaneada' | 'indeterminado'.
+
+    'indeterminado' é resposta legítima e frequente (PDF cifrado, object stream que não
+    inflamos, layout exótico) — e nesse caso ninguém decide nada por ele.
+    """
+    try:
+        raw = Path(pdf_path).read_bytes()
+    except Exception:
+        return "indeterminado", {}
+    # Sem isto, um arquivo que NAO e PDF devolvia veredicto confiante ("escaneada", porque
+    # nao acha data nenhuma) em vez de admitir que nao sabe.
+    if not raw[:1024].lstrip().startswith(b"%PDF"):
+        return "indeterminado", {}
+    try:
+        pags = len(_PDF_PAGE_RE.findall(raw)) or 1
+        texto = _pdf_texto(raw)
+        datas = _DATA_BR_RE.findall(texto)
+        distintas = len(set(datas))
+        dpp = distintas / pags
+        med = {"paginas": pags, "chars": len(texto), "chars_pag": round(len(texto) / pags, 1),
+               "datas": len(datas), "datas_distintas": distintas, "datas_pag": round(dpp, 2)}
+        if dpp >= LIMIAR_DATAS_POR_PAGINA:
+            return "digital", med
+        # Sem tabela de datas legível. Se também não há texto nenhum, é scan puro; se há
+        # texto mas as datas não variam, é o carimbo do PJe. Os dois caem no mesmo ramo.
+        return "escaneada", med
+    except Exception:
+        return "indeterminado", {}
+
+
+_ORIGEM_DECL_RE = re.compile(
+    r'ORIGEM\s+DA\s+FICHA.*?$', re.I | re.M)
+
+
+def origem_declarada(resposta_p3a):
+    """O que o MODELO marcou na linha ▶ ORIGEM DA FICHA, ou None se não marcou nada."""
+    m = _ORIGEM_DECL_RE.search(resposta_p3a or "")
+    if not m:
+        return None
+    linha = m.group(0)
+    # a 1ª opção marcada manda; "[X] PDF digital nativo" vs "[X] Imagem escaneada…"
+    marcadas = re.findall(r'\[\s*[xX]\s*\]\s*([^·|\[\]]{3,60})', linha)
+    for texto in marcadas:
+        t = texto.lower()
+        if 'digital' in t or 'nativo' in t or 'selecion' in t:
+            return "digital"
+        if 'escane' in t or 'imagem' in t or 'manuscrit' in t or 'ocr' in t:
+            return "escaneada"
+    return None
+
+
+def conferir_origem_ficha(pdf_path, resposta_p3a, log_fn=log):
+    """Cruza a declaração do modelo com a medida. Só AVISA — no console, nunca no bundle.
+
+    Não corrige a linha do bundle de propósito: o formulário do Irineu não se toca, e uma
+    medida com margem grande mas amostra pequena (3 casos conhecidos) não deve sobrescrever
+    em silêncio o que o modelo leu do documento. Quem decide é o perito.
+    """
+    medida, med = sondar_origem_ficha(pdf_path)
+    declarada = origem_declarada(resposta_p3a)
+    if med:
+        log_fn(f"   🔎 ficha medida: {med['paginas']} pág · {med['chars_pag']} chars/pág · "
+               f"{med['datas_distintas']} datas distintas ({med['datas_pag']}/pág) → {medida}")
+    if medida == "indeterminado":
+        log_fn("   ⚠ não foi possível medir a camada de texto da ficha — segue a declaração "
+               "do modelo, como antes.")
+        return medida, declarada
+    if medida == "escaneada":
+        log_fn("   ⚠ FICHA SEM TABELA DE ENTREGAS LEGÍVEL (escaneada/manuscrita). A extração "
+               "dela é ROTEIRO DE DILIGÊNCIA, não fonte de verdade: confira as entregas na "
+               "ficha original, em campo. Não existe conferência automática possível aqui.")
+    if declarada and declarada != medida:
+        log_fn(f"   🚩 ORIGEM DA FICHA DIVERGE — o modelo declarou '{declarada}' e a medição "
+               f"diz '{medida}'. O bundle mantém o que o modelo escreveu; confira a linha "
+               f"▶ ORIGEM DA FICHA antes de confiar na contagem.")
+    elif not declarada:
+        log_fn(f"   ⚠ o modelo não marcou a linha ▶ ORIGEM DA FICHA; a medição diz '{medida}'.")
+    return medida, declarada
 
 
 def resumo_ficha(resposta_p3a, limite=1200):
@@ -686,6 +824,12 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
             if key == "P3a" and ficha:
                 # fora da conversa do lote: leva o imprescrito da P1 no texto da pergunta
                 res = query_ficha(prompt, imprescrito_de(respostas.get("P1")))
+                # medir a origem AQUI: é o único ponto em que temos, ao mesmo tempo, o PDF da
+                # ficha e o que o modelo declarou sobre ele. Só avisa, no console.
+                try:
+                    conferir_origem_ficha(ficha, res)
+                except Exception as e:
+                    log(f"   ⚠ sonda de origem da ficha falhou ({e}) — seguindo sem ela.")
             else:
                 if key == "P3b" and ficha:
                     # a 3b cruza "a prática" (ficha) com "a norma"; como ela não viu a 3a nesta
