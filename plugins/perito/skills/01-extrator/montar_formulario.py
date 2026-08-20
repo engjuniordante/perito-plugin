@@ -518,8 +518,11 @@ def strip_nlm_suggestion_box(text: str) -> str:
     return "\n".join(out)
 
 
-def build_form(bundle_path: Path) -> str:
-    text = bundle_path.read_text(encoding="utf-8")
+def normalize_bundle(text: str) -> str:
+    """Normalização de ingestão do bundle — a ÚNICA. Quem precisar ler o bundle (o montador,
+    o validador) passa por aqui: manter duas cópias desta regra foi, literalmente, como o
+    formato do Gemini Notebook passou despercebido.
+    """
     # O NLM às vezes formata headers/labels/células em **negrito** ("▶ **PROCESSO...**", "- **Nº:**").
     # Neutraliza o negrito UMA vez na ingestão p/ nenhum campo silenciar por formatação (senão a chave
     # da seção vira "**PROCESSO" e o get_by_prefix devolve vazio, travando o form). Paridade c/ o squad.
@@ -532,7 +535,11 @@ def build_form(bundle_path: Path) -> str:
     # dentro das células da ficha ("| 09/03/2022 [Image 20] |"), que os parsers de tabela liam
     # como linha inválida e descartavam a entrega em silêncio.
     text = strip_citacoes(text)
-    text = strip_nlm_suggestion_box(text)
+    return strip_nlm_suggestion_box(text)
+
+
+def build_form(bundle_path: Path) -> str:
+    text = normalize_bundle(bundle_path.read_text(encoding="utf-8"))
     sec = split_subsections(text)
 
     proc = get_by_prefix(sec, "PROCESSO E EMPRESA")

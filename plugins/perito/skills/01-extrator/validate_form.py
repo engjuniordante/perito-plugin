@@ -13,6 +13,16 @@ Checks:
 - B2 identidade do processo: nº no formulário tem de bater com o do bundle (form
   montado sobre o bundle errado é catastrófico e silencioso).
 - guard-block: o guard determinístico de EPI (check_epi) de fato rodou e carimbou o form.
+- B3 campo obrigatório vazio: os campos que a EXTRAÇÃO preenche saíram preenchidos. Só os
+  da extração — campo de medição, citação e participante vêm em branco DE PROPÓSITO (o
+  perito preenche in loco), e exigi-los daria alarme falso em todo formulário novo.
+- B4 formulário degradado: quando quase tudo saiu vazio, o problema não é campo faltando —
+  é o bundle inteiro que não foi reconhecido (marcador ▶ fora do início da linha). Sem
+  isto, um formulário em branco passava com VALIDAÇÃO OK desde que o nº do processo
+  sobrevivesse.
+- B5 quesitos perdidos na transcrição: o bundle TEM quesitos da parte e o formulário saiu
+  com o texto de ausência. Compara com o BUNDLE, não com o próprio formulário — conferência
+  que fecha com ela mesma não pega nada (foi assim que a caixinha do NLM vazou duas vezes).
 
 Uso:
   python3 validate_form.py <formulario.md> <bundle.md>
@@ -33,10 +43,121 @@ for _s in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_epi as ce
-from montar_formulario import _menos_cinco_anos
+from montar_formulario import (_menos_cinco_anos, first_checked_label, get_by_prefix,
+                               normalize_bundle, parse_quesitos, split_subsections)
 
 
 PROC_RE = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
+
+# ── B3/B4: campos que a EXTRAÇÃO preenche ────────────────────────────────────────────
+# Ficam de fora, de propósito: medição (o perito mede in loco), CITAÇÕES (vêm em branco da
+# extração por desenho), participantes além do reclamante, "Neutraliza?" e o laudo base.
+# Exigir qualquer um deles daria VALIDAÇÃO FALHOU em todo formulário recém-montado.
+# crítico=True → achado próprio; crítico=False → só conta para o B4.
+CAMPOS_EXTRACAO = [
+    ('Nº',                      True,  'sem ele não há como confirmar os autos'),
+    ('Reclamante',              True,  'a tabela de identificação do laudo sai sem parte'),
+    ('Reclamada',               True,  'a tabela de identificação do laudo sai sem parte'),
+    ('Data da autuação / ação', True,  'é o marco do piso quinquenal — sem ela o imprescrito não se confere (B1d)'),
+    ('Vara',                    False, ''),
+    ('Data da diligência',      False, ''),
+    ('Horário',                 False, ''),
+    ('Local',                   False, ''),
+]
+# Valor que EXISTE mas não é conteúdo. "[NÃO LOCALIZADO]" é o montador dizendo que o NLM não
+# achou — honesto e visível, mas para um campo crítico o formulário está quebrado do mesmo jeito.
+VAZIOS = {'', '-', '—', '–', '_', '__', '___', '____', '[não localizado]', '[nao localizado]',
+          'não localizado', 'nao localizado', 'n/a', 'na'}
+TIPOS_LAUDO = ['Insalubridade + Periculosidade', 'Insalubridade', 'Periculosidade', 'Ergonomia']
+# O que o montador escreve quando a extração não trouxe quesitos daquela parte.
+AUSENCIA_QUESITO = ('não houve', 'nao houve', 'não encontrado', 'nao encontrado')
+
+
+def _valor_campo(form_text, rotulo):
+    """Valor do campo, ou None se o RÓTULO nem existe no formulário (coisa diferente de vazio).
+
+    Tolera o negrito que o próprio template escreve em alguns rótulos
+    ("- **Data da autuação / ação:** 26/01/2026").
+    """
+    m = re.search(r'^[\-\*•·]?[ \t]*\*{0,2}' + re.escape(rotulo) + r'\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*(.*)$',
+                  form_text, re.M)
+    if not m:
+        return None
+    return re.sub(r'\s*\*\(.*?\)\*\s*$', '', m.group(1)).strip()
+
+
+def _vazio(v):
+    return v is None or v.strip().lower() in VAZIOS
+
+
+def _secao_form(form_text, titulo):
+    """Bloco de uma seção do FORMULÁRIO ("## ▶ TIPO DE LAUDO ★"). Não dá pra usar o
+    split_subsections aqui: ele exige o ▶ no início ABSOLUTO da linha, e no formulário o
+    marcador vem depois do "## "."""
+    m = re.search(r'^#{1,3}[ \t]*▶[ \t]*' + re.escape(titulo) + r'.*?$(.*?)(?=^#{1,3}[ \t]*▶|\Z)',
+                  form_text, re.M | re.S)
+    return m.group(1) if m else ''
+
+
+def _bloco_quesito_form(form_text, titulo):
+    m = re.search(r'^#{2,4}[ \t]*' + re.escape(titulo) + r'[ \t]*$(.*?)(?=^#{2,4}[ \t]|\Z)',
+                  form_text, re.M | re.S)
+    return m.group(1) if m else None
+
+
+def validate_campos_obrigatorios(form_text, findings):
+    """B3 + B4 — campo da extração vazio, e o diagnóstico quando quase tudo saiu vazio."""
+    vazios = []
+    for rotulo, critico, porque in CAMPOS_EXTRACAO:
+        v = _valor_campo(form_text, rotulo)
+        if not _vazio(v):
+            continue
+        vazios.append(rotulo)
+        if critico:
+            como = 'rótulo ausente do formulário' if v is None else 'campo vazio'
+            findings.append('Campo obrigatório "%s" não foi preenchido pela extração (%s) — %s.'
+                            % (rotulo, como, porque))
+
+    # Tipo de laudo: sem opção marcada o Redator não tem como escolher o template.
+    tipo_block = _secao_form(form_text, 'TIPO DE LAUDO')
+    if tipo_block and first_checked_label(tipo_block, TIPOS_LAUDO) < 0:
+        vazios.append('TIPO DE LAUDO')
+        findings.append('TIPO DE LAUDO sem nenhuma opção marcada — é ele que escolhe o template '
+                        'do laudo; confira o PEDIDO da petição inicial no bundle.')
+
+    # B4 — o diagnóstico. Campo isolado vazio é falta de dado; quase tudo vazio é OUTRA coisa.
+    if len(vazios) >= 6:
+        findings.append(
+            '%d de %d campos da extração saíram vazios (%s) — isto não é dado faltando, é o '
+            'BUNDLE que não foi reconhecido. Confira se os marcadores ▶ do bundle estão no '
+            'início da linha (heading "### ▶", bullet "* ▶" e recuo já zeraram o formulário '
+            'inteiro antes).' % (len(vazios), len(CAMPOS_EXTRACAO) + 1, ', '.join(vazios)))
+
+
+def validate_quesitos(form_text, bundle_text, findings):
+    """B5 — o bundle traz quesitos da parte e o formulário saiu com o texto de ausência.
+
+    Só acusa nesse sentido. "Sobra" (formulário com quesito que o bundle não tem) fica de
+    fora: seria acusar o perito de ter completado o formulário à mão, que é o trabalho dele.
+    """
+    sec = split_subsections(normalize_bundle(bundle_text))
+    for chave, titulo in (('QUESITOS DO JUÍZO', 'Quesitos do Juízo'),
+                          ('QUESITOS DO RECLAMANTE', 'Quesitos do Reclamante'),
+                          ('QUESITOS DA RECLAMADA', 'Quesitos da Reclamada')):
+        do_bundle = parse_quesitos(get_by_prefix(sec, chave))
+        if not do_bundle or do_bundle.strip().lower().startswith(AUSENCIA_QUESITO):
+            continue                      # o bundle não tem → ausência no form é correta
+        bloco = _bloco_quesito_form(form_text, titulo)
+        if bloco is None:
+            findings.append('Bloco "%s" ausente do formulário, mas o bundle traz quesitos dessa '
+                            'parte — a seção se perdeu na montagem.' % titulo)
+            continue
+        texto = bloco.strip().lower()
+        if not texto or any(texto.startswith(k) for k in AUSENCIA_QUESITO):
+            n = len([l for l in do_bundle.splitlines() if l.strip()])
+            findings.append('"%s": o formulário diz que não há, mas o bundle traz %d linha(s) de '
+                            'quesito — perdidos na transcrição, não ausentes dos autos. Confira '
+                            'o bloco de quesitos do bundle.' % (titulo, n))
 
 
 def validate_imprescrito_sanity(form_text: str, findings: list[str]) -> None:
@@ -102,6 +223,8 @@ def main() -> int:
     validate_imprescrito_sanity(form_text, findings)
     validate_process_identity(form_text, bundle_text, findings)
     validate_guard_block(form_text, findings)
+    validate_campos_obrigatorios(form_text, findings)
+    validate_quesitos(form_text, bundle_text, findings)
 
     if findings:
         print('VALIDAÇÃO FALHOU')
