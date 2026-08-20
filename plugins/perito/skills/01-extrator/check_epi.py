@@ -1326,36 +1326,91 @@ def fill_resumo_items(body, lines, cadict, caepi):
     return body
 
 
-# Linhas NR-6 guard-owned: o guard recalcula e reescreve. group(1) leva tudo até o "— ";
-# group(2)=espaço entre Sim/Não; group(3)=" · obs:"; o resto é descartado.
+# Linhas NR-6 guard-owned: o guard recalcula e reescreve.
+def _nr6_line_re(rotulo):
+    """Linha NR-6 'guard-owned', em QUALQUER das grafias e espaçamentos que já circularam.
+
+    ⚠ A versão anterior exigia `[X]Sim` colado E um rabicho `· obs:` obrigatório — formato que
+    o montador NÃO produz: ele escreve `- Ficha de EPI — registro do fornecimento 🔄 — [ ] Sim
+    [ ] Não`, com espaço depois do colchete e sem `obs:`. Resultado: a linha do guard estava
+    MORTA contra o formulário real, e o teste passava porque alimentava a função com o formato
+    antigo — a função certa recebendo o argumento errado. Aqui os grupos de espaçamento são
+    capturados e devolvidos como vieram, para servir aos dois formatos sem reformatar o
+    formulário do perito.
+    """
+    return re.compile(
+        r'(?m)^(?P<pre>[^\n]*?(?:' + rotulo + r')[^\n\[]*?[—-]\s*)'
+        r'\[(?P<s>[ Xx])\](?P<g1>\s*)Sim(?P<sep>\s+)\[(?P<n>[ Xx])\](?P<g2>\s*)N[aã]o'
+        r'(?P<obs>\s*·\s*obs:[^\n]*)?$')
+
+
+# NOTA (achado de 20/08/2026): NR6_FREQ_RE e NR6_CA_RE têm o MESMO defeito — também não casam
+# a linha que o montador gera hoje, logo `fill_nr6_ca` e `fill_nr6_frequencia` igualmente não
+# disparam, e essas duas linhas do formulário vêm apenas da tabela NR-6 do bundle. NÃO foram
+# migradas para `_nr6_line_re` nesta mudança de propósito: ligá-las faz o guard passar a
+# SOBRESCREVER a resposta do modelo pela conta determinística dele, o que muda veredito e é
+# decisão do perito, não consequência lateral da correção da ficha.
 NR6_FREQ_RE = re.compile(
     r'(Frequ[eê]ncia regular de fornecimento[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
     re.I | re.M)
 NR6_CA_RE = re.compile(
     r'(Anota[cç][aã]o do C\.A\., s[oó] EPI certific[aá]vel[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
     re.I | re.M)
-NR6_FICHA_RE = re.compile(
-    r'(Ficha registra o fornecimento[^\n]*?[—-]\s*)\[[ X]\]Sim(\s+)\[[ X]\]N[aã]o(\s*·\s*obs:)[^\n]*$',
-    re.I | re.M)
+NR6_FICHA_RE = _nr6_line_re(
+    r'Ficha de EPI\s*[—–-]\s*registro do fornecimento|Ficha registra o fornecimento')
+
+# "Ficha nos autos?" é pergunta DOCUMENTAL e só o [X] explícito responde SIM. Casar
+# "controle de entrega" seguido de qualquer coisa lê o sinal de AUSÊNCIA como presença: num
+# formulário sem ficha essa mesma linha carrega "NÃO LOCALIZADO", que também é caractere.
+CONTROLE_ENTREGA_SIM_RE = re.compile(
+    r'(?im)^[^\n]*controle de entrega[^\n]*?\[\s*[Xx]\s*\]\s*Sim')
+# Marca deixada pelo montador quando a ficha FOI lida e tem entregas, mas nenhuma cai na
+# janela do imprescrito. É prova de que a ficha existe e foi lida — não de que está vazia.
+FICHA_LIDA_FORA_JANELA_RE = re.compile(r'(?i)entregas da ficha')
 
 
 def fill_nr6_ficha(body):
-    """Crava a linha NR-6 'Ficha registra o fornecimento' a partir da tabela de EPI.
+    """Crava a linha NR-6 'Ficha de EPI — registro do fornecimento'. É linha DOCUMENTAL.
 
-    Havendo pelo menos uma entrega na tabela, a ficha documenta fornecimento. Sem tabela
-    ou sem entregas, marca Não. É uma linha documental, não decisão pericial.
+    A régua tem TRÊS estados, não dois, e o terceiro é o que importa:
+
+      ficha lida, com entregas ............... [X] Sim
+      ficha NOS AUTOS, mas nada foi lido ..... EM BRANCO, com a razão na observação
+      ficha NÃO juntada aos autos ............ [X] Não
+
+    Antes, qualquer tabela vazia virava `[X]Não · não foram identificadas entregas`. Metade das
+    fichas é escaneada ou manuscrita e devolve zero entregas por FALHA DE LEITURA, não por
+    ausência de fato — e essa linha alimenta o teste de eliminação da NR-6, que move o veredito.
+    O formulário passava a afirmar que a ré não comprovou fornecimento numa ficha que está nos
+    autos: impugnável em uma linha. Processo realmente sem ficha (revelia, não juntada, defesa
+    que só alega) é rotina pericial e continua merecendo o `[X] Não` — ali a ausência de prova
+    é legítima e corre a favor do reclamante. O que não se pode é dar a mesma resposta aos dois.
     """
-    has_row = any(is_data_row(split_row(raw)) for raw in body.splitlines())
-    if has_row:
+    tem_entrega = any(is_data_row(split_row(raw)) for raw in body.splitlines())
+    lida_fora_janela = bool(FICHA_LIDA_FORA_JANELA_RE.search(body))
+    nos_autos = bool(CONTROLE_ENTREGA_SIM_RE.search(body)) or lida_fora_janela
+
+    if tem_entrega:
         mark_sim, mark_nao = 'X', ' '
         obs = 'Ficha de EPI registra entregas de EPI/itens ao trabalhador.'
+    elif lida_fora_janela:
+        mark_sim, mark_nao = 'X', ' '
+        obs = ('ficha lida e COM entregas, porém todas FORA do período imprescrito — '
+               'documentalmente registra fornecimento; a cobertura do período é outra linha.')
+    elif nos_autos:
+        mark_sim, mark_nao = ' ', ' '     # o terceiro estado: em branco é resposta, não omissão
+        obs = ('EM BRANCO PROPOSITAL — há controle de entrega nos autos, mas NENHUMA entrega '
+               'foi lida da ficha (escaneada/manuscrita falha na leitura com frequência). Isso '
+               'NÃO é ausência de fornecimento. Conferir a ficha e marcar in loco.')
     else:
         mark_sim, mark_nao = ' ', 'X'
-        obs = 'não foram identificadas entregas na tabela de EPI.'
+        obs = ('não há ficha nem controle de entrega de EPI nos autos — ausência de prova do '
+               'fornecimento (não é falha de leitura).')
 
     def repl(m):
-        return '%s[%s]Sim%s[%s]Não%s %s' % (
-            m.group(1), mark_sim, m.group(2), mark_nao, m.group(3), obs)
+        return (m.group('pre') + '[' + mark_sim + ']' + m.group('g1') + 'Sim'
+                + m.group('sep') + '[' + mark_nao + ']' + m.group('g2') + 'Não'
+                + ' · obs: ' + obs)
 
     return NR6_FICHA_RE.sub(repl, body, count=1)
 
