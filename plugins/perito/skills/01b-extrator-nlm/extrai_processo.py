@@ -202,6 +202,99 @@ def limpar(s):
     return s.strip()
 
 
+# ── ficha de EPI em notebook PRÓPRIO (T7) ─────────────────────────────────────
+# Medido em processo real (0011183-33, ficha manuscrita de 20 fls.): no notebook do lote a
+# Parte 3a devolveu 2 a 3 entregas de uma ficha que tem centenas. A disputa é na INDEXAÇÃO,
+# não na pergunta: filtrar a fonte na consulta não substitui subir sozinha. E ficha perdida
+# não sai vazia, sai PLAUSÍVEL — uma tabela bonita com 5 entregas de uma ficha que tem 29 —,
+# que é o pior modo de falhar, porque o perito só descobre com a ficha na mão, na diligência.
+#
+# Estes helpers leem RESPOSTA DE MODELO, então passam tudo por limpar() antes de casar texto:
+# no dialeto do Gemini a linha vem "| **09/03/2022** | 1 | LUVA | 5745 [Image 20] |", e casar
+# o literal contra formatação livre foi exatamente o que a v1.0.97 teve de desfazer.
+FICHA_HINTS = ("ficha", "epi")
+
+
+def achar_ficha(pdfs):
+    """O PDF da ficha de EPI entre os da pasta, ou None (aí a ficha pode estar embutida na
+    contestação e a Parte 3a roda no notebook do lote, como antes)."""
+    for p in pdfs:
+        nome = p.stem.lower()
+        if any(h in nome for h in FICHA_HINTS):
+            return p
+    return None
+
+
+def separar_ficha(pdfs, ficha_no_lote=False):
+    """Decide o que vai para o notebook dedicado e o que sobra para o do lote.
+
+    Devolve (ficha, pdfs_lote). A ficha só é isolada se SOBRAR pelo menos um PDF para o lote:
+    pasta que só tem a ficha (acontece — a skill roda com ≥1 PDF, desde a v1.0.81) deixaria o
+    notebook do lote sem nenhuma fonte, e as Partes 1/2/4 morreriam na primeira query.
+    """
+    if ficha_no_lote:
+        return None, list(pdfs)
+    ficha = achar_ficha(pdfs)
+    if not ficha:
+        return None, list(pdfs)
+    lote = [p for p in pdfs if p != ficha]
+    if not lote:                      # a ficha é o único PDF → nada a isolar
+        return None, list(pdfs)
+    return ficha, lote
+
+
+def imprescrito_de(resposta_p1):
+    """Data de início do imprescrito apurada na Parte 1. A Parte 3a precisa dela para a linha
+    divisória ▼▼▼ e, fora da conversa do lote, não teria como saber."""
+    if not resposta_p1:
+        return None
+    texto = limpar(resposta_p1)
+    m = re.search(r"[Ii]mprescrito[^\n]*?de\s+(\d{2}/\d{2}/\d{4})", texto)
+    if not m:
+        m = re.search(r"[Ii]mprescrito[^\n]*?(\d{2}/\d{2}/\d{4})", texto)
+    return m.group(1) if m else None
+
+
+def _ordem_data(d):
+    """'dd/mm/aaaa' → chave ordenável (aaaa, mm, dd). Ordenar a string crua compara o DIA
+    primeiro, e aí '31/01/2020' sairia DEPOIS de '01/02/2021'."""
+    return d[6:10], d[3:5], d[0:2]
+
+
+def resumo_ficha(resposta_p3a, limite=1200):
+    """Digest compacto da ficha para a Parte 3b (que cruza 'a prática' com 'a norma').
+
+    A tabela inteira não cabe no limite da mensagem — e não precisa: o que a 3b consome dela é
+    quantidade, faixa de datas e quais C.A. apareceram. As contas finas (lacuna no imprescrito,
+    cobertura) quem faz é o check_epi.py, de forma determinística, e não o modelo.
+    """
+    if not resposta_p3a:
+        return ""
+    linhas = [l for l in limpar(resposta_p3a).splitlines()
+              if re.match(r"^\s*\|\s*\d{2}/\d{2}/\d{2,4}", l)]
+    corpo = "\n".join(linhas)
+    datas = re.findall(r"\b\d{2}/\d{2}/\d{4}\b", corpo)
+    cas = []
+    # o C.A. é a última coluna: número colado no '|'. O lookbehind exclui dígito e '/' para
+    # não eleger o ANO da coluna de data ("| 09/03/2022 |" daria o C.A. fantasma 2022).
+    for c in re.findall(r"(?<![\d/])(\d{4,6})\s*(?=\|)", corpo):
+        if c not in cas:
+            cas.append(c)
+    sem_ca = sum(1 for l in linhas if re.search(r"n[ãa]o informado", l, re.I))
+    partes = ["CONTEXTO — a tabela de EPI da Parte 3a já foi extraída em consulta dedicada à "
+              "ficha. Resumo do que ela trouxe (não reextraia a ficha; use este resumo):",
+              f"- entregas registradas: {len(linhas)}"]
+    if datas:
+        ini, fim = min(datas, key=_ordem_data), max(datas, key=_ordem_data)
+        partes.append(f"- período coberto pela ficha: {ini} a {fim}")
+    if sem_ca:
+        partes.append(f"- entregas SEM C.A. informado: {sem_ca}")
+    if cas:
+        lista = ", ".join(cas[:40]) + ("…" if len(cas) > 40 else "")
+        partes.append(f"- C.A. distintos ({len(cas)}): {lista}")
+    return "\n".join(partes)[:limite]
+
+
 CNJ_RE = r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}"
 
 
@@ -226,7 +319,7 @@ def injetar_numero(bundle, pasta_name):
 
 # ── processar UMA pasta: pasta → bundle (cria/sobe/consulta/limpa/apaga) ──────
 def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
-                    regras_mode, keep):
+                    regras_mode, keep, ficha_no_lote=False):
     pasta = Path(pasta)
     pdfs = achar_pdfs(pasta)
     if not pdfs:
@@ -234,6 +327,14 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
     parcial = "" if len(pdfs) >= 4 else \
         f"  (PARCIAL — {len(pdfs)}/4 partes; o que faltar sai como [NÃO LOCALIZADO])"
     log(f"📄 {len(pdfs)} PDF(s): " + " · ".join(p.name for p in pdfs) + parcial)
+
+    # A ficha de EPI sai do notebook do lote e vai para um notebook só dela (T7). O lote fica
+    # com o resto; se não há arquivo de ficha separado (ela pode estar embutida na contestação),
+    # nada muda e a Parte 3a roda no lote, como antes.
+    ficha, pdfs_lote = separar_ficha(pdfs, ficha_no_lote)
+    if ficha:
+        log(f"🧾 ficha de EPI em notebook PRÓPRIO: {ficha.name}  "
+            f"(lote fica com {len(pdfs_lote)} PDF(s))")
 
     titulo = f"EFÊMERO — {pasta.name}"
     nb, err = nlm_json(nlm, ["notebook", "create", titulo])
@@ -251,9 +352,21 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
         _o, e = nlm_run(nlm, ["notebook", "delete", nb_id, "-y"])
         log(f"🗑️  notebook apagado: {nb_id}" if not e else f"⚠ não apaguei {nb_id}: {e}")
 
+    nb_ficha = [None]        # id do notebook dedicado (lista p/ o finally enxergar)
+
+    def apagar_ficha():
+        if not nb_ficha[0]:
+            return
+        if keep:
+            log(f"🧷 --keep: notebook da ficha mantido ({nb_ficha[0]}).")
+            return
+        _o, e = nlm_run(nlm, ["notebook", "delete", nb_ficha[0], "-y"])
+        log(f"🗑️  notebook da ficha apagado: {nb_ficha[0]}" if not e
+            else f"⚠ não apaguei o notebook da ficha {nb_ficha[0]}: {e}")
+
     try:
-        # subir os 4 PDFs esperando indexar (source add NÃO tem --json)
-        for p in pdfs:
+        # subir os PDFs do lote esperando indexar (source add NÃO tem --json)
+        for p in pdfs_lote:
             _o, err = nlm_run(nlm, ["source", "add", nb_id, "--file", str(p),
                                     "--wait", "--wait-timeout", str(wait_timeout)],
                               timeout=wait_timeout + 60)
@@ -262,16 +375,40 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
             log(f"   ✓ indexado: {p.name}")
 
         # queries encadeadas
-        def query(texto, key, conv):
+        def query(texto, key, conv, alvo=None):
             if len(texto) > LIMITE_QUERY:
                 log(f"   ⚠ {key}: {len(texto)} chars (> {LIMITE_QUERY}) — pode dar INVALID_ARGUMENT.")
-            qargs = ["notebook", "query", nb_id, texto, "--timeout", str(query_timeout)]
+            qargs = ["notebook", "query", alvo or nb_id, texto, "--timeout", str(query_timeout)]
             if conv:
                 qargs += ["-c", conv]
             res, err = nlm_json(nlm, qargs, timeout=query_timeout + 60)
             if err or not res:
                 raise FalhaPasta(f"falha na query {key}: {err}", nb_id)
             return res
+
+        def query_ficha(prompt_p3a, impr):
+            """Parte 3a num notebook que só tem a ficha. Como sai da conversa do lote, o marco
+            do imprescrito (apurado na Parte 1) vai EXPLÍCITO no texto da pergunta."""
+            nb2, err2 = nlm_json(nlm, ["notebook", "create", f"EFÊMERO — ficha {pasta.name}"])
+            if not nb2:
+                raise FalhaPasta(f"falha ao criar o notebook da ficha: {err2}", nb_id)
+            nb_ficha[0] = (nb2.get("id") or nb2.get("notebook_id")
+                           or (nb2.get("notebook") or {}).get("id"))
+            if not nb_ficha[0]:
+                raise FalhaPasta(f"não achei o id do notebook da ficha: {nb2}", nb_id)
+            log(f"   🆕 notebook da ficha: {nb_ficha[0]}")
+            _o, err2 = nlm_run(nlm, ["source", "add", nb_ficha[0], "--file", str(ficha),
+                                     "--wait", "--wait-timeout", str(wait_timeout)],
+                               timeout=wait_timeout + 60)
+            if err2:
+                raise FalhaPasta(f"falha ao subir/indexar a ficha '{ficha.name}': {err2}", nb_id)
+            log(f"   ✓ indexada (dedicado): {ficha.name}")
+            texto = prompt_p3a
+            if impr:
+                texto = (f"CONTEXTO (já apurado na Parte 1): o período imprescrito começa em "
+                         f"{impr}. Use EXATAMENTE esta data na linha divisória ▼▼▼.\n\n"
+                         + prompt_p3a)
+            return query(texto, "P3a(ficha dedicada)", None, alvo=nb_ficha[0])
 
         conv_id = None
         prompts = dict(blocos)
@@ -296,8 +433,23 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                 respostas[key] = ""   # ausente → [NÃO LOCALIZADO] no pipeline
                 log(f"   ⚠ {key}: ausente no arquivo de prompts")
                 continue
-            res = query(prompt, key, conv_id)
-            conv_id = conv_id or res.get("conversation_id")
+            if key == "P3a" and ficha:
+                # fora da conversa do lote: leva o imprescrito da P1 no texto da pergunta
+                res = query_ficha(prompt, imprescrito_de(respostas.get("P1")))
+            else:
+                if key == "P3b" and ficha:
+                    # a 3b cruza "a prática" (ficha) com "a norma"; como ela não viu a 3a nesta
+                    # conversa, recebe o DIGEST da ficha — nunca a tabela inteira (não cabe).
+                    digest = resumo_ficha(respostas.get("P3a"))
+                    if digest and len(digest) + len(prompt) + 2 <= LIMITE_QUERY:
+                        prompt = digest + "\n\n" + prompt
+                    elif digest:
+                        # não cabe: a 3b vai sem o contexto da ficha. Não é fatal (ela trata da
+                        # NORMA), mas o perito precisa saber que o cruzamento saiu mais fraco.
+                        log(f"   ⚠ P3b: digest da ficha ({len(digest)} chars) não coube no "
+                            f"limite de {LIMITE_QUERY} — a 3b vai sem o resumo da ficha.")
+                res = query(prompt, key, conv_id)
+                conv_id = conv_id or res.get("conversation_id")
             ans = (res.get("answer") or "").strip()
             if not ans:
                 raise FalhaPasta(f"query {key} voltou VAZIA (fonte faltando/indexação?)", nb_id)
@@ -316,10 +468,14 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
         out_path.write_text(bundle, encoding="utf-8")
         log(f"📦 bundle: {out_path}  ({len(bundle)} chars)")
     except FalhaPasta:
+        # falha → os DOIS notebooks ficam de pé para inspeção (achar pelo prefixo "EFÊMERO —")
         if not keep:
             log(f"🧷 notebook MANTIDO para inspeção: {nb_id} (título: {titulo}).")
+            if nb_ficha[0]:
+                log(f"🧷 notebook da ficha MANTIDO para inspeção: {nb_ficha[0]}.")
         raise
 
+    apagar_ficha()
     apagar_ok()   # sucesso: bundle gravado → o pipeline reprocessa do bundle
     return out_path
 
@@ -364,6 +520,9 @@ def main():
     ap.add_argument("--wait-timeout", type=float, default=600.0)
     ap.add_argument("--query-timeout", type=float, default=300.0)
     ap.add_argument("--keep", action="store_true", help="NÃO apagar o notebook ao fim (debug)")
+    ap.add_argument("--ficha-no-lote", action="store_true",
+                    help="comportamento antigo: ficha de EPI junto no notebook do lote "
+                         "(por padrão ela vai para um notebook próprio — ver T7)")
     args = ap.parse_args()
 
     if not args.pasta and args.lote is None:
@@ -390,7 +549,8 @@ def main():
         log(f"⚠ partes ausentes (viram [NÃO LOCALIZADO]): {faltando}")
 
     comum = dict(blocos=blocos, wait_timeout=args.wait_timeout,
-                 query_timeout=args.query_timeout, regras_mode=args.regras, keep=args.keep)
+                 query_timeout=args.query_timeout, regras_mode=args.regras, keep=args.keep,
+                 ficha_no_lote=args.ficha_no_lote)
 
     # ── modo SINGLE ──────────────────────────────────────────────────────────
     if args.lote is None:
