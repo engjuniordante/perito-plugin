@@ -316,6 +316,12 @@ _PDF_STREAM_RE = re.compile(rb'stream\r?\n(.*?)endstream', re.S)
 _PDF_TJ_RE = re.compile(rb'\[[^\[\]]{0,4000}\]\s*TJ'
                         rb"|\((?:\\.|[^\\()]){0,2000}\)\s*(?:Tj|'|\")", re.S)
 _PDF_STR_RE = re.compile(rb'\((?:\\.|[^\\()])*\)', re.S)
+# Como o _PDF_TJ_RE, mas capturando TAMBÉM o posicionamento, na ordem do stream: é o grupo 3
+# que vira quebra de linha.
+_PDF_TOKEN_RE = re.compile(
+    rb'(\[[^\[\]]{0,4000}\]\s*TJ)'
+    rb'|(\((?:\\.|[^\\()]){0,2000}\)\s*(?:Tj|\'|"))'
+    rb'|(\bT\*|\bTd|\bTD|\bTm|\bBT|\bET)', re.S)
 _PDF_PAGE_RE = re.compile(rb'/Type\s*/Page[^sA-Za-z]')
 _DATA_BR_RE = re.compile(r'\b\d{2}/\d{2}/\d{4}\b')
 # Piso de datas distintas por página para dizer "tem tabela legível". O digital conhecido dá
@@ -323,12 +329,18 @@ _DATA_BR_RE = re.compile(r'\b\d{2}/\d{2}/\d{4}\b')
 LIMIAR_DATAS_POR_PAGINA = 0.5
 
 
-def _pdf_texto(raw):
-    """Texto dos operadores de mostrar-texto. Aproximado de propósito: serve para CONTAR
-    datas, não para transcrever a ficha."""
-    partes = []
+def _pdf_linhas(raw):
+    """Linhas aproximadas do PDF. A linha é o que o T7.2 precisa: o gabarito conta UMA data
+    por linha, a primeira — em todos os layouts a data de entrega vem primeiro, e numa das
+    fichas a segunda era a validade do C.A., que inflava a conta.
+
+    A quebra sai dos operadores de POSICIONAMENTO (Td/TD/T*/Tm/BT/ET): é assim que o PDF
+    marca linha nova. Aproximado de propósito — serve para CONTAR, não para transcrever.
+    """
+    linhas = []
     for m in _PDF_STREAM_RE.finditer(raw):
         d = m.group(1)
+        infl = None
         for tenta in (zlib.decompress, lambda x: zlib.decompressobj().decompress(x)):
             try:
                 infl = tenta(d)
@@ -337,12 +349,25 @@ def _pdf_texto(raw):
                 infl = None
         if not infl:
             continue
-        for op in _PDF_TJ_RE.finditer(infl):
-            for g in _PDF_STR_RE.finditer(op.group(0)):
+        atual = []
+        for op in _PDF_TOKEN_RE.finditer(infl):
+            if op.group(3):                       # posicionou → fecha a linha
+                if atual:
+                    linhas.append(' '.join(atual))
+                    atual = []
+                continue
+            for g in _PDF_STR_RE.finditer(op.group(1) or op.group(2)):
                 t = g.group(0)[1:-1]
                 if t and sum(1 for c in t if 32 <= c < 127 or c in (9, 10, 13)) >= 0.7 * len(t):
-                    partes.append(t)
-    return b' '.join(partes).decode('latin-1', 'replace')
+                    atual.append(t.decode('latin-1', 'replace'))
+        if atual:
+            linhas.append(' '.join(atual))
+    return linhas
+
+
+def _pdf_texto(raw):
+    """Texto corrido, derivado das linhas — fonte única com o _pdf_linhas."""
+    return ' '.join(_pdf_linhas(raw))
 
 
 def sondar_origem_ficha(pdf_path):
@@ -395,6 +420,139 @@ def origem_declarada(resposta_p3a):
         if 'escane' in t or 'imagem' in t or 'manuscrit' in t or 'ocr' in t:
             return "escaneada"
     return None
+
+
+# ── T7.2/T7.3: conferência da CONTAGEM ───────────────────────────────────────────────
+# Até aqui não existia NENHUMA conferência independente: o check_epi classifica por C.A. o
+# que já está na tabela, e o checklist do SKILL.md é o modelo conferindo o bundle contra o
+# próprio bundle. Conferência que fecha com ela mesma não pega nada — em 07/08 o motor gêmeo
+# declarou 240, listou 240, e faltavam 15. Zero alarme. Só quebra o círculo quem compara com
+# o DOCUMENTO.
+#
+# Direção única, de propósito: a conferência acusa FALTA, nunca sobra. Falta é omissão de
+# leitura; sobra também acontece e é outro problema (T11), que esta régua não vê.
+
+# Linha de entrega no que o modelo transcreveu: tabela markdown que começa com a data, ou o
+# bullet do montador. Mesma regra do parse_ficha_rows: quem produz e quem confere têm de ler
+# da mesma origem.
+_LINHA_ENTREGA_RE = re.compile(r'^[\s\-–—•·*]*\|?\s*\d{2}/\d{2}/\d{4}\s*[|·]', re.M)
+# Rodapé de emissão — a assinatura de ficha REIMPRESSA. Ver o porquê em conferir_contagem().
+_EMISSAO_RE = re.compile(
+    r'(?:emiss[ãa]o|emitid[oa]|impress[ãa]o|gerado)\D{0,24}(\d{2}/\d{2}/\d{4})', re.I)
+# Piso de entregas por página da ficha (T7.3). Medido em 9 fichas: o único colapso conhecido
+# deu 0,15 e as outras oito ficaram entre 1,0 e 19,55.
+PISO_ENTREGAS_POR_PAGINA = 0.5
+# Quanto o transcrito pode ficar abaixo do gabarito sem virar alarme. O gabarito é uma conta
+# de linhas com data e pega junto o cabeçalho ("Admissão: …"): medido na ficha do 0010094-14,
+# 44 datas de gabarito para 38 entregas reais (86%). O colapso que se quer pegar é de outra
+# ordem — 5 de 29 é 17%. 0,75 passa longe de um e longe do outro.
+RAZAO_MINIMA_CONTAGEM = 0.75
+
+
+def gabarito_entregas(pdf_path):
+    """(datas, paginas) lidas do PDF: a PRIMEIRA data de cada linha que tem data.
+
+    ⚠ A ficha de EPI NÃO tem layout único — cada empregador imprime a sua, e o plugin vê
+    modelos novos o tempo todo. Por isso a régua é a mais agnóstica possível: uma data por
+    linha, a primeira, onde quer que ela esteja. Foi a regra medida em 9 fichas de
+    empregadores diferentes — em todos os layouts a data de ENTREGA vem antes das outras
+    (numa delas a segunda era a validade do C.A., e contar todas inflava a conta).
+
+    Exigir a data no INÍCIO da linha seria mais limpo neste PDF, mas quebra em qualquer
+    layout que comece a linha por nº de item ou código de produto — e aí o gabarito sai
+    baixo demais, o que não dá alarme falso mas também não confere nada.
+
+    O gabarito é um TETO aproximado (pega cabeçalho junto: "Data da Autuação: …"), nunca um
+    número exato — quem compara com ele usa RAZÃO, não igualdade.
+    """
+    try:
+        raw = Path(pdf_path).read_bytes()
+        if not raw[:1024].lstrip().startswith(b"%PDF"):
+            return [], 0
+        pags = len(_PDF_PAGE_RE.findall(raw)) or 1
+        datas = []
+        for ln in _pdf_linhas(raw):
+            m = _DATA_BR_RE.search(ln)
+            if m:
+                datas.append(m.group(0))
+        return datas, pags
+    except Exception:
+        return [], 0
+
+
+def contar_entregas_transcritas(resposta_p3a):
+    """Quantas linhas de entrega o modelo devolveu."""
+    return len(_LINHA_ENTREGA_RE.findall(resposta_p3a or ""))
+
+
+def ficha_reimpressa(pdf_path):
+    """Datas DISTINTAS de rodapé de emissão — 2 ou mais = ficha reimpressa.
+
+    Armadilha que custou uma corrida: o PDF traz o mesmo histórico duas vezes, com rodapés
+    de emissão em datas distintas. A contagem por data sai em DOBRO e a guarda acusa datas
+    que estão certas. Deduplicar linha não resolve (o extrator quebra a mesma entrega de
+    jeitos diferentes nas duas cópias) e chave por código de produto também não (o carimbo
+    diagonal do PJe joga o código para outra linha). O sinal confiável é o rodapé.
+    """
+    try:
+        raw = Path(pdf_path).read_bytes()
+        if not raw[:1024].lstrip().startswith(b"%PDF"):
+            return set()
+        return set(_EMISSAO_RE.findall(' '.join(_pdf_linhas(raw))))
+    except Exception:
+        return set()
+
+
+def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
+    """T7.2 no ramo digital, T7.3 nos dois. Só avisa — nada entra no bundle."""
+    transcritas = contar_entregas_transcritas(resposta_p3a)
+    datas, pags = gabarito_entregas(pdf_path)
+
+    # T7.3 — o sinal barato, que vale inclusive quando não há gabarito nenhum.
+    if pags and transcritas / pags < PISO_ENTREGAS_POR_PAGINA:
+        log_fn(f"   🚩 SÓ {transcritas} entrega(s) para {pags} página(s) de ficha "
+               f"({transcritas / pags:.2f}/pág, piso {PISO_ENTREGAS_POR_PAGINA}) — indício de "
+               f"LEITURA COLAPSADA. Abra a ficha e confira antes de usar esta tabela.")
+
+    if origem != "digital":
+        # Sem tabela legível não há gabarito, e gabarito cego NÃO pode passar calado: foi
+        # assim que um formulário saiu com 5 entregas de uma ficha que tinha 29.
+        log_fn(f"   ⚠ {transcritas} entrega(s) transcritas, SEM conferência automática "
+               "possível (a ficha não expõe tabela legível). Confira na ficha original.")
+        return transcritas, len(datas)
+
+    emissoes = ficha_reimpressa(pdf_path)
+    if len(emissoes) >= 2:
+        log_fn(f"   ⚠ FICHA REIMPRESSA — rodapés de emissão em datas distintas "
+               f"({', '.join(sorted(emissoes))}). O histórico aparece mais de uma vez e a "
+               f"contagem sairia em dobro, então NÃO comparo. Confira na via original.")
+        return transcritas, len(datas)
+
+    if not datas:
+        log_fn(f"   ⚠ {transcritas} entrega(s) transcritas, mas não consegui montar gabarito "
+               "de datas no PDF — sem conferência automática nesta ficha.")
+        return transcritas, 0
+
+    if len(datas) < transcritas:
+        # O gabarito é um TETO: sair MENOR que o transcrito significa que a régua não
+        # enxergou o layout desta ficha (cada empregador imprime a sua). Silêncio aqui
+        # pareceria concordância, que é justamente o que não se pode afirmar.
+        log_fn(f"   ⚠ gabarito ({len(datas)} linha(s) com data) MENOR que o transcrito "
+               f"({transcritas}) — a régua não leu o layout desta ficha, então NÃO há "
+               f"conferência de contagem aqui. Não é sinal de que está certo.")
+        return transcritas, len(datas)
+
+    razao = transcritas / len(datas)
+    if razao < RAZAO_MINIMA_CONTAGEM:
+        log_fn(f"   🚩 CONTAGEM NÃO FECHA — o modelo transcreveu {transcritas} entrega(s) e o "
+               f"PDF tem {len(datas)} linha(s) começando por data ({razao:.0%}). Faltam "
+               f"~{len(datas) - transcritas}. O gabarito é um TETO aproximado (conta cabeçalho "
+               f"junto), então o número exato é na ficha — mas uma diferença desta ordem é "
+               f"leitura perdida, não arredondamento.")
+    else:
+        log_fn(f"   ✓ contagem confere: {transcritas} transcritas × {len(datas)} linhas com "
+               f"data no PDF ({razao:.0%}).")
+    return transcritas, len(datas)
 
 
 def conferir_origem_ficha(pdf_path, resposta_p3a, log_fn=log):
@@ -827,9 +985,10 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                 # medir a origem AQUI: é o único ponto em que temos, ao mesmo tempo, o PDF da
                 # ficha e o que o modelo declarou sobre ele. Só avisa, no console.
                 try:
-                    conferir_origem_ficha(ficha, res)
+                    _origem, _ = conferir_origem_ficha(ficha, res)
+                    conferir_contagem(ficha, res, _origem)
                 except Exception as e:
-                    log(f"   ⚠ sonda de origem da ficha falhou ({e}) — seguindo sem ela.")
+                    log(f"   ⚠ sonda da ficha falhou ({e}) — seguindo sem ela.")
             else:
                 if key == "P3b" and ficha:
                     # a 3b cruza "a prática" (ficha) com "a norma"; como ela não viu a 3a nesta
