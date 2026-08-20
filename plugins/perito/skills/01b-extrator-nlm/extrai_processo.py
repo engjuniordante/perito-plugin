@@ -24,12 +24,16 @@ Saída: para cada pasta processada imprime "BUNDLE: <caminho>". Sai com código
 != 0 se a (única) pasta falhar; em lote, segue a fila e resume no fim.
 """
 import argparse
+import csv
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 # ── console UTF-8 (Windows cp1252 quebra com emoji/acentos) ──────────────────
@@ -295,6 +299,216 @@ def resumo_ficha(resposta_p3a, limite=1200):
     return "\n".join(partes)[:limite]
 
 
+# ── T7.1: a ficha pela via do ARTEFATO (data-table), não pela do chat ─────────
+# O notebook próprio (T7) resolve a INDEXAÇÃO; não resolve o TETO DA RESPOSTA DE CHAT.
+# Medido no 0015098-90 (ficha de 195 páginas, 255 entregas reais), seis tentativas de chat
+# para o MESMO PDF: 64 (truncou sem avisar) · 240 · 240 · 0 · 250 · e o artefato 253, contra
+# 255 do documento. Seis prompts, seis resultados: a causa é estrutural, não de prompt — o
+# teto é o da mensagem, e o artefato não o tem porque escreve em ARQUIVO.
+#
+# Medido nesta casa em 20/08/2026, ficha manuscrita de 20 fls. do 0011183-33: a via do
+# artefato devolveu 395 entregas, todas com data válida, de 01/07/2020 a 12/09/2024.
+DESC_DATA_TABLE = (
+    "Transcreva a FICHA DE CONTROLE DE ENTREGA DE EPI, uma linha por entrega registrada, na "
+    "ordem em que aparecem no documento. Colunas: DATA_ENTREGA (dd/mm/aaaa; se a celula trouxer "
+    "um periodo com duas datas, e UMA entrega so - transcreva apenas a data inicial), "
+    "QUANTIDADE (o numero exatamente como esta escrito; atencao: 1,000 e UMA unidade com tres "
+    "casas decimais, NAO mil), EQUIPAMENTO (a descricao literal como escrita, mantendo a "
+    "grafia original), CA (numero do Certificado de Aprovacao; se ilegivel transcreva o que se "
+    "ve entre colchetes, ex. [3?41]; se nao houver escreva NAO INFORMADO). Transcreva TODAS as "
+    "entregas de TODAS as paginas, sem resumir, sem agrupar e sem omitir repeticoes."
+)
+
+# A coluna é casada por PALAVRA-CHAVE, nunca por posição: o cabeçalho do CSV vem do modelo e
+# varia (foram três layouts em três fichas de empregadores diferentes), e a ferramenta ainda
+# acrescenta uma coluna "Source" por conta própria — indexar por posição já quebraria na
+# primeira ficha. Ordem importa: "descrição do EPI" casaria em 'epi' e em 'desc'; quem procura
+# primeiro é a chave certa.
+COLUNAS_FICHA = [
+    ("data", ("data", "entrega", "date", "dia")),
+    ("qtd",  ("quant", "qtd", "unid", "qty")),
+    ("desc", ("equipamento", "descri", "produto", "item", "epi", "material")),
+    ("ca",   ("c.a", "ca", "certificado", "aprova")),
+]
+
+
+def casar_colunas(cabecalho):
+    """Cabeçalho do CSV → {papel: nome da coluna}. Devolve só o que reconheceu."""
+    achado = {}
+    usados = set()
+    for papel, chaves in COLUNAS_FICHA:
+        for chave in chaves:
+            for col in cabecalho or ():
+                if col in usados or not col:
+                    continue
+                if chave in col.strip().lower().replace("_", " "):
+                    achado[papel] = col
+                    usados.add(col)
+                    break
+            if papel in achado:
+                break
+    return achado
+
+
+def normaliza_data(valor):
+    """Data da célula → dd/mm/aaaa, ou "" se não der para ler.
+
+    Célula com DUAS datas é UMA entrega e vale a PRIMEIRA (a coluna DATA às vezes traz o
+    período entrega→troca; transcrever os dois extremos como entregas dobrou 11 linhas em 22
+    num caso real, e o número dobrado chegou ao laudo).
+    """
+    v = (valor or "").strip()
+    m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", v)
+    if m:
+        d, mes, a = m.group(1), m.group(2), m.group(3)
+        if len(a) == 2:                       # 20 → 2020 (ficha não tem entrega do século XX)
+            a = ("20" if int(a) < 70 else "19") + a
+        return f"{int(d):02d}/{int(mes):02d}/{a}"
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", v)   # ISO, se o modelo resolver mudar de formato
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return ""
+
+
+def normaliza_qtd(valor):
+    """Quantidade da célula → (texto para a tabela, aviso ou None).
+
+    Duas armadilhas, ambas vistas em ficha real:
+    • "1,000"/"1.720" é o formato de TRÊS CASAS DECIMAIS do sistema de estoque — é UMA unidade,
+      não mil e nem mil setecentas. Ler como milhar multiplica a cobertura daquele EPI por mil.
+    • quantidade ilegível: a entrega EXISTE (a linha existe), então registrar 1 é o PISO, não um
+      palpite — e vai marcada na conferência. Subestimar é seguro; perder a linha inteira, não:
+      some junto a data que sustenta a cobertura do imprescrito.
+    """
+    v = (valor or "").strip()
+    if re.fullmatch(r"\d+", v):
+        return v, None
+    m = re.fullmatch(r"(\d+)[.,](\d{3})", v)
+    if m:
+        return m.group(1), (f"quantidade '{v}' lida como {m.group(1)} "
+                            f"(formato de 3 casas decimais, não milhar)")
+    m = re.fullmatch(r"(\d+)[.,](\d{1,2})", v)
+    if m:
+        return m.group(1), f"quantidade '{v}' (decimal) lida como {m.group(1)}"
+    return "1", (f"quantidade ilegível ('{v or 'vazia'}') registrada como 1 (piso — a entrega "
+                 f"existe); conferir na ficha")
+
+
+def csv_para_p3a(csv_texto, impr=None, origem=None):
+    """CSV do artefato → o bloco da Parte 3a no formato que o montador já sabe ler.
+
+    Devolve (bloco, n_entregas, avisos). Nenhuma linha é descartada em silêncio: o que não
+    virou entrega sai nomeado na CONFERÊNCIA OBRIGATÓRIA, que é onde o perito olha.
+    """
+    leitor = csv.DictReader(io.StringIO(csv_texto))
+    cols = casar_colunas(leitor.fieldnames)
+    faltando = [p for p, _ in COLUNAS_FICHA if p not in cols]
+    if "data" in faltando:
+        raise ValueError(f"CSV sem coluna de DATA reconhecível (cabeçalho: {leitor.fieldnames})")
+
+    avisos = []
+    if faltando:
+        avisos.append(f"colunas não reconhecidas no CSV ({', '.join(faltando)}); "
+                      f"cabeçalho veio como {leitor.fieldnames}")
+
+    entregas, sem_data = [], 0
+    for i, r in enumerate(leitor, start=2):        # 2 = primeira linha depois do cabeçalho
+        data = normaliza_data(r.get(cols["data"]))
+        if not data:
+            bruto = (r.get(cols["data"]) or "").strip()
+            if any((v or "").strip() for v in r.values()):
+                sem_data += 1
+                avisos.append(f"linha {i} do CSV sem data legível (lida como '{bruto}') — "
+                              f"item '{(r.get(cols.get('desc','')) or '?').strip()[:40]}'")
+            continue
+        qtd, aviso_q = normaliza_qtd(r.get(cols.get("qtd", "")))
+        if aviso_q:
+            avisos.append(f"{data} — {aviso_q}")
+        desc = re.sub(r"\s+", " ", (r.get(cols.get("desc", "")) or "").strip()) or "não descrito"
+        ca = (r.get(cols.get("ca", "")) or "").strip()
+        if not ca or re.fullmatch(r"(?i)n[ãa]o informado|n/?a|-+|s/?\s*ca", ca):
+            ca = "C.A. não informado"
+        entregas.append((data, qtd, desc.replace("|", "/"), ca.replace("|", "/")))
+
+    entregas.sort(key=lambda e: _ordem_data(e[0]))
+
+    linhas = ["| Data de Entrega | Quantidade | Descrição do EPI | C.A. |",
+              "| :--- | :---: | :--- | :---: |"]
+    divisoria_posta = not impr
+    for data, qtd, desc, ca in entregas:
+        if not divisoria_posta and _ordem_data(data) >= _ordem_data(impr):
+            linhas.append(f"| ▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO — {impr} ▼▼▼ | | | |")
+            divisoria_posta = True
+        linhas.append(f"| {data} | {qtd} | {desc} | {ca} |")
+    if not divisoria_posta:      # imprescrito começa DEPOIS da última entrega
+        linhas.append(f"| ▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO — {impr} ▼▼▼ | | | |")
+
+    conf = avisos or ["Todos os campos transcritos com alta confiança."]
+    origem_txt = origem or ("[ ] PDF digital nativo · [ ] Imagem escaneada / manuscrita / OCR "
+                            "— tabela extraída via ARTEFATO (data-table) do Studio; marcar na "
+                            "conferência")
+    bloco = "\n".join([
+        f"▶ ORIGEM DA FICHA: {origem_txt}",
+        "",
+        *linhas,
+        "",
+        "▶ EVIDÊNCIA DE ASSINATURA: não verificável por esta via — a tabela veio do artefato "
+        "(data-table), que transcreve células e não o campo de assinatura. Conferir na ficha.",
+        "",
+        "▶ CONFERÊNCIA OBRIGATÓRIA NA FICHA ORIGINAL:",
+        *(f"- {c}" for c in conf),
+    ])
+    if sem_data:
+        avisos.append(f"{sem_data} linha(s) do CSV não viraram entrega por data ilegível")
+    return bloco, len(entregas), avisos
+
+
+def ficha_via_artefato(nlm, nb_ficha, impr, artefato_timeout, log_fn=log):
+    """Parte 3a pela via do artefato. Devolve (bloco, n_entregas) ou levanta RuntimeError.
+
+    Quem chama cai para o chat se isto falhar: uma via nova não pode ser um jeito novo de o
+    processo inteiro parar.
+    """
+    res, err = nlm_json(nlm, ["data-table", "create", nb_ficha, DESC_DATA_TABLE, "-y"],
+                        timeout=300)
+    if not res:
+        raise RuntimeError(f"não criei o data-table: {err}")
+    art_id = res.get("artifact_id") or res.get("id")
+    log_fn(f"   🧮 data-table pedido (artifact {art_id}) — aguardando gerar…")
+
+    # ⚠ `nlm status artifacts` está QUEBRADO na 0.9.13 (TypeError int/OptionInfo em
+    # services/studio.py:639 — default do typer não resolvido). Sondar tentando o DOWNLOAD
+    # funciona e não depende do comando quebrado; se um dia consertarem, o status é mais barato.
+    destino = Path(tempfile.gettempdir()) / f"nlm-ficha-{art_id or 'x'}.csv"
+    destino.unlink(missing_ok=True)
+    prazo = time.monotonic() + artefato_timeout
+    tentativa = 0
+    while time.monotonic() < prazo:
+        time.sleep(20)
+        tentativa += 1
+        args = ["download", "data-table", nb_ficha, "-o", str(destino)]
+        if art_id:
+            args += ["--id", art_id]
+        _o, e = nlm_run(nlm, args, timeout=300)
+        if not e and destino.exists() and destino.stat().st_size > 0:
+            log_fn(f"   ⬇ CSV baixado na tentativa {tentativa} ({destino.stat().st_size} bytes)")
+            break
+        log_fn(f"   … ainda gerando (tentativa {tentativa})")
+    else:
+        raise RuntimeError(f"o data-table não ficou pronto em {artefato_timeout:.0f}s")
+
+    texto = destino.read_text(encoding="utf-8-sig", errors="replace")
+    bloco, n, avisos = csv_para_p3a(texto, impr)
+    if n == 0:
+        raise RuntimeError("o CSV do artefato não trouxe nenhuma entrega legível")
+    for a in avisos[:10]:
+        log_fn(f"   ⚠ ficha: {a}")
+    if len(avisos) > 10:
+        log_fn(f"   ⚠ ficha: (+{len(avisos) - 10} avisos, todos no bloco de conferência)")
+    destino.unlink(missing_ok=True)
+    return bloco, n
+
+
 CNJ_RE = r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}"
 
 
@@ -319,7 +533,8 @@ def injetar_numero(bundle, pasta_name):
 
 # ── processar UMA pasta: pasta → bundle (cria/sobe/consulta/limpa/apaga) ──────
 def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
-                    regras_mode, keep, ficha_no_lote=False):
+                    regras_mode, keep, ficha_no_lote=False, ficha_por_chat=False,
+                    artefato_timeout=900.0):
     pasta = Path(pasta)
     pdfs = achar_pdfs(pasta)
     if not pdfs:
@@ -403,6 +618,18 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
             if err2:
                 raise FalhaPasta(f"falha ao subir/indexar a ficha '{ficha.name}': {err2}", nb_id)
             log(f"   ✓ indexada (dedicado): {ficha.name}")
+
+            # T7.1 — primeiro o ARTEFATO (escreve em arquivo, sem o teto da resposta de chat).
+            # Falhando, cai para o chat: via nova não pode virar jeito novo de o processo parar.
+            if not ficha_por_chat:
+                try:
+                    bloco, n = ficha_via_artefato(nlm, nb_ficha[0], impr, artefato_timeout)
+                    log(f"   ✓ P3a(artefato): {n} entregas")
+                    return {"answer": bloco}
+                except Exception as e:                    # noqa: BLE001 — qualquer falha cai p/ chat
+                    log(f"   ⚠ artefato falhou ({e}); caindo para a via do CHAT, "
+                        f"que TEM teto de resposta — confira o total de entregas.")
+
             texto = prompt_p3a
             if impr:
                 texto = (f"CONTEXTO (já apurado na Parte 1): o período imprescrito começa em "
@@ -523,6 +750,12 @@ def main():
     ap.add_argument("--ficha-no-lote", action="store_true",
                     help="comportamento antigo: ficha de EPI junto no notebook do lote "
                          "(por padrão ela vai para um notebook próprio — ver T7)")
+    ap.add_argument("--ficha-por-chat", action="store_true",
+                    help="extrair a ficha pela resposta de CHAT em vez do artefato do Studio. "
+                         "O chat TEM teto de resposta e trunca ficha grande sem avisar — use "
+                         "só para comparar (ver T7.1)")
+    ap.add_argument("--artefato-timeout", type=float, default=900.0,
+                    help="quanto esperar o data-table da ficha ficar pronto (s)")
     args = ap.parse_args()
 
     if not args.pasta and args.lote is None:
@@ -550,7 +783,8 @@ def main():
 
     comum = dict(blocos=blocos, wait_timeout=args.wait_timeout,
                  query_timeout=args.query_timeout, regras_mode=args.regras, keep=args.keep,
-                 ficha_no_lote=args.ficha_no_lote)
+                 ficha_no_lote=args.ficha_no_lote, ficha_por_chat=args.ficha_por_chat,
+                 artefato_timeout=args.artefato_timeout)
 
     # ── modo SINGLE ──────────────────────────────────────────────────────────
     if args.lote is None:
