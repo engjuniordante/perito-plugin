@@ -17,12 +17,19 @@ SCRIPTS = {
     '02': ROOT / 'plugins/perito/skills/02-redator-insal-peric/scripts/build_laudo.py',
     '03': ROOT / 'plugins/perito/skills/03-redator-ergonomico/scripts/build_laudo_ergo.py',
     '04': ROOT / 'plugins/perito/skills/04-responde-impugnacao/scripts/build_impugnacao.py',
+    # A limpeza de citação do NLM vive nas 3 skills que ingerem resposta do modelo. Foi
+    # justamente a divergência entre essas cópias que deixou o dialeto do Gemini Notebook
+    # passar sem ninguém ver (duas tinham en-dash na classe, duas não).
+    '01':  ROOT / 'plugins/perito/skills/01-extrator/montar_formulario.py',
+    '01b': ROOT / 'plugins/perito/skills/01b-extrator-nlm/extrai_processo.py',
+    '04b': ROOT / 'plugins/perito/skills/04b-responde-impugnacao-nlm/responde_impugnacao.py',
 }
 # helper -> skills onde ele existe e DEVE ser idêntico
 MUST_MATCH = {
     '_ensure':        ['02', '03', '04'],
     'all_paragraphs': ['02', '03', '04'],
     'replace_scalar': ['02', '03', '04'],
+    'strip_citacoes': ['01', '01b', '04b'],
 }
 
 FALHAS = []

@@ -32,6 +32,7 @@ import os
 import re
 import sqlite3
 import sys
+import unicodedata
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -61,7 +62,15 @@ IMPLAUSIBLE_EPI_HINTS = (
 )
 # C.A. = "CA <dígitos>" (exige o rótulo CA antes do número) — evita pegar números soltos
 # da descrição ou "NBR 15292" (NBR não é C.A.). Mesma regra do plugin perito.
-CA_TOKEN_RE = re.compile(r'c\.?\s?a\.?[\s:nº.\-]*([0-9][0-9./\s-]{0,20})', re.I)
+# O rótulo "ca" precisa estar SOLTO: sem as fronteiras, a regex casava o "ca" que está DENTRO
+# da descrição e elegia o tamanho da peça como C.A. ("CALCA 44" → 44; "MOGI-CALCA 42" → 42).
+# A cedilha salvava "CALÇA", mas OCR e manuscrito perdem cedilha o tempo todo.
+CA_TOKEN_RE = re.compile(
+    r'(?<![A-Za-zÀ-ÿ])c\.?\s?a\.?(?![A-Za-zÀ-ÿ])[\s:nº.\-]*([0-9][0-9./\s-]{0,20})', re.I)
+# Rótulo de C.A. seguido de token que NÃO vira número usável ("[3?41]", "1234/2025"):
+# serve só para avisar que a entrega saiu da conta — nunca para adivinhar o número.
+CA_LABEL_RE = re.compile(
+    r'(?<![A-Za-zÀ-ÿ])c\.?\s?a\.?(?![A-Za-zÀ-ÿ])[\s:nº.\-]*(\S+)', re.I)
 DATE_RE = re.compile(r'\b(\d{2})/(\d{2})/(\d{4})\b')
 # Linha da FICHA começa com a data (após bullet): "• 25/02/2023 · …". O 1º campo DEVE
 # começar com a data — exclui cabeçalho, divisória ▼ e linhas do EPI — RESUMO.
@@ -196,8 +205,102 @@ def _normalize_ca_token(token):
 
 
 def extract_ca(line):
-    m = CA_TOKEN_RE.search(line)
-    return _normalize_ca_token(m.group(1)) if m else None
+    """C.A. lido da COLUNA (último campo da linha), não da linha inteira.
+
+    O formato que o próprio montador escreve é "• data · qtd · DESCRIÇÃO · CA nnnn", então o
+    C.A. mora no último campo. Procurar na linha toda fazia o número da descrição ("CALCA 44")
+    vencer o C.A. de verdade. Produtor e validador têm de ler da mesma origem.
+    """
+    cells = split_row(line)
+    alvos = ([cells[-1]] if len(cells) >= 3 else []) + [line]
+    for alvo in alvos:
+        m = CA_TOKEN_RE.search(alvo)
+        if m:
+            ca = _normalize_ca_token(m.group(1))
+            if ca:
+                return ca
+    return None
+
+
+def ca_ilegivel(line):
+    """Token de C.A. que existe na ficha mas não vira número usável — devolve o token cru.
+
+    Descartar "[3?41]" (leitura duvidosa) e "1234/2025" (validade colada) está CERTO; o defeito
+    era descartar em silêncio, e a entrega sumia do quadro sem ninguém saber. "CA Não se Aplica"
+    não é ilegível: é ausência declarada, e não vira aviso.
+    """
+    cells = split_row(line)
+    alvo = cells[-1] if len(cells) >= 3 else line
+    m = CA_LABEL_RE.search(alvo)
+    if not m:
+        return None
+    token = m.group(1).strip().rstrip('.,;')
+    # Só chamada quando o extract_ca JÁ falhou — aqui basta haver algo com dígito para avisar.
+    return token if token and re.search(r'\d', token) else None
+
+
+# ── T9: o C.A. é válido, mas é de OUTRO equipamento ────────────────────────────
+# Com ~42 mil C.A. cadastrados, um dígito trocado em ficha manuscrita quase sempre cai num
+# C.A. que EXISTE — e aí a classificação sai do equipamento errado, sem aviso nenhum.
+# A comparação é por PARTE DO CORPO protegida, nunca por nome de produto: comparar nomes
+# acusa sinonímia como erro (avental/mangote/macacão são a mesma família).
+_FAMILIAS = {
+    'cabeca':       ('capacete', 'capuz', 'touca', 'balaclava', 'chapeu'),
+    'olhos_face':   ('oculos', 'viseira', 'facial', 'face'),
+    'auditivo':     ('auditivo', 'auricular', 'abafador', 'plugue', 'protetor auditivo'),
+    'respiratorio': ('respirador', 'mascara', 'semifacial', 'pff', 'pff1', 'pff2', 'pff3'),
+    'membro_sup':   ('luva', 'manopla', 'mangote', 'manga'),
+    'tronco':       ('avental', 'macacao', 'jaleco', 'colete', 'camisa', 'blusa', 'blusao',
+                     'japona', 'capa', 'jaqueta'),
+    'membro_inf':   ('calca', 'perneira', 'polaina'),
+    'pes':          ('botina', 'bota', 'calcado', 'sapato', 'tenis', 'galocha', 'sapatilha'),
+    'queda':        ('cinto', 'talabarte', 'trava-queda', 'cinturao'),
+    'pele':         ('creme', 'protetor solar', 'pomada'),
+}
+# Termos que NÃO fixam parte do corpo: o MTE cadastra conjunto impermeável de duas peças como
+# "VESTIMENTA TIPO AVENTAL", e a mesma ficha usa esse C.A. na calça E no blusão. Havendo termo
+# genérico de um dos lados, a régua não sabe discriminar e CALA — melhor perder um aviso do que
+# ensinar o perito a ignorar a coluna de avisos.
+_GENERICOS = ('vestimenta', 'conjunto', 'uniforme', 'kit', 'epi')
+
+
+def _sem_acento(s):
+    return ''.join(c for c in unicodedata.normalize('NFD', s or '')
+                   if unicodedata.category(c) != 'Mn')
+
+
+def familia_epi(texto):
+    """Partes do corpo que o nome do produto indica. Vazio = a régua não reconhece o item.
+
+    Fronteira de palavra é obrigatória: sem ela "calcado" casa "calca" e o erro real do
+    AVENTAL × CALÇADO TIPO BOTA passa batido (foi assim que uma versão anterior o perdeu).
+    """
+    t = _sem_acento((texto or '').lower())
+    out = set()
+    for fam, termos in _FAMILIAS.items():
+        for termo in termos:
+            if re.search(r'\b%s\b' % re.escape(_sem_acento(termo)), t):
+                out.add(fam)
+                break
+    return out
+
+
+def divergencia_equipamento(desc, equipamento):
+    """(descrição da ficha, equipamento do MTE) → aviso, ou None.
+
+    Só acusa quando a régua reconhece OS DOIS lados e eles não compartilham nenhuma parte do
+    corpo. Item que a régua não reconhece de um dos lados NÃO vira aviso — é assim que o
+    número de falso positivo fica em zero.
+    """
+    juntos = _sem_acento(('%s %s' % (desc or '', equipamento or '')).lower())
+    if any(re.search(r'\b%s\b' % g, juntos) for g in _GENERICOS):
+        return None
+    fd, fc = familia_epi(desc), familia_epi(equipamento)
+    if not fd or not fc or (fd & fc):
+        return None
+    return ('C.A. registrado no MTE como "%s", que não protege a mesma parte do corpo que a '
+            'descrição da ficha — indício de dígito trocado na leitura. CONFIRA o número na '
+            'ficha original antes de usar esta classificação.' % equipamento)
 
 
 def first_date_iso(s):
@@ -271,6 +374,16 @@ def process(lines, cadict, caepi):
         data_cell, desc = cells[0], cells[-2]
         ca = extract_ca(raw)
 
+        # C.A. presente na ficha mas ilegível: a entrega fica fora da classificação (certo),
+        # porém NUNCA em silêncio — antes ela sumia do quadro sem deixar rastro.
+        if not ca:
+            tok = ca_ilegivel(raw)
+            if tok:
+                flags.append((desc[:80],
+                              'C.A. ILEGÍVEL na ficha ("%s") — esta entrega ficou FORA da '
+                              'classificação e da conta de cobertura. Confira o número na '
+                              'ficha original.' % tok))
+
         # CREME: a descrição engana nos dois sentidos. Nunca decidir em silêncio — flagar.
         #  (a) cosmético COM C.A.: o C.A. manda (é certificável), mas a descrição está errada
         #      ou é creme protetor mal nomeado. O perito confirma.
@@ -322,6 +435,16 @@ def process(lines, cadict, caepi):
 
         if agente:
             classified.append((ca or '—', desc[:80], agente, src))
+
+        # C.A. válido, porém de OUTRO equipamento (dígito trocado cai num C.A. que existe).
+        # Vale inclusive quando o agente veio do dicionário curado: a divergência é entre a
+        # DESCRIÇÃO da ficha e o equipamento do MTE, não entre agentes.
+        if ca:
+            h_eq = hit if hit is not None else caepi.get(ca)
+            if h_eq and h_eq.get('equipamento'):
+                div = divergencia_equipamento(desc, h_eq['equipamento'])
+                if div:
+                    flags.append((desc[:80] + ' [C.A. %s]' % ca, div))
 
         # CA vencido (NT 146/2015) — só p/ EPI que neutraliza (tem agente) e com data
         if ca and agente:

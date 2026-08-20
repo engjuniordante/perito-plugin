@@ -161,9 +161,29 @@ def nlm_json(nlm, args, timeout=None):
         return None, f"resposta não-JSON do nlm: {out[:300]}"
 
 
+def strip_citacoes(s):
+    """Remove a citação do NLM/Gemini Notebook, preservando os sinais de controle do formulário.
+
+    Formas removidas: [12] · [1, 2] · [2-5] · [5–7] e, desde a virada para o Gemini, a referência
+    de imagem [Image 115] · [77, 106, Image 115] · [Image 74, Image 88].
+    Formas PRESERVADAS (o plugin as usa como sinal): [X] [ ] [NR-15] [Anexo 13] [N.A.]
+    [NÃO LOCALIZADO] [Presente — …] [3?41] (leitura duvidosa de C.A.) [29/04/2025] (data).
+    Por isso só é aceito conteúdo de número, "Image N", vírgula e traço de intervalo.
+    Come só espaço/tab à esquerda (nunca \\n) para não emendar duas linhas numa só.
+
+    ⚠ Cópia idêntica nas skills 01-extrator, 01b-extrator-nlm e 04b-responde-impugnacao-nlm —
+    o test_helper_parity.py trava o drift. Alterar aqui = alterar nas três.
+    """
+    item = r"(?:[Ii]mage[m]?\s*)?\d+"
+    faixa = r"(?:\s*[-–]\s*\d+)?"
+    padrao = (r"[ \t]*\[\s*" + item + faixa +
+              r"(?:\s*,\s*" + item + faixa + r")*\s*\]")
+    return re.sub(padrao, "", s)
+
+
 def limpar(s):
-    """Tira citações [n]/[1, 2]/[2-5]; tira ** e espaços órfãos (igual ao extrator)."""
-    s = re.sub(r"\[\d[\d,\s\-–]*\]", "", s)
+    """Tira citações/refs de imagem; tira ** e espaços órfãos (igual ao extrator)."""
+    s = strip_citacoes(s)
     s = s.replace("**", "")
     s = re.sub(r"[ \t]+([.,;:])", r"\1", s)
     s = re.sub(r"[ \t]{2,}", " ", s)

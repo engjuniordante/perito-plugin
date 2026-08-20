@@ -32,6 +32,9 @@ HERE = Path(__file__).resolve().parent
 CHECK_EPI = HERE / "check_epi.py"
 VALIDATE = HERE / "validate_form.py"
 
+# Avisos de leitura degradada acumulados durante o build → impressos no console no fim do main().
+AVISOS: list[str] = []
+
 SUBSEC_RE = re.compile(r"^▶\s*(.+?)\s*$", re.M)
 DATE_ROW_RE = re.compile(r"^\|\s*\d{2}/\d{2}/\d{4}\s*\|")
 DIVISORIA = "▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO"
@@ -60,11 +63,42 @@ def get_by_prefix(mapping: dict[str, str], prefix: str) -> str:
     return ""
 
 
+def strip_citacoes(s):
+    """Remove a citação do NLM/Gemini Notebook, preservando os sinais de controle do formulário.
+
+    Formas removidas: [12] · [1, 2] · [2-5] · [5–7] e, desde a virada para o Gemini, a referência
+    de imagem [Image 115] · [77, 106, Image 115] · [Image 74, Image 88].
+    Formas PRESERVADAS (o plugin as usa como sinal): [X] [ ] [NR-15] [Anexo 13] [N.A.]
+    [NÃO LOCALIZADO] [Presente — …] [3?41] (leitura duvidosa de C.A.) [29/04/2025] (data).
+    Por isso só é aceito conteúdo de número, "Image N", vírgula e traço de intervalo.
+    Come só espaço/tab à esquerda (nunca \\n) para não emendar duas linhas numa só.
+
+    ⚠ Cópia idêntica nas skills 01-extrator, 01b-extrator-nlm e 04b-responde-impugnacao-nlm —
+    o test_helper_parity.py trava o drift. Alterar aqui = alterar nas três.
+    """
+    item = r"(?:[Ii]mage[m]?\s*)?\d+"
+    faixa = r"(?:\s*[-–]\s*\d+)?"
+    padrao = (r"[ \t]*\[\s*" + item + faixa +
+              r"(?:\s*,\s*" + item + faixa + r")*\s*\]")
+    return re.sub(padrao, "", s)
+
+
+def corta_bloco_ficha(text: str) -> str:
+    """Bloco da ficha de EPI = de 'ORIGEM DA FICHA' até o fim da subseção, e não até o fim do
+    arquivo. O modelo às vezes emenda uma cauda depois do último ▶ (ex.: '### NOTAS
+    COMPLEMENTARES AO PERITO'); indo até o fim, qualquer linha com pipe e data dessa cauda
+    virava entrega de EPI."""
+    i = text.find("ORIGEM DA FICHA")
+    if i < 0:
+        return text
+    fins = [p for p in (text.find("\n▶", i), text.find("\n#", i)) if p != -1]
+    return text[i:min(fins)] if fins else text[i:]
+
+
 def cleanup_value(text: str) -> str:
     if not text:
         return ""
-    t = text.strip()
-    t = re.sub(r"\s*\[[0-9][0-9,\-\s]*\]", "", t)
+    t = strip_citacoes(text.strip())
     t = re.sub(r"`([^`]*)`", r"\1", t)
     return t.strip()
 
@@ -280,6 +314,20 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
     return rows
 
 
+def aviso(msg: str) -> None:
+    """Alerta de leitura degradada — vai para o CONSOLE (stderr), nunca para o formulário: o
+    formulário do perito é contrato e não ganha linha nova por causa de diagnóstico do script."""
+    AVISOS.append(msg)
+
+
+def _tem_tabela(block: str) -> bool:
+    return any(l.strip().startswith("|") for l in block.splitlines())
+
+
+def _tem_conteudo(block: str) -> bool:
+    return bool((block or "").strip()) and not is_nao_localizado(block)
+
+
 def parse_nr6_table(block: str) -> dict[str, bool]:
     out: dict[str, bool] = {}
     for raw in block.splitlines():
@@ -308,7 +356,7 @@ def parse_quesitos(block: str) -> str:
             continue
         if s.strip().startswith("*(") and s.strip().endswith(")*"):
             continue
-        lines.append(re.sub(r"\s*\[[0-9][0-9,\-\s]*\]", "", s))
+        lines.append(strip_citacoes(s))
     txt = "\n".join(lines).strip()
     return "" if (is_nao_localizado(txt) or not txt) else txt
 
@@ -331,7 +379,9 @@ def first_checked_label(block: str, options: list[str]) -> int:
     # antes de cada [ ]/[x] que não esteja no início da linha, pra cada opção cair em linha própria.
     block = re.sub(r"(?<!^)(\[\s*[ xX]\s*\])", r"\n\1", block, flags=re.M)
     for raw in block.splitlines():
-        m = re.match(r"^\s*[\-\*]?\s*\[\s*[xX]\s*\]\s*(.+)$", raw)
+        # Aceita o checkbox ascii ([X]/[x]) e as variantes unicode que o modelo às vezes devolve
+        # (☑ ☒ ✅ ✔) — sem elas, nenhuma opção era reconhecida e o tipo de laudo saía desmarcado.
+        m = re.match(r"^\s*[\-\*]?\s*(?:\[\s*[xX]\s*\]|[☑☒✅✔])\s*(.+)$", raw)
         if m:
             txt = m.group(1).lower()
             for i, opt in enumerate(options):
@@ -368,7 +418,10 @@ def parse_agentes(block: str) -> dict[str, str]:
     """Bloco PRÉ-TRIAGEM DE AGENTES → {rótulo do agente: valor}. Valor traz '[Presente — …]' ou '— …'."""
     out: dict[str, str] = {}
     for raw in block.splitlines():
-        m = re.match(r"^[-•*]\s*([^:]+):\s*(.+)$", raw.strip())
+        # O Gemini às vezes enumera a lista por conta própria ("A. Ruído…", "1. Ruído…") em vez
+        # de usar bullet. Sem aceitar o prefixo, o agente inteiro sumia da pré-triagem. NÃO travar
+        # a faixa de letras: se o modelo pular um agente, a contagem desliza e passa de 'M'.
+        m = re.match(r"^(?:[-•*+]|[A-Za-zÀ-ÿ]\.|\d+[.)])\s*([^:]+):\s*(.+)$", raw.strip())
         if m:
             out[m.group(1).strip()] = m.group(2).strip()
     return out
@@ -417,20 +470,47 @@ def prefill_agentes(form: str, agentes: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+# Ícones que SÃO do formulário do perito (vêm dos prompts de extração) e nunca podem ser
+# descartados: ▶ abre seção, ★ marca DATA CRÍTICA, ▼ delimita o início do imprescrito na
+# tabela de EPI (o guard de EPI depende dele).
+_MARCADORES_PERITO = ("▶", "★", "▼")
+
+# A caixinha de conversa do NotebookLM/Gemini Notebook ("Sugestão para o próximo passo: ...").
+# O ícone VARIA conforme o artefato do Studio que ele resolve oferecer (💡 antes; hoje 📊
+# infográfico, 🎧 áudio, 🧩 ...), então a âncora é o TEXTO, não o emoji.
+_SUGESTAO_RE = re.compile(
+    r"^[\s#>*\-]*[^\w\s]{0,4}\s*sugest(?:ão|ao)\s+(?:de|para\s+o)\s+pr[óo]ximo\s+passo\b",
+    re.I,
+)
+
+
+def _abre_caixinha_nlm(line: str) -> bool:
+    """A linha inicia uma caixinha de conversa do NLM (não é dado do processo)?"""
+    if _SUGESTAO_RE.match(line):
+        return True
+    # Rede de segurança p/ variações futuras de redação: linha que ABRE com um emoji que não é
+    # marcador nosso. Restrito aos blocos de pictogramas/dingbats — não pega —, ·, ’ nem →.
+    s = line.lstrip()
+    if not s or s[0] in _MARCADORES_PERITO:
+        return False
+    cp = ord(s[0])
+    return cp >= 0x1F000 or 0x2600 <= cp <= 0x27BF
+
+
 def strip_nlm_suggestion_box(text: str) -> str:
-    """O NLM às vezes anexa uma caixinha de conversa ("💡 Sugestão de próximo passo: ...") que
-    não é dado do processo — já vazou pro bloco de Quesitos. Descarta a linha com 💡 e as linhas
-    de continuação (até uma linha em branco ou o próximo cabeçalho ▶/#)."""
+    """Descarta as caixinhas de conversa do NLM e suas linhas de continuação (até uma linha em
+    branco, o próximo cabeçalho ▶/#, um separador --- ou uma linha de tabela)."""
     lines = text.split("\n")
     out: list[str] = []
     skipping = False
     for line in lines:
-        if not skipping and "💡" in line:
+        if not skipping and _abre_caixinha_nlm(line):
             skipping = True
             continue
         if skipping:
             s = line.strip()
-            if not s or s.startswith("▶") or s.startswith("#"):
+            if (not s or s.startswith("▶") or s.startswith("#")
+                    or s.startswith("---") or s.startswith("|")):
                 skipping = False
             else:
                 continue
@@ -444,9 +524,14 @@ def build_form(bundle_path: Path) -> str:
     # Neutraliza o negrito UMA vez na ingestão p/ nenhum campo silenciar por formatação (senão a chave
     # da seção vira "**PROCESSO" e o get_by_prefix devolve vazio, travando o form). Paridade c/ o squad.
     text = text.replace("**", "")
-    # Idem p/ heading markdown ("### ▶ NOME" em vez de "▶ NOME") — já aconteceu de zerar o form
-    # inteiro (nenhuma seção reconhecida, nem o nº do processo).
-    text = re.sub(r"^#+\s*(?=▶)", "", text, flags=re.M)
+    # Idem p/ heading markdown ("### ▶ NOME"), bullet ("*   ▶ NOME") e recuo antes do ▶. O
+    # SUBSEC_RE exige o ▶ no início ABSOLUTO da linha; qualquer prefixo zera o formulário inteiro
+    # (nenhuma seção reconhecida, nem o nº do processo). O Gemini Notebook escreve "*   ▶ NOME".
+    text = re.sub(r"^[ \t]*(?:[#>]+[ \t]*|[-*+][ \t]+)*(?=▶)", "", text, flags=re.M)
+    # Citações e refs de imagem saem UMA vez, no texto inteiro: assim a limpeza vale também para
+    # dentro das células da ficha ("| 09/03/2022 [Image 20] |"), que os parsers de tabela liam
+    # como linha inválida e descartavam a entrega em silêncio.
+    text = strip_citacoes(text)
     text = strip_nlm_suggestion_box(text)
     sec = split_subsections(text)
 
@@ -458,9 +543,18 @@ def build_form(bundle_path: Path) -> str:
     ativ_block = get_by_prefix(sec, "ATIVIDADES POR FUNÇÃO")
     cit_block = get_by_prefix(sec, "CITAÇÕES")
     part_block = get_by_prefix(sec, "PARTICIPANTES")
-    ficha_block = text[text.find("ORIGEM DA FICHA"):] if "ORIGEM DA FICHA" in text else text
+    ficha_block = corta_bloco_ficha(text)
     evid_block = get_by_prefix(sec, "EVIDÊNCIAS DOCUMENTAIS")
     nr6_block = get_by_prefix(sec, "NR-6")
+    # A NR-6 e a IDENTIFICAÇÃO só são lidas em tabela markdown. Vindo em bullets, o parser devolve
+    # vazio e o quadro sai TODO em branco — antes, sem uma linha de aviso. O formulário continua
+    # como está (o perito preenche in loco); o que muda é ele ficar sabendo.
+    if _tem_conteudo(nr6_block) and not _tem_tabela(nr6_block):
+        aviso("NR-6 veio do NLM como lista/prosa, não como tabela — o quadro NR-6 saiu EM BRANCO. "
+              "Confira o bloco NR-6 do bundle e preencha in loco.")
+    if _tem_conteudo(ident_block) and not _tem_tabela(ident_block):
+        aviso("IDENTIFICAÇÃO/VÍNCULO veio do NLM como lista/prosa, não como tabela — funções e "
+              "períodos saíram com '____'. Confira o bloco IDENTIFICAÇÃO do bundle.")
     escopo_block = get_by_prefix(sec, "ESCOPO DA AVALIAÇÃO")
     q_juizo = parse_quesitos(get_by_prefix(sec, "QUESITOS DO JUÍZO"))
     q_recte = parse_quesitos(get_by_prefix(sec, "QUESITOS DO RECLAMANTE"))
@@ -915,6 +1009,8 @@ def main() -> int:
     out_path = Path(args.output).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(build_form(bundle_path), encoding="utf-8")
+    for a in AVISOS:
+        print(f"⚠ {a}", file=sys.stderr)
     print(out_path)
 
     if not args.skip_guard:
