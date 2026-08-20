@@ -102,6 +102,29 @@ def achar_config(caminho):
 
 
 # ── extrair os blocos de prompt do arquivo .md ────────────────────────────────
+# Cópia BUNDLED dos prompts, ao lado da skill. Mesmo idioma da base CAEPI do check_epi: o
+# arquivo VIVO (config/--prompts, no Drive do perito) vence sempre; a bundled é a rede quando
+# ele não é alcançável — o bash do Cowork não enxerga a pasta do Drive.
+# Ela também é o que torna o contrato prompt↔parser TESTÁVEL: até a v1.1.2 os prompts moravam
+# só no Drive, fora do git, e tirar um marcador ▶ de lá não acendia nenhum dos testes — o
+# sintoma seria formulário vazio, não erro.
+PROMPTS_BUNDLED = Path(__file__).resolve().parent / "assets" / "prompts-extracao-notebooklm.md"
+
+
+def resolver_prompts(caminho):
+    """Caminho do arquivo de prompts: o vivo, senão a cópia bundled, senão None."""
+    if caminho and Path(caminho).exists():
+        return caminho
+    if PROMPTS_BUNDLED.exists():
+        if caminho:
+            log(f"⚠ prompts do config não alcançáveis ({caminho!r}) — usando a cópia BUNDLED "
+                f"do plugin ({PROMPTS_BUNDLED}). Ela pode estar atrás da sua.")
+        else:
+            log(f"🔧 prompts: cópia bundled do plugin ({PROMPTS_BUNDLED})")
+        return str(PROMPTS_BUNDLED)
+    return None
+
+
 def ler_prompts(prompts_path):
     linhas = Path(prompts_path).read_text(encoding="utf-8").splitlines()
     blocos = {}
@@ -772,9 +795,11 @@ def main():
         cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
         log(f"🔧 config: {cfg_path}")
 
-    prompts_path = args.prompts or (cfg.get("notebooklm", {}) or {}).get("prompts_extracao")
-    if not prompts_path or not Path(prompts_path).exists():
-        sys.exit(f"ERRO: prompts não encontrados ({prompts_path!r}) — passe --prompts.")
+    prompts_path = resolver_prompts(
+        args.prompts or (cfg.get("notebooklm", {}) or {}).get("prompts_extracao"))
+    if not prompts_path:
+        sys.exit("ERRO: prompts não encontrados — passe --prompts com o caminho do "
+                 "prompts-extracao-notebooklm.md.")
     blocos, faltando = ler_prompts(prompts_path)
     if "P1" in faltando:
         sys.exit(f"ERRO: PARTE 1 ausente no arquivo de prompts: {faltando}")
