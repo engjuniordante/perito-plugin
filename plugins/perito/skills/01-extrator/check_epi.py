@@ -239,6 +239,111 @@ def ca_ilegivel(line):
     return token if token and re.search(r'\d', token) else None
 
 
+# ── T14: mais de uma leitura de C.A. no MESMO campo ───────────────────────────
+# Em ficha manuscrita o modelo registra as leituras que considerou ("CA 5244 ou 5774") e o
+# extract_ca elege a PRIMEIRA em silêncio — medido: das 3 divergências conferidas à mão numa
+# ficha em 12/08, a eleita estava errada nas 3. Também cobre o campo que traz C.A. REAIS
+# diferentes (uma entrega registrada sob o C.A. de outra).
+# O guard NÃO escolhe: ele relata o que a base responde a cada candidato. extract_ca segue
+# elegendo, e a classificação não muda — esta camada só acrescenta aviso.
+_CA_MIN_DIG, _CA_MAX_DIG = 3, 6      # base do MTE: 42.019 C.A., de 2 a 5 dígitos. Abaixo de 3
+                                     # o risco de capturar quantidade ("(12x)") supera os 8
+                                     # C.A. de 2 dígitos que existem em 42 mil.
+_ANO_RE = re.compile(r'^(?:19|20)\d{2}$')
+# Quantidade entre parênteses no campo do C.A. ("(1x)", "(2 un)") — não é leitura de C.A.
+# Some ANTES do varredor; "(ou 5774)" não casa, porque tem palavra.
+_QTD_PAREN_RE = re.compile(r'\(\s*\d+\s*(?:x|un|und|unid|pc|pç)?\s*\)', re.I)
+_TOKEN_RE = re.compile(r'\d[\d.]*|[A-Za-zÀ-ÿ]+')
+# Palavras que AINDA separam duas leituras do mesmo campo. Qualquer outra palavra encerra a
+# varredura — é o que impede "CA 26149 venc 2025" de virar dois candidatos.
+_DISJUNCAO = {'ou', 'e'}
+
+
+def extract_ca_candidates(line):
+    """TODAS as leituras de C.A. do campo, na ordem — não só a que o extract_ca elege.
+
+    Lê SÓ a célula do C.A. (a última), nunca a linha inteira: é a célula que o montador
+    dedica ao número, e é o que impede a descrição de contribuir candidato ("MOD.48705 T.9").
+    Devolve [] quando não há o que relatar — inclusive no "CA 1234/2025" (validade colada,
+    caso real), que é UM C.A. mal transcrito e não duas leituras.
+    """
+    cells = split_row(line)
+    if len(cells) < 3:
+        return []
+    alvo = cells[-1]
+    m = CA_TOKEN_RE.search(alvo)
+    if not m:
+        return []
+    cauda = _QTD_PAREN_RE.sub(' ', alvo[m.start(1):])
+    cands = []
+    for tok in _TOKEN_RE.findall(cauda):
+        if tok[0].isdigit():
+            t = _normalize_ca_token(tok)
+            if t and _CA_MIN_DIG <= len(t) <= _CA_MAX_DIG and t not in cands:
+                cands.append(t)
+        elif tok.lower() not in _DISJUNCAO:
+            break                     # palavra que não separa leitura → acabou o campo
+    # "1234/2025": dois números colados por barra e o segundo com cara de ANO. O extract_ca
+    # já devolve None aqui (a entrega sai da conta e o aviso de ilegível dispara); relatar
+    # como duas leituras seria inventar um candidato que não existe.
+    if len(cands) == 2 and _ANO_RE.match(cands[1]) and re.search(r'\d\s*/\s*\d', cauda):
+        return []
+    return cands
+
+
+def resposta_da_base(ca, desc, data_cell, cadict, caepi):
+    """O que a base responde para UM candidato: equipamento, situação, validade NA DATA DA
+    ENTREGA e agente. Sem veredicto — é exatamente a consulta C.A. a C.A. que é chata de
+    fazer e onde se desiste de conferir."""
+    ov_ag, overridden = cadict_agente(cadict, ca)
+    hit = caepi.get(ca)
+    if not overridden and hit is None:
+        return 'NÃO CONSTA na base'
+    hit = hit or {}
+    ps = []
+    eq = hit.get('equipamento') or ''
+    if eq:
+        ps.append(eq[:44])
+        if divergencia_equipamento(desc, eq):
+            ps.append('⚠ não protege a mesma parte do corpo que a descrição')
+    if hit.get('situacao'):
+        ps.append('registro no MTE hoje: %s' % hit['situacao'])
+    di, _ = first_date_iso(data_cell or '')
+    if di and hit.get('validade_iso'):
+        if di > hit['validade_iso']:
+            ps.append('🚩 na data da entrega já estava VENCIDO (validade %s)'
+                      % (hit.get('validade_br') or hit['validade_iso']))
+        else:
+            ps.append('vigente na data da entrega')
+    if overridden:
+        ps.append('dicionário: %s' % (ov_ag or 'sem agente NR-15'))
+    elif hit.get('agente'):
+        ps.append(hit['agente'])
+    return ' · '.join(ps) if ps else 'consta na base, sem dados úteis'
+
+
+def flag_multileitura(cands, ca, desc, data_cell, cadict, caepi):
+    """(trecho, mensagem) do aviso de leitura múltipla, ou None. Termina dizendo o que fazer,
+    porque essa é a pergunta seguinte de quem lê o aviso."""
+    if len(cands) < 2:
+        return None
+    vistos = cands[:4]
+    partes = ['%s%s → %s' % (c, ' (usado)' if c == ca else '',
+                             resposta_da_base(c, desc, data_cell, cadict, caepi))
+              for c in vistos]
+    if ca:
+        cabeca = ('MAIS DE UMA LEITURA de C.A. neste campo — a classificação usou a 1ª (%s), '
+                  'que nem sempre é a certa' % ca)
+    else:
+        cabeca = ('MAIS DE UMA LEITURA de C.A. neste campo e nenhuma virou número usável — '
+                  'esta entrega ficou FORA da classificação e da conta de cobertura')
+    resto = ' (+%d)' % (len(cands) - len(vistos)) if len(cands) > len(vistos) else ''
+    return (desc[:80] + ' [C.A. %s%s]' % (' | '.join(vistos), resto),
+            '%s. O que a base responde: %s. CONFIRA o número na ficha original; se for outro, '
+            'corrija a linha e rode o guard de novo. O guard não escolhe por você.'
+            % (cabeca, '; '.join(partes)))
+
+
 # ── T9: o C.A. é válido, mas é de OUTRO equipamento ────────────────────────────
 # Com ~42 mil C.A. cadastrados, um dígito trocado em ficha manuscrita quase sempre cai num
 # C.A. que EXISTE — e aí a classificação sai do equipamento errado, sem aviso nenhum.
@@ -374,9 +479,17 @@ def process(lines, cadict, caepi):
         data_cell, desc = cells[0], cells[-2]
         ca = extract_ca(raw)
 
+        # T14 — mais de uma leitura de C.A. no mesmo campo. Roda ANTES do aviso de ilegível
+        # porque, quando dispara, ele já diz que a entrega ficou fora da conta E ainda mostra
+        # o que a base responde a cada candidato: dois avisos na mesma linha seriam ruído.
+        cands = extract_ca_candidates(raw)
+        multileitura = flag_multileitura(cands, ca, desc, data_cell, cadict, caepi)
+        if multileitura:
+            flags.append(multileitura)
+
         # C.A. presente na ficha mas ilegível: a entrega fica fora da classificação (certo),
         # porém NUNCA em silêncio — antes ela sumia do quadro sem deixar rastro.
-        if not ca:
+        if not ca and not multileitura:
             tok = ca_ilegivel(raw)
             if tok:
                 flags.append((desc[:80],
@@ -439,7 +552,10 @@ def process(lines, cadict, caepi):
         # C.A. válido, porém de OUTRO equipamento (dígito trocado cai num C.A. que existe).
         # Vale inclusive quando o agente veio do dicionário curado: a divergência é entre a
         # DESCRIÇÃO da ficha e o equipamento do MTE, não entre agentes.
-        if ca:
+        # Quando o T14 disparou nesta linha, a divergência do C.A. eleito JÁ foi relatada
+        # dentro do aviso de leitura múltipla (com a resposta da base para cada candidato) —
+        # repetir aqui dá dois bullets quase idênticos na mesma entrega.
+        if ca and not (multileitura and ca in cands[:4]):
             h_eq = hit if hit is not None else caepi.get(ca)
             if h_eq and h_eq.get('equipamento'):
                 div = divergencia_equipamento(desc, h_eq['equipamento'])
