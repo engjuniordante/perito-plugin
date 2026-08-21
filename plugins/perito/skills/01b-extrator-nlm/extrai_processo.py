@@ -555,6 +555,28 @@ def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
     return transcritas, len(datas)
 
 
+def avisar_rotacao(pdf_path, log_fn=log):
+    """Avisa se a ficha tem páginas com rotação declarada. NÃO corrige nada.
+
+    Rotação declarada não é defeito por si — medido no acervo do Irineu, as 78 páginas
+    giradas da contestação do 0010094-14 são cartões-ponto em paisagem e renderizam CERTAS,
+    e o pdftotext lê a página girada inteira. O ganho de normalizar existe só se quem lê o
+    PDF ignorar o campo /Rotate, e isso não está medido no Gemini Notebook — por isso aqui
+    só se INFORMA, e quem decide rodar o normalizar_rotacao.py é o perito.
+    """
+    try:
+        from normalizar_rotacao import diagnostico
+    except Exception:
+        return 0, 0
+    pags, giradas = diagnostico(pdf_path)
+    if giradas:
+        log_fn(f"   ⚠ a ficha tem {giradas} de {pags} página(s) com rotação declarada. Não é "
+               f"defeito por si (o leitor honra o /Rotate), mas se a leitura vier ruim, uma "
+               f"cópia normalizada pode ajudar: python normalizar_rotacao.py "
+               f'"{pdf_path}" -o ficha-normalizada.pdf')
+    return pags, giradas
+
+
 def conferir_origem_ficha(pdf_path, resposta_p3a, log_fn=log):
     """Cruza a declaração do modelo com a medida. Só AVISA — no console, nunca no bundle.
 
@@ -985,6 +1007,7 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                 # medir a origem AQUI: é o único ponto em que temos, ao mesmo tempo, o PDF da
                 # ficha e o que o modelo declarou sobre ele. Só avisa, no console.
                 try:
+                    avisar_rotacao(ficha)
                     _origem, _ = conferir_origem_ficha(ficha, res)
                     conferir_contagem(ficha, res, _origem)
                 except Exception as e:
