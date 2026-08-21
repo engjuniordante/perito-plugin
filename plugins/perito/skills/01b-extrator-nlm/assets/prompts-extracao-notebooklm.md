@@ -163,6 +163,8 @@ LINHA DIVISÓRIA DO IMPRESCRITO:
 
 REGRAS:
 - Uma linha por entrega (uma data + um item = uma linha). Mesma data com 5 itens = 5 linhas.
+- CÉLULA DE DATA COM DUAS DATAS = UMA ENTREGA SÓ. Quando a coluna DATA traz um período (ex.: "19/4/21 á 24/4/21" — entrega e troca), transcreva APENAS a data inicial e mantenha a quantidade que está ao lado, uma única vez. Transcrever cada extremo como uma entrega DOBRA o total de entregas e de unidades (caso real: 11 linhas e 63 unidades viraram 22 e 126, e o número dobrado chegou ao laudo).
+- QUANTIDADE: transcreva o número exatamente como está escrito na ficha. Atenção: "1,000" é UMA unidade com três casas decimais, NÃO mil — ler como milhar multiplica por mil a cobertura daquele EPI.
 - Transcreva o C.A. se registrado; senão "C.A. não informado". NUNCA inventar nem completar valor provável.
 - PROIBIDO PREENCHER POR INFERÊNCIA: se C.A., data ou descrição estiverem ilegíveis (manuscrito, escaneamento ruim, campo cortado, rasura), NÃO complete com o valor mais plausível. Transcreva literalmente o que está visível entre colchetes, ex: C.A. [3?41], data 1[2/?]/2023.
 - Mantenha a grafia original do item.

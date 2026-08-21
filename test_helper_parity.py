@@ -12,6 +12,12 @@ set_block/replace_blocks/set_cell_text NÃO entram aqui de propósito — diverg
 import ast, sys
 from pathlib import Path
 
+# O console do Windows é cp1252: os ✓/✗ do relatório matariam a suíte com
+# UnicodeEncodeError — vermelho FALSO, indistinguível de drift real de helper.
+for _s in (sys.stdout, sys.stderr):
+    if _s is not None and hasattr(_s, 'reconfigure'):
+        _s.reconfigure(encoding='utf-8', errors='replace')
+
 ROOT = Path(__file__).resolve().parent
 SCRIPTS = {
     '02': ROOT / 'plugins/perito/skills/02-redator-insal-peric/scripts/build_laudo.py',
