@@ -2052,9 +2052,9 @@ def main():
         bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (nem no dicionário nem na base CAEPI — verificar e catalogar): '
                      + ', '.join(nao_cat))
     if cob_res:
-        bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do '
+        bloco.append('\n**📐 Cobertura** (sugestão — só creme e protetor auditivo; confronte com os meses do '
                      'imprescrito e o boletim do C.A. **D1**: creme empilha saldo não vencido; protetor não. '
-                     '**D2**: afastamento NÃO desconta):**')
+                     '**D2**: afastamento NÃO desconta):')
         for r in cob_res:
             bloco.append('- %s' % r)
         if not scoped:
