@@ -191,6 +191,22 @@ sem_bloco = FORM_OK.replace('### Quesitos do Reclamante\n'
 check(achou(quesitos(sem_bloco), 'ausente do formulário'),
       'bloco de quesito sumido não foi acusado')
 
+# Bloco que COMEÇA com subdivisão não é bloco vazio. Falso positivo medido no 0011183-33
+# (21/08/2026): a petição organizava os quesitos em blocos ("#### XIV — QUESITOS TÉCNICOS…"),
+# o extrator fechava o bloco no primeiro #### e capturava '\n' — o gate acusou perda de
+# transcrição com os 30 quesitos intactos no formulário. Alarme falso em gate diário ensina
+# o perito a ignorar o gate; é o pior estrago que um guard pode fazer.
+com_subtitulo = FORM_OK.replace('### Quesitos do Reclamante\n',
+                                '### Quesitos do Reclamante\n'
+                                '#### XIV — QUESITOS TÉCNICOS DE SEGURANÇA\n')
+check(not achou(quesitos(com_subtitulo), 'Quesitos do Reclamante'),
+      'bloco que começa com #### foi lido como vazio (falso positivo)')
+bloco = vf._bloco_quesito_form(com_subtitulo, 'Quesitos do Reclamante')
+check(bloco is not None and 'Quais foram as funções' in bloco,
+      'o bloco tem de ir até o próximo heading IRMÃO, não até o subtítulo')
+check('Quesitos da Reclamada' not in (bloco or ''),
+      'o bloco não pode invadir a seção seguinte')
+
 # ── 6. o gate segue verde de ponta a ponta no formulário legítimo ─────────────────────
 todos = []
 vf.validate_process_identity(FORM_OK, BUNDLE_OK, todos)

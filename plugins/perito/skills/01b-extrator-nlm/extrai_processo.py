@@ -605,6 +605,17 @@ def avisar_rotacao(pdf_path, log_fn=log):
     return pags, giradas
 
 
+def texto_resposta(res):
+    """A resposta do modelo como TEXTO, venha ela em envelope (dict do nlm/artefato) ou crua.
+
+    Um ponto só para todo mundo desembrulhar: quem produz e quem confere têm de ler da mesma
+    origem — foi um consumidor lendo o envelope que matou a sonda em silêncio.
+    """
+    if isinstance(res, dict):
+        return res.get("answer") or ""
+    return res or ""
+
+
 def conferir_origem_ficha(pdf_path, resposta_p3a, log_fn=log):
     """Cruza a declaração do modelo com a medida. Só AVISA — no console, nunca no bundle.
 
@@ -1036,8 +1047,14 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                 # ficha e o que o modelo declarou sobre ele. Só avisa, no console.
                 try:
                     avisar_rotacao(ficha)
-                    _origem, _ = conferir_origem_ficha(ficha, res)
-                    conferir_contagem(ficha, res, _origem)
+                    # TEXTO, não o envelope: query_ficha devolve dict ({"answer": …}) e o
+                    # `ans = res.get("answer")` só acontece adiante. Passar `res` cru fazia a
+                    # sonda inteira morrer em TypeError ("got 'dict'") e ser engolida pelo
+                    # except abaixo — o guard não alarmava errado, calava. Medido no
+                    # 0011183-33 (21/08/2026), ficha de 397 entregas sem conferência nenhuma.
+                    p3a_txt = texto_resposta(res)
+                    _origem, _ = conferir_origem_ficha(ficha, p3a_txt)
+                    conferir_contagem(ficha, p3a_txt, _origem)
                 except Exception as e:
                     log(f"   ⚠ sonda da ficha falhou ({e}) — seguindo sem ela.")
             else:
@@ -1054,7 +1071,7 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                             f"limite de {LIMITE_QUERY} — a 3b vai sem o resumo da ficha.")
                 res = query(prompt, key, conv_id)
                 conv_id = conv_id or res.get("conversation_id")
-            ans = (res.get("answer") or "").strip()
+            ans = texto_resposta(res).strip()
             if not ans:
                 raise FalhaPasta(f"query {key} voltou VAZIA (fonte faltando/indexação?)", nb_id)
             respostas[key] = ans

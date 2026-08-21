@@ -104,6 +104,22 @@ check(ep.origem_declarada('') is None, 'resposta vazia deveria dar None')
 check(ep.origem_declarada('▶ EVIDÊNCIA DE ASSINATURA: Sim') is None,
       'leu declaração de uma linha que não é a da origem')
 
+# A P3a chega em ENVELOPE quando vem do notebook dedicado (query_ficha devolve dict). Passar
+# o envelope cru matava a sonda inteira em TypeError, engolido pelo `except` do chamador: o
+# guard não alarmava errado, calava. Medido no 0011183-33 (21/08/2026) — ficha de 397 entregas
+# sem nenhuma conferência de contagem, e sem nada no console além de uma linha de desculpa.
+check(ep.texto_resposta({'answer': ESCANE}) == ESCANE, 'não desembrulhou o dict do nlm')
+check(ep.texto_resposta(ESCANE) == ESCANE, 'texto cru deveria passar intacto')
+check(ep.texto_resposta({}) == '' and ep.texto_resposta(None) == '',
+      'envelope vazio/None deveria virar string vazia, não explodir')
+check(ep.origem_declarada(ep.texto_resposta({'answer': ESCANE})) == 'escaneada',
+      'a declaração tem de ser legível vindo do envelope')
+# O bug não estava na função, estava em QUEM a chamava — nenhum teste de unidade alcança
+# isso. Guarda no código-fonte: os consumidores da P3a leem texto, nunca o envelope.
+_FONTE = (AQUI / 'extrai_processo.py').read_text(encoding='utf-8')
+for _chamada in ('conferir_origem_ficha(ficha, res)', 'conferir_contagem(ficha, res'):
+    check(_chamada not in _FONTE, 'chamada passando o envelope cru: %s' % _chamada)
+
 # ── 4. o cruzamento avisa, e NUNCA levanta exceção (roda dentro da corrida) ───────────
 msgs = []
 ep.conferir_origem_ficha('X:/nao/existe.pdf', DIGITAL, log_fn=msgs.append)

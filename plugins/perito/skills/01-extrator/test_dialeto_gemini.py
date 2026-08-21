@@ -11,6 +11,7 @@ Dialeto Gemini (colhido em processo real): bullet antes do ▶, negrito nos rót
 referência de imagem na citação ([Image 115]), divisória *** e citação dentro da célula
 da ficha.
 """
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -152,6 +153,34 @@ def main():
         print("    --- diferenças (primeiras 25 linhas) ---")
         for line in d[:25]:
             print("    " + line[:150])
+
+    print("D9 — heading que ESQUECEU o ▶ ainda abre seção")
+    # Medido no 0011183-33 (21/08/2026): o Gemini largou o marcador nas três primeiras seções
+    # da Parte 1 ("### PROCESSO E EMPRESA") e manteve nas outras 18. Sem glifo não há o que
+    # normalizar, e o formulário saiu com 9 de 9 campos vazios — inclusive a data da autuação,
+    # sem a qual o guard de EPI perde o imprescrito e subestima o período descoberto.
+    sem_marcador = re.sub(r"^▶[ \t]*", "### ", ANTIGO, flags=re.M)
+    check("▶" not in sem_marcador, "fixture realmente não tem nenhum ▶")
+    check(_build(sem_marcador) == antigo, "heading sem ▶ produz o MESMO formulário")
+
+    print("D10 — a promoção não inventa seção onde não há")
+    # A régua é vocabulário FECHADO + nível ≤ 3. Sem as duas metades, um subtítulo interno
+    # partiria o bloco de quesitos em dois e uma cauda do modelo viraria seção.
+    norm = mf.normalize_bundle(
+        "### QUESITOS DO RECLAMANTE\n"
+        "#### XV — QUESITOS DE INSALUBRIDADE\n"
+        "1. Pergunta.\n"
+        "### NOTAS COMPLEMENTARES AO PERITO\n"
+        "#### PROCESSO E EMPRESA\n")
+    check("▶ QUESITOS DO RECLAMANTE" in norm, "seção conhecida em ### foi promovida")
+    check("#### XV — QUESITOS DE INSALUBRIDADE" in norm,
+          "subtítulo #### não vira seção (não parte o bloco de quesitos)")
+    check("### NOTAS COMPLEMENTARES AO PERITO" in norm,
+          "título fora do vocabulário não vira seção")
+    check("#### PROCESSO E EMPRESA" in norm,
+          "nome conhecido em nível 4 continua sendo subtítulo")
+    secs = mf.split_subsections(norm)
+    check(len(secs) == 1, f"exatamente 1 seção reconhecida (obtido: {len(secs)})")
 
     print()
     if FALHAS:

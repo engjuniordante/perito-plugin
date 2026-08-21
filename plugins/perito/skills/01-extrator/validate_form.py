@@ -100,9 +100,21 @@ def _secao_form(form_text, titulo):
 
 
 def _bloco_quesito_form(form_text, titulo):
-    m = re.search(r'^#{2,4}[ \t]*' + re.escape(titulo) + r'[ \t]*$(.*?)(?=^#{2,4}[ \t]|\Z)',
-                  form_text, re.M | re.S)
-    return m.group(1) if m else None
+    """O bloco vai até o próximo heading de nível IRMÃO OU SUPERIOR — nunca até um subtítulo.
+
+    A versão anterior fechava em qualquer `#{2,4}`, e um bloco que COMEÇA com subdivisão
+    ("### Quesitos do Reclamante" seguido de "#### XIV — QUESITOS TÉCNICOS…", que é como a
+    petição organiza quesitos em blocos numerados) era capturado vazio. Vazio virava "o
+    formulário diz que não há" e o gate acusava perda de transcrição com os 30 quesitos
+    intactos no arquivo — falso positivo medido no 0011183-33 (21/08/2026).
+    """
+    m = re.search(r'^(#{2,4})[ \t]*' + re.escape(titulo) + r'[ \t]*$', form_text, re.M)
+    if not m:
+        return None
+    nivel = len(m.group(1))
+    resto = form_text[m.end():]
+    fim = re.search(r'^#{1,%d}[ \t]' % nivel, resto, re.M)
+    return resto[:fim.start()] if fim else resto
 
 
 def validate_campos_obrigatorios(form_text, findings):

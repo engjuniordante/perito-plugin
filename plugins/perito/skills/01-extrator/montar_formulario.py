@@ -36,6 +36,22 @@ VALIDATE = HERE / "validate_form.py"
 AVISOS: list[str] = []
 
 SUBSEC_RE = re.compile(r"^▶\s*(.+?)\s*$", re.M)
+# Vocabulário FECHADO das seções que o pipeline procura (os mesmos prefixos dos get_by_prefix
+# lá embaixo). Serve à normalização: quando o modelo escreve o título como heading e ESQUECE o
+# ▶ ("### PROCESSO E EMPRESA"), não há glifo para ancorar e a seção deixa de existir. Casar
+# contra esta lista é seguro justamente por ser fechada — título fora dela não vira seção.
+SECOES_CONHECIDAS = (
+    "PROCESSO E EMPRESA", "IDENTIFICAÇÃO", "TIPO DE LAUDO", "DESCRIÇÃO DO AMBIENTE",
+    "AFASTAMENTOS", "ATIVIDADES POR FUNÇÃO", "CITAÇÕES", "PARTICIPANTES",
+    "EVIDÊNCIAS DOCUMENTAIS", "NR-6", "ESCOPO DA AVALIAÇÃO", "PRÉ-TRIAGEM",
+    "QUESITOS DO JUÍZO", "QUESITOS DO RECLAMANTE", "QUESITOS DA RECLAMADA",
+)
+# Só heading de nível 1–3: o dialeto do Gemini usa ### para SEÇÃO e #### para subdivisão
+# interna ("#### XV — QUESITOS DE INSALUBRIDADE"), que não pode virar seção nova e partir o
+# bloco em dois.
+HEADING_SEM_MARCADOR_RE = re.compile(
+    r"^[ \t]*#{1,3}[ \t]*(?=(?:%s)\b)" % "|".join(re.escape(s) for s in SECOES_CONHECIDAS),
+    re.M | re.I)
 DATE_ROW_RE = re.compile(r"^\|\s*\d{2}/\d{2}/\d{4}\s*\|")
 DIVISORIA = "▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO"
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do pacto,
@@ -531,6 +547,12 @@ def normalize_bundle(text: str) -> str:
     # SUBSEC_RE exige o ▶ no início ABSOLUTO da linha; qualquer prefixo zera o formulário inteiro
     # (nenhuma seção reconhecida, nem o nº do processo). O Gemini Notebook escreve "*   ▶ NOME".
     text = re.sub(r"^[ \t]*(?:[#>]+[ \t]*|[-*+][ \t]+)*(?=▶)", "", text, flags=re.M)
+    # E o caso em que o ▶ não veio: "### PROCESSO E EMPRESA". Medido no 0011183-33 (21/08/2026),
+    # onde o Gemini largou o marcador nas TRÊS primeiras seções da Parte 1 e manteve nas outras
+    # 18 — o formulário saiu com 9 de 9 campos vazios. Pior que o campo vazio: sem a data da
+    # autuação o guard de EPI perde o imprescrito e passa a somar vida útil solta, subestimando
+    # o período descoberto (17,3 meses no lugar de 61,4, no mesmo processo).
+    text = HEADING_SEM_MARCADOR_RE.sub("▶ ", text)
     # Citações e refs de imagem saem UMA vez, no texto inteiro: assim a limpeza vale também para
     # dentro das células da ficha ("| 09/03/2022 [Image 20] |"), que os parsers de tabela liam
     # como linha inválida e descartavam a entrega em silêncio.
