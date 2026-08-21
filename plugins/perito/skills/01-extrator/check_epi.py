@@ -54,6 +54,16 @@ UMID = ('umidade', 'an.10', 'an. 10', 'anexo 10')
 MASK = ('máscara', 'mascara', 'lente', 'viseira', 'escudo',
         'solda', 'soldad', 'capuz')
 AN13 = 'Químico dérmico (An.13)'
+
+# ── D1 (decisão do perito, 21/08/2026): quais agentes EMPILHAM saldo não vencido ──────────
+# Consumível de consumo CONTÍNUO (creme/pomada → An.13) empilha: o pote que chega antes de o
+# anterior acabar não perde o saldo. Medido: 7 potes rendiam 5,6 meses com descarte, 7 meses
+# empilhando — e 1 pote = 1 mês é a régua do perito.
+# ⛔ O PROTETOR AURICULAR NÃO ENTRA, e a razão não é de gosto: é de uso único com reposição por
+# substituição (NR-6 6.6.1 "e"), então o intervalo entre entregas é o próprio sinal de período sem
+# reposição — empilhar presumiria um estoque que a ficha não comprova. Medido em caso real:
+# empilhar o protetor faria SUMIR um gap de 55 dias num ambiente de 95,6 dB(A).
+EMPILHA_SALDO = {AN13}
 AN11 = 'Químico inalável (An.11)'
 AN7 = 'Radiação não-ionizante (An.7)'
 AN1 = 'Ruído (An.1)'
@@ -578,7 +588,42 @@ def process(lines, cadict, caepi):
             if x not in seen:
                 seen.add(x); out.append(x)
         return out
-    return dedup(classified), dedup(flags), dedup(nao_cat)
+    return agrupa_por_ca(classified), dedup(flags), dedup(nao_cat)
+
+
+def agrupa_por_ca(classified):
+    """D3 (decisão do perito): UMA linha por (C.A., agente, fonte) — não por grafia do manuscrito.
+
+    O manuscrito escreve o mesmo item de vários jeitos ("Luva Neoprene G", "LUVA NEOPRENE (G)",
+    "Sental Neoprem G") e a dedup por linha inteira devolvia um item por grafia: num caso real,
+    109 linhas para 19 C.A. distintos — ilegível no celular, que é onde a lista é usada, em
+    diligência. Agrupar NÃO muda dado, classificação nem cobertura: muda quantas vezes a mesma
+    resposta é repetida.
+
+    Duas coisas que a chave precisa preservar, e por isso ela não é só o C.A.:
+      • mesmo C.A. com DUAS classificações é informação real → `agente` e `src` entram na chave e
+        as linhas continuam separadas;
+      • entrega SEM C.A. ('—') → a descrição volta à chave. Sem isso, todo item sem C.A. de um
+        mesmo agente colapsaria num só, que é perda de dado disfarçada de organização.
+
+    As grafias descartadas são CONTADAS na linha que fica ("+N grafias na ficha"): o perito
+    precisa saber que o item aparece escrito de vários jeitos — é sinal de transcrição solta."""
+    ordem, grafias = [], {}
+    for ca, desc, agente, src in classified:
+        chave = (ca, agente, src) if (ca and ca != '—') else (ca, desc, agente, src)
+        if chave not in grafias:
+            grafias[chave] = {'desc': desc, 'vistas': set(), 'campos': (ca, agente, src)}
+            ordem.append(chave)
+        grafias[chave]['vistas'].add(desc)
+    out = []
+    for chave in ordem:
+        g = grafias[chave]
+        ca, agente, src = g['campos']
+        extras = len(g['vistas']) - 1
+        desc = g['desc'] if extras <= 0 else '%s (+%d grafia%s na ficha)' % (
+            g['desc'], extras, '' if extras == 1 else 's')
+        out.append((ca, desc, agente, src))
+    return out
 
 
 # ---- cobertura por TIPO (item 6.1.1 NR-6) — determinística, só na tabela do imprescrito ----
@@ -983,17 +1028,19 @@ def cobertura(lines, cadict, caepi):
         impr_a_d += timedelta(days=IMPRESC_GRACE_DAYS)
     impr_b_d = date.fromisoformat(impr_b) if impr_b else None
     window_days = (impr_b_d - impr_a_d).days if (impr_a_d and impr_b_d) else None
-    # Afastamentos: durante a ausência NÃO há exposição → descontados da janela (denominador de
-    # EXPOSIÇÃO) E das janelas de gap. Se a leitura do bloco for suspeita (afast_ok=False), NÃO
-    # desconta (degrada pro manual, como antes) e avisa — nunca subtrai número duvidoso em silêncio.
+    # D2 (decisão do perito, 21/08/2026): o afastamento NÃO desconta mais. É posição pericial, não
+    # aritmética: o denominador volta a ser o imprescrito cheio e as janelas de gap deixam de ser
+    # aparadas pelos períodos de ausência. Os períodos continuam sendo LIDOS e ECOADOS — tirar o
+    # desconto não pode virar tirar a informação — e o `_subtract_intervals` fica de pé logo acima,
+    # sem chamador, para que voltar atrás seja uma linha.
     afast, afast_ok = _afastamentos(text)
     afast = afast if afast_ok else []
     afast_days = _afastamento_days_in(afast, impr_a_d, impr_b_d) if window_days else 0
-    expo_days = (window_days - afast_days) if window_days else None
-    den_label = 'exposição (imprescrito − afastamento)' if afast else 'imprescrito'
+    expo_days = window_days
+    den_label = 'imprescrito'
     res, cov_by_agent, gaps_by_agent = [], {}, {}
     for a, (m, n) in buckets.items():
-        wins = _subtract_intervals(_clipped_windows(events.get(a, []), impr_a_d, impr_b_d), afast)
+        wins = _clipped_windows(events.get(a, []), impr_a_d, impr_b_d, empilha=(a in EMPILHA_SALDO))
         if expo_days and expo_days > 0:
             # cobertura CONTÍNUA = exposição − soma dos buracos (já sem os trechos de afastamento).
             covered = max(0.0, (expo_days - sum(d for _, _, d in wins))) / 30.44
@@ -1017,13 +1064,15 @@ def cobertura(lines, cadict, caepi):
         res.append('⚠ %d entrega(s) de protetor/creme FORA da conta (quantidade ilegível/irreal): %s — confira a ficha e ajuste a quantidade no formulário'
                    % (len(descartes), '; '.join(descartes[:4]) + ('; …' if len(descartes) > 4 else '')))
 
-    # Frase clara da conta + ECO dos períodos descontados (perito confere contra a ficha/PPP) —
-    # só quando houve desconto e há cobertura a contextualizar.
+    # ECO dos afastamentos LIDOS. D2 tirou o desconto, não a informação: o perito vê os períodos e
+    # a conta que eles DARIAM, e decide caso a caso. Dizer que não foi descontado é obrigatório —
+    # número sem régua declarada é o que gera impugnação.
     if afast and buckets and window_days:
-        res.append('Exposição = ~%.1fm imprescrito − ~%.1fm afastamento (%d período%s) = ~%.1fm'
-                   % (window_days / 30.44, afast_days / 30.44, len(afast),
-                      '' if len(afast) == 1 else 's', max(0, expo_days) / 30.44))
-        res.append('afastamentos descontados: '
+        res.append('afastamentos lidos, NÃO descontados (régua do perito — D2): %d período%s, ~%.1fm; '
+                   'o denominador segue o imprescrito cheio (~%.1fm). Para abater, faça-o à mão.'
+                   % (len(afast), '' if len(afast) == 1 else 's', afast_days / 30.44,
+                      window_days / 30.44))
+        res.append('períodos de afastamento: '
                    + ' · '.join('%s–%s' % (i.strftime('%d/%m/%Y'), f.strftime('%d/%m/%Y'))
                                 for i, f in afast))
         # autoconferência: a soma do guard vs a linha "Total excluído: N dias" (preenchida pelo
@@ -1035,7 +1084,8 @@ def cobertura(lines, cadict, caepi):
                 res.append('⚠ soma do guard (%dd) ≠ "Total excluído" do formulário (%dd) — confira o bloco AFASTAMENTOS'
                            % (afast_days, decl))
     if not afast_ok:
-        res.append('⚠ bloco AFASTAMENTOS com data ilegível/incompleta — NÃO descontado automaticamente; confira e abata manualmente')
+        res.append('⚠ bloco AFASTAMENTOS com data ilegível/incompleta — os períodos não puderam ser '
+                   'lidos nem ecoados; confira o bloco na ficha (a conta não muda: D2 não desconta)')
 
     def dedup(xs):
         seen, out = set(), []
@@ -1046,12 +1096,17 @@ def cobertura(lines, cadict, caepi):
     return res, dedup(faltou), (use_date or tem_div), cov_by_agent, gaps_by_agent
 
 
-def _clipped_windows(events, win_lo, win_hi):
+def _clipped_windows(events, win_lo, win_hi, empilha=False):
     """TODOS os buracos de cobertura (qualquer tamanho ≥1d) clipados a [win_lo, win_hi]. events
     inclui lookback pré-janela (herda cobertura). Cada entrega cobre [data, data+qtd×vida útil];
     o buraco é o intervalo entre o fim de uma cobertura e a próxima entrega. Cobre abertura, meio
     e cauda. Clipar evita falso-positivo quando o imprescrito corta o MEIO do contrato. Base tanto
-    da cobertura contínua (janela − Σ buracos) quanto do display de períodos descobertos."""
+    da cobertura contínua (janela − Σ buracos) quanto do display de períodos descobertos.
+
+    `empilha` (D1, régua do perito — ver EMPILHA_SALDO): a entrega que chega ANTES de a anterior
+    acabar começa a valer no FIM da anterior, em vez de descartar o saldo não vencido. 7 potes de
+    creme = 7 meses, e não os 5,6 que o descarte dava. **Nunca ligar para o protetor auricular**:
+    ali o intervalo entre entregas é o próprio sinal de período sem reposição."""
     if not events:
         return []
     evs = sorted(events, key=lambda e: e[0])
@@ -1059,7 +1114,9 @@ def _clipped_windows(events, win_lo, win_hi):
     for di, qtd, vu in evs:
         if cover_end is not None and di > cover_end:
             raw.append((cover_end, di))                  # buraco entre o fim da cobertura e a próxima entrega
-        ce = di + timedelta(days=int(round(qtd * vu * 30.44)))
+        # empilhando, o saldo não vencido soma: a nova entrega parte do fim da cobertura vigente.
+        inicio = cover_end if (empilha and cover_end is not None and cover_end > di) else di
+        ce = inicio + timedelta(days=int(round(qtd * vu * 30.44)))
         if cover_end is None or ce > cover_end:
             cover_end = ce
     if win_lo and evs[0][0] > win_lo:                    # nenhuma entrega no/antes do início → abertura
@@ -1995,7 +2052,9 @@ def main():
         bloco.append('\n**📇 C.A. NÃO CATALOGADOS** (nem no dicionário nem na base CAEPI — verificar e catalogar): '
                      + ', '.join(nao_cat))
     if cob_res:
-        bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do imprescrito menos afastamentos, e o boletim do C.A.):**')
+        bloco.append('\n**📐 Cobertura (sugestão — só creme e protetor auditivo; confronte com os meses do '
+                     'imprescrito e o boletim do C.A. **D1**: creme empilha saldo não vencido; protetor não. '
+                     '**D2**: afastamento NÃO desconta):**')
         for r in cob_res:
             bloco.append('- %s' % r)
         if not scoped:

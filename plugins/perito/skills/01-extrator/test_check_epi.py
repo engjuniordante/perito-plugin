@@ -559,9 +559,12 @@ def t10b_clamp_inicio_admissao():
     check(meses2 is not None and meses2 > 58.0, "sem campo de contrato → sem clamp (~60m): %.1f" % (meses2 or -1))
 
 
-# T11 — desconto automático de afastamento (exposição = imprescrito − afastamento)
+# T11 — D2: afastamento é LIDO e ECOADO, mas NÃO desconta (régua do perito, 21/08/2026).
+# Este teste já travou o comportamento OPOSTO (exposição = imprescrito − afastamento). Foi
+# reescrito, não apagado: o que ele protege agora é que tirar o desconto não tirou a
+# INFORMAÇÃO — o perito continua vendo os períodos e quanto eles dariam, e decide à mão.
 def t11_desconto_afastamento():
-    print("T11 — desconto automático de afastamento (Opção 1, à prova de erro)")
+    print("T11 — D2: afastamento ecoado, NÃO descontado")
     ent = ["• 09/03/2022 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 01/09/2022 · 1un · PROT AURIC SILICONE · CA 5745",
            "• 02/01/2024 · 1un · PROT AURIC SILICONE · CA 5745"]
@@ -572,25 +575,27 @@ def t11_desconto_afastamento():
     base = (["Período imprescrito: ★ de 17/09/2020 até 17/09/2025",
              "Período trabalhado: de 15/09/2008 até 11/10/2024"] + afast_block
             + ["TABELA DE FORNECIMENTO DE EPIs"] + ent + ["▶ OBSERVAÇÕES GERAIS"])
-    # (a) reconcilia: cobertura + gap = exposição; denominador = exposição (imprescrito clampado
-    # 48.8m − afastamento 9.0m = ~39.8m), não o imprescrito cheio
+    # (a) denominador = IMPRESCRITO cheio (~48.8m), não a exposição descontada (~39.8m)
     res, faltou, scoped, cov, gaps = ce.cobertura(base, {}, FAKE)
-    expo_line = next((x for x in res if "de exposição" in x), "")
     import re as _re
-    den = float(_re.search(r"de ~([\d.]+) meses de exposição", expo_line).group(1)) if expo_line else 0
-    check("de exposição" in expo_line and 39.0 <= den <= 41.0,
-          "denominador = exposição ~40m (não o imprescrito ~49): %.1f" % den)
-    fr = next((x for x in res if x.startswith("Exposição =")), "")
-    check("imprescrito" in fr and "afastamento" in fr and "2 períodos" in fr,
-          "frase clara da conta presente: %r" % fr)
-    check(any("afastamentos descontados:" in x and "08/01/2024" in x and "01/02/2024" in x for x in res),
-          "eco dos períodos descontados presente")
-    g = gaps_de(res)
-    check(g and not any("11/10/2024" in x for x in res),
-          "janela dentro do afastamento sumiu do gap (não há /11/10/2024): %r" % res)
-    # reconcilia: cobertura (~12) + gap (~27.7) ≈ exposição (~39.8)
-    cobertura_m = cov.get("Ruído (An.1)", 0)
-    check(abs((cobertura_m + 27.7) - den) < 1.5, "cobertura + gap ≈ exposição (reconcilia): %.1f + 27.7 vs %.1f" % (cobertura_m, den))
+    den_line = next((x for x in res if "cobertura contínua" in x), "")
+    m = _re.search(r"de ~([\d.]+) meses de (\w+)", den_line)
+    den, rotulo = (float(m.group(1)), m.group(2)) if m else (0, "")
+    check(rotulo == "imprescrito" and 48.0 <= den <= 49.5,
+          "denominador = imprescrito ~48.8m, não exposição ~40m: %.1f (%s)" % (den, rotulo))
+    check(not any("Exposição =" in x for x in res),
+          "a frase 'Exposição = imprescrito − afastamento' NÃO sai mais: %r" % res)
+    # (b) tirar o desconto não pode tirar a informação: os períodos continuam ecoados, e a linha
+    # DIZ que não descontou — número sem régua declarada é o que gera impugnação.
+    eco = next((x for x in res if "NÃO descontados" in x), "")
+    check("2 período" in eco and "9.0m" in eco, "eco diz quantos períodos e quanto dariam: %r" % eco)
+    check(any("períodos de afastamento:" in x and "08/01/2024" in x and "01/02/2024" in x for x in res),
+          "as datas dos afastamentos continuam listadas")
+    # (c) a janela que o desconto ENGOLIA volta a aparecer como descoberta — é o efeito
+    # pericial da D2, e o que mais muda laudo: 03/07/2024 → 11/10/2024 caía dentro do
+    # afastamento "limbo" e sumia do gap.
+    check(any("11/10/2024" in x for x in res),
+          "janela dentro do afastamento VOLTA a contar como descoberta: %r" % gaps_de(res))
     # (b) ANTI-COVID: De:/até: de COVID na seção do agente M NÃO é lido como afastamento
     covid = (["Período imprescrito: ★ de 17/09/2020 até 17/09/2025",
               "Período trabalhado: de 15/09/2008 até 11/10/2024",
@@ -616,6 +621,68 @@ def t11_desconto_afastamento():
              "TABELA DE FORNECIMENTO DE EPIs"] + ent + ["▶ OBSERVAÇÕES GERAIS"]
     af2, ok3 = ce._afastamentos("\n".join(semaf))
     check(af2 == [] and ok3, "sem bloco AFASTAMENTOS → ([], True) = no-op")
+
+
+# T11b — D1: consumível de consumo contínuo EMPILHA saldo não vencido; protetor NÃO.
+def t11b_empilha_saldo():
+    print("T11b — D1: creme empilha saldo não vencido, protetor não")
+    from datetime import date, timedelta
+    # 7 potes de 1 mês entregues a cada 20 dias: cada um chega ANTES de o anterior acabar.
+    ev = [(date(2020, 1, 1) + timedelta(days=20 * i), 1, 1.0) for i in range(7)]
+    lo, hi = date(2020, 1, 1), date(2021, 12, 31)
+    sem = ce._clipped_windows(ev, lo, hi, empilha=False)
+    com = ce._clipped_windows(ev, lo, hi, empilha=True)
+    fim_sem = sem[-1][0]          # início da cauda = onde a cobertura acabou
+    fim_com = com[-1][0]
+    check((fim_sem - lo).days == 150,
+          "sem empilhar, cobertura morre na última entrega + 1 mês (150d): %dd" % (fim_sem - lo).days)
+    check((fim_com - lo).days == 210,
+          "empilhando, os 7 potes rendem os 7 meses (210d): %dd" % (fim_com - lo).days)
+    check(fim_com > fim_sem, "empilhar ESTENDE a cobertura (o saldo deixou de ser descartado)")
+    # ⛔ o protetor auricular não empilha: é uso único com reposição por substituição, e o
+    # intervalo entre entregas É o sinal de período sem reposição. Empilhar apagaria o gap.
+    check(ce.AN13 in ce.EMPILHA_SALDO, "creme (An.13) está na lista que empilha")
+    check("Ruído (An.1)" not in ce.EMPILHA_SALDO,
+          "protetor auditivo NÃO empilha (NR-6 6.6.1 'e') — empilhar sumiria com gap real")
+    # e a prova de que a régua está LIGADA no caminho de verdade, não só no helper:
+    ent = ["• 05/01/2023 · 1un · CREME PROTETOR · CA 11070",
+           "• 25/01/2023 · 1un · CREME PROTETOR · CA 11070",
+           "• 14/02/2023 · 1un · CREME PROTETOR · CA 11070"]
+    base = (["Período imprescrito: ★ de 05/01/2023 até 31/12/2023",
+             "TABELA DE FORNECIMENTO DE EPIs"] + ent + ["▶ OBSERVAÇÕES GERAIS"])
+    res, faltou, scoped, cov, gaps = ce.cobertura(base, {}, FAKE)
+    # 3 potes empilhados = ~3 meses (90d); sem empilhar seriam 40+30 = 70d
+    linha = next((x for x in res if ce.AN13 in x and "cobertura" in x), "")
+    check("3 entregas" in linha, "as 3 entregas de creme entraram na conta: %r" % linha)
+    g = gaps_de(res)
+    check(any("05/04/2023" in x for x in res),
+          "gap do creme começa em 05/04/2023 (3 potes empilhados = 3 meses cheios): %r" % g)
+
+
+# T11c — D3: o quadro 🔧 agrupa por (C.A., agente, fonte), não por grafia do manuscrito.
+def t11c_agrupa_por_ca():
+    print("T11c — D3: uma linha por C.A., não por grafia")
+    ag = ce.agrupa_por_ca
+    # três grafias do MESMO item (caso real: 109 linhas para 19 C.A.)
+    tres = [("11070", "Luva Neoprene G", ce.AN13, "dicionário"),
+            ("11070", "LUVA NEOPRENE (G)", ce.AN13, "dicionário"),
+            ("11070", "Sental Neoprem G", ce.AN13, "dicionário")]
+    out = ag(tres)
+    check(len(out) == 1, "3 grafias do mesmo C.A. viram 1 linha: %d" % len(out))
+    check("+2 grafias na ficha" in out[0][1],
+          "a linha que fica CONTA as grafias descartadas (sinal de transcrição solta): %r" % out[0][1])
+    check(out[0][0] == "11070" and out[0][2] == ce.AN13, "C.A. e agente preservados: %r" % (out[0],))
+    # mesmo C.A. com DUAS classificações é informação real → continua em 2 linhas
+    dois = [("11070", "Creme", ce.AN13, "dicionário"),
+            ("11070", "Creme", "Ruído (An.1)", "CAEPI")]
+    check(len(ag(dois)) == 2, "mesmo C.A. com 2 classificações NÃO colapsa (é informação real)")
+    # sem C.A., a descrição volta à chave: senão itens diferentes viravam um só
+    semca = [("—", "Colete refletivo", ce.AN13, "regra absoluta"),
+             ("—", "Cartucho para gases", ce.AN13, "regra absoluta")]
+    check(len(ag(semca)) == 2,
+          "itens SEM C.A. não colapsam entre si (perda de dado disfarçada de organização)")
+    # ordem de aparição preservada (o perito lê a lista na ordem da ficha)
+    check([x[0] for x in ag(tres + dois)] == ["11070", "11070"], "ordem de aparição preservada")
 
 
 # T12 — guarda rejeita classificação implausível do CAEPI para descrição incompatível
@@ -762,7 +829,8 @@ def main():
               t9d_creme_cosmetico_nao_e_epi, t9e_nr6_escopo_observacional,
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,
-              t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento):
+              t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento,
+              t11b_empilha_saldo, t11c_agrupa_por_ca):
         t()
     print()
     if FALHAS:
