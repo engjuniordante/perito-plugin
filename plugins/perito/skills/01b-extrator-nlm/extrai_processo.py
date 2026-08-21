@@ -323,7 +323,35 @@ _PDF_TOKEN_RE = re.compile(
     rb'|(\((?:\\.|[^\\()]){0,2000}\)\s*(?:Tj|\'|"))'
     rb'|(\bT\*|\bTd|\bTD|\bTm|\bBT|\bET)', re.S)
 _PDF_PAGE_RE = re.compile(rb'/Type\s*/Page[^sA-Za-z]')
-_DATA_BR_RE = re.compile(r'\b\d{2}/\d{2}/\d{4}\b')
+# Data da ficha, nos formatos que aparecem DE VERDADE. Medido na ficha da ASW (proc.
+# 0011183-33): "17.07.24", "18/07/24", "29.11.22", "01-12-22", "27.04.21" — separador ponto,
+# barra OU hífen, e ano de DOIS dígitos. A regex antiga só aceitava dd/mm/aaaa e não casava
+# NENHUM desses; num ficha digital com esse estilo o gabarito do T7.2 sairia zerado.
+# O separador é independente em cada posição de propósito: manuscrito transcrito mistura.
+_DATA_BR_RE = re.compile(r'\b(\d{2})[./-](\d{2})[./-](\d{4}|\d{2})\b')
+
+
+def _data_valida(m):
+    """Dia 1–31 e mês 1–12. É o que separa data de código com pontos — sem isto, um C.A.
+    escrito "33.333" ou um RG "46.272.896-1" viram entrega e o gabarito infla (superestimar
+    é a direção que cria alarme falso)."""
+    try:
+        d, mes = int(m.group(1)), int(m.group(2))
+    except (TypeError, ValueError):
+        return False
+    return 1 <= d <= 31 and 1 <= mes <= 12
+
+
+def _datas_do_texto(texto):
+    """Todas as datas válidas do texto, normalizadas para dd/mm/aaaa (ano de 2 dígitos vira
+    20xx — ficha trabalhista não tem entrega do século passado nesta base)."""
+    out = []
+    for m in _DATA_BR_RE.finditer(texto or ''):
+        if not _data_valida(m):
+            continue
+        ano = m.group(3)
+        out.append('%s/%s/%s' % (m.group(1), m.group(2), ano if len(ano) == 4 else '20' + ano))
+    return out
 # Piso de datas distintas por página para dizer "tem tabela legível". O digital conhecido dá
 # 2,43 e o maior falso-candidato dá 0,05; 0,5 fica no meio, com folga dos dois lados.
 LIMIAR_DATAS_POR_PAGINA = 0.5
@@ -387,7 +415,7 @@ def sondar_origem_ficha(pdf_path):
     try:
         pags = len(_PDF_PAGE_RE.findall(raw)) or 1
         texto = _pdf_texto(raw)
-        datas = _DATA_BR_RE.findall(texto)
+        datas = _datas_do_texto(texto)
         distintas = len(set(datas))
         dpp = distintas / pags
         med = {"paginas": pags, "chars": len(texto), "chars_pag": round(len(texto) / pags, 1),
@@ -435,7 +463,7 @@ def origem_declarada(resposta_p3a):
 # Linha de entrega no que o modelo transcreveu: tabela markdown que começa com a data, ou o
 # bullet do montador. Mesma regra do parse_ficha_rows: quem produz e quem confere têm de ler
 # da mesma origem.
-_LINHA_ENTREGA_RE = re.compile(r'^[\s\-–—•·*]*\|?\s*\d{2}/\d{2}/\d{4}\s*[|·]', re.M)
+_LINHA_ENTREGA_RE = re.compile(r'^[\s\-–—•·*]*\|?\s*\d{2}[./-]\d{2}[./-](?:\d{4}|\d{2})\s*[|·]', re.M)
 # Rodapé de emissão — a assinatura de ficha REIMPRESSA. Ver o porquê em conferir_contagem().
 _EMISSAO_RE = re.compile(
     r'(?:emiss[ãa]o|emitid[oa]|impress[ãa]o|gerado)\D{0,24}(\d{2}/\d{2}/\d{4})', re.I)
@@ -472,9 +500,9 @@ def gabarito_entregas(pdf_path):
         pags = len(_PDF_PAGE_RE.findall(raw)) or 1
         datas = []
         for ln in _pdf_linhas(raw):
-            m = _DATA_BR_RE.search(ln)
-            if m:
-                datas.append(m.group(0))
+            do_linha = _datas_do_texto(ln)
+            if do_linha:
+                datas.append(do_linha[0])       # a PRIMEIRA da linha = a de entrega
         return datas, pags
     except Exception:
         return [], 0

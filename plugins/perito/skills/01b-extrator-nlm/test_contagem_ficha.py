@@ -75,6 +75,43 @@ for nome, linhas in LAYOUTS.items():
     finally:
         p.unlink(missing_ok=True)
 
+# ── 1b. FORMATO DA DATA: medido na ficha da ASW (proc. 0011183-33) ────────────────────
+# Aquela ficha escreve "17.07.24", "01-12-22", "18/07/24" — ponto, hífen e ano de DOIS
+# dígitos. A regex original só aceitava dd/mm/aaaa e não casava NENHUM desses: numa ficha
+# digital com esse estilo o gabarito sairia ZERADO, e a conferência viraria silêncio.
+FORMATOS = ['17.07.24', '18/07/24', '29.11.22', '01-12-22', '04/12/22', '27.04.21',
+            '25/02/2023']
+for bruto in FORMATOS:
+    got = ep._datas_do_texto(bruto)
+    check(len(got) == 1, 'formato de data %r não foi reconhecido' % bruto)
+    check(got and got[0].endswith(('2021', '2022', '2023', '2024')),
+          'ano de 2 dígitos não foi normalizado para 20xx: %r → %r' % (bruto, got))
+
+# O outro lado: código com pontos NÃO pode virar entrega. Superestimar o gabarito é a
+# direção que cria alarme falso — e a própria ficha traz C.A. escrito "33.333" e RG
+# "46.272.896-1" na mesma página.
+for bruto in ['46.272.896-1', '1,000', 'FO-060 REV.05', '33.333', 'R$ 5.800,00',
+              'CA 43794', '99.99.99', '00/13/2020', '32.01.24', '01.13.24']:
+    check(ep._datas_do_texto(bruto) == [],
+          'FALSO POSITIVO de data em %r: %r' % (bruto, ep._datas_do_texto(bruto)))
+
+# Ficha inteira no formato pontuado continua rendendo gabarito.
+p = com_pdf(['%02d.03.23 BOTINA VAQ PR CA 26149' % d for d in range(1, 21)], paginas=2)
+try:
+    datas, _ = ep.gabarito_entregas(str(p))
+    check(len(datas) == 20, 'ficha com data pontuada deu gabarito %d, esperava 20' % len(datas))
+finally:
+    p.unlink(missing_ok=True)
+
+# Linha com entrega pontuada + devolução: conta UMA, a de entrega (a primeira).
+check(ep._datas_do_texto('27.04.21 02 LUVA NITRILICA 43794 Dirceu 04/05/21')[0] == '27/04/2021',
+      'linha entrega+devolução não elegeu a data de ENTREGA')
+
+# A linha transcrita pelo modelo também aceita o formato pontuado.
+check(ep.contar_entregas_transcritas('| 17.07.24 | 1 | LUVA | 33333 |') == 1,
+      'linha transcrita com data pontuada não foi contada')
+
+
 # A linha com DUAS datas conta UMA vez, e é a de ENTREGA (a primeira) — numa das fichas
 # medidas a segunda data era a validade do C.A., e contar todas inflava o gabarito.
 p = com_pdf(LAYOUTS['validade do C.A. junto'])
