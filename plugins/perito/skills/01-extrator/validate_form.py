@@ -23,6 +23,15 @@ Checks:
 - B5 quesitos perdidos na transcrição: o bundle TEM quesitos da parte e o formulário saiu
   com o texto de ausência. Compara com o BUNDLE, não com o próprio formulário — conferência
   que fecha com ela mesma não pega nada (foi assim que a caixinha do NLM vazou duas vezes).
+- B6 quesito transcrito pela METADE: o B5 só via o bloco ZERADO. Um bloco que devia ter 30
+  e saiu com 22 passava calado — a mesma forma do bug da ficha de EPI (razão agregada não
+  enxerga perda parcial). Conta as linhas NUMERADAS dos dois lados e acusa o déficit. Só
+  déficit: sobra é o perito completando à mão, que é o trabalho dele.
+- B7 bloco DESCARTADO por rótulo não-médico: o bundle diz "não pertinente ao perito técnico"
+  para um capítulo cujo título fala de ergonomia/NR-12/NR-17/segurança/acidente. Isso é do
+  perito de ENGENHARIA — o descarte custou 30 quesitos no 0011183-33 (22/08/2026) e o B5 não
+  viu, porque a perda foi DENTRO do bundle e formulário e bundle conferiam. Único check que
+  olha o bundle contra si mesmo, e pode: o modelo declara na própria linha o que jogou fora.
 
 Uso:
   python3 validate_form.py <formulario.md> <bundle.md>
@@ -31,6 +40,7 @@ from __future__ import annotations
 
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 # Piso 3.9 (anotações builtin) + stdout/err UTF-8: no Windows a saída capturada cai em
@@ -172,6 +182,77 @@ def validate_quesitos(form_text, bundle_text, findings):
                             'o bloco de quesitos do bundle.' % (titulo, n))
 
 
+# ── B6/B7: quesito contado e quesito descartado ──────────────────────────────────────
+# Linha de quesito numerada: "1. ", "12) ", "* 3. ", "- 7) ". Conta LINHAS, não números
+# distintos — a numeração REINICIA a cada capítulo (XIII 1..30, XIV 1..30) e contar únicos
+# esconderia exatamente a perda de um capítulo inteiro.
+QUESITO_NUM_RE = re.compile(r'^[ 	]*(?:[-*+][ 	]+)?\d{1,3}[.)][ 	]', re.M)
+# A linha com que o modelo anuncia que descartou um bloco.
+DESCARTE_RE = re.compile(r'^.*n[aã]o pertinente ao perito t[eé]cnico.*$', re.M | re.I)
+# O título do capítulo que a linha de descarte cita entre aspas. Preferir o TÍTULO à linha
+# inteira evita o alarme falso do capítulo "XIII — QUESITOS À PERÍCIA MÉDICA E FUNCIONAL",
+# que o modelo rotulou de "médica/ergonômica" na prosa embora seja clínico de ponta a ponta.
+TITULO_CITADO_RE = re.compile(r'''["“”'](.+?)["“”']''')
+# Matérias que são do perito de ENGENHARIA e nunca justificam descarte.
+MATERIA_ENGENHARIA = ('ergonom', 'nr-17', 'nr 17', 'nr-12', 'nr 12', 'seguranca',
+                      'maquina', 'acidente', 'reconstituicao', 'postural')
+QTD_DECLARADA_RE = re.compile(r'(\d{1,3})\s+quesitos')
+
+
+def _sem_acento(s: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFD', s.lower())
+                   if unicodedata.category(c) != 'Mn')
+
+
+def validate_quesitos_contagem(form_text, bundle_text, findings):
+    """B6 — o bloco foi transcrito, mas incompleto.
+
+    Mede na granularidade em que a perda acontece (a linha), não na razão agregada. Só
+    compara quando o bundle tem numeração: bloco em prosa corrida não é mensurável e
+    inventar régua ali daria alarme falso — que custa mais que o bug que pegaria.
+    """
+    sec = split_subsections(normalize_bundle(bundle_text))
+    for chave, titulo in (('QUESITOS DO JUÍZO', 'Quesitos do Juízo'),
+                          ('QUESITOS DO RECLAMANTE', 'Quesitos do Reclamante'),
+                          ('QUESITOS DA RECLAMADA', 'Quesitos da Reclamada')):
+        do_bundle = parse_quesitos(get_by_prefix(sec, chave)) or ''
+        n_bundle = len(QUESITO_NUM_RE.findall(do_bundle))
+        if n_bundle == 0:
+            continue                      # sem numeração no bundle → nada a medir
+        bloco = _bloco_quesito_form(form_text, titulo)
+        if bloco is None:
+            continue                      # bloco ausente já é achado do B5
+        n_form = len(QUESITO_NUM_RE.findall(bloco))
+        if n_form == 0:
+            continue                      # bloco zerado já é achado do B5
+        if n_form < n_bundle:
+            findings.append('"%s": o bundle traz %d quesito(s) numerado(s) e o formulário só '
+                            '%d — %d perdido(s) na transcrição. O bloco NÃO está vazio, por '
+                            'isso o B5 não pega. Confira o bloco no bundle.'
+                            % (titulo, n_bundle, n_form, n_bundle - n_form))
+
+
+def validate_bloco_descartado(bundle_text, findings):
+    """B7 — o modelo descartou um bloco que é do perito de ENGENHARIA.
+
+    Perícia MÉDICA (lesão, nexo, incapacidade, CID) sai mesmo. Ergonomia (NR-17), segurança
+    de máquinas (NR-12) e reconstituição de acidente NÃO — o plugin tem skill própria para
+    ergonomia. Régua: o extrator TRANSCREVE, não TRIA.
+    """
+    for linha in DESCARTE_RE.findall(bundle_text):
+        m = TITULO_CITADO_RE.search(linha)
+        alvo = _sem_acento(m.group(1) if m else linha)
+        materias = [k for k in MATERIA_ENGENHARIA if k in alvo]
+        if not materias:
+            continue                      # descarte de bloco médico: legítimo
+        qtd = QTD_DECLARADA_RE.search(_sem_acento(linha))
+        findings.append('Bundle descartou um bloco que é do perito de ENGENHARIA%s: %s. '
+                        'Ergonomia/NR-12/NR-17/reconstituição de acidente são para '
+                        'TRANSCREVER INTEIRO. Reextraia essa parte ou transcreva à mão.'
+                        % (' (%s quesitos declarados)' % qtd.group(1) if qtd else '',
+                           (m.group(1) if m else linha.strip())[:90]))
+
+
 def validate_imprescrito_sanity(form_text: str, findings: list[str]) -> None:
     """B1 — o imprescrito tem de caber DENTRO do contrato. A prescrição quinquenal recua até
     (ação−5 anos), mas não há vínculo (logo, nem exposição nem EPI) antes da admissão nem depois
@@ -237,6 +318,8 @@ def main() -> int:
     validate_guard_block(form_text, findings)
     validate_campos_obrigatorios(form_text, findings)
     validate_quesitos(form_text, bundle_text, findings)
+    validate_quesitos_contagem(form_text, bundle_text, findings)
+    validate_bloco_descartado(bundle_text, findings)
 
     if findings:
         print('VALIDAÇÃO FALHOU')

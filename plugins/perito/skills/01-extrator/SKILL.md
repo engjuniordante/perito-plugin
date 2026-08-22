@@ -139,7 +139,7 @@ Lógica das fontes: **Inicial = pedido** (o que verificar). **Contestação defe
 
 ## Fechamento (auto-validação Claude-side)
 
-> Gate determinístico (v1.0.48): o `montar_formulario.py` já roda o `validate_form.py` por dentro (após o guard) e trava 3 invariantes SEM token — imprescrito ⊆ contrato (início≥admissão, fim≤demissão), nº do processo form×bundle, e guard de EPI carimbado. O checklist abaixo cobre o que o gate ainda NÃO valida (tipo de laudo, blocos de agente completos, CNAE, etc.).
+> Gate determinístico: o `montar_formulario.py` já roda o `validate_form.py` por dentro (após o guard), SEM token — **B1** imprescrito ⊆ contrato (início≥admissão, fim≤demissão, piso quinquenal), **B2** nº do processo form×bundle, **guard-block** de EPI carimbado, **B3/B4** campo da extração vazio / formulário degradado, **B5** bloco de quesito zerado que o bundle tem, **B6** bloco de quesito transcrito pela METADE (conta as linhas numeradas dos dois lados) e **B7** capítulo descartado por rótulo de ergonomia/NR-12/NR-17/acidente, que é do perito de ENGENHARIA. O checklist abaixo cobre o que o gate ainda NÃO valida (tipo de laudo, blocos de agente completos, CNAE, etc.). ⚠ E o gate valida ESTRUTURA, não semântica — a Fase 2 continua sendo o único gate que pegou bug silencioso.
 
 ```
 ## ✅ AUTO-CHECK DA EXTRAÇÃO
