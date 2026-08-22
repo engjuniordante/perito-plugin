@@ -838,6 +838,11 @@ def _imprescrito_range(text):
 # ---- afastamentos: descontados da exposição (não há exposição durante a ausência) ----
 AFAST_HEADER_RE = re.compile(r'▶\s*AFASTAMENTOS', re.I)
 DE_LINE_RE = re.compile(r'^\s*de\s*:', re.I)
+# O template do montador NÃO escreve mais linha 'De:' — escreve um bloco por afastamento
+# ('**Afastamento 1:**') com rótulos nomeados. Só estas DUAS linhas carregam PERÍODO; as
+# outras duas do bloco ('Último dia … antes do afastamento', 'Retorno efetivo') têm UMA data
+# cada, legítima, e entrariam como 'período incompleto' se fossem varridas junto.
+PERIODO_LINE_RE = re.compile(r'^\s*[-–—•*]?\s*(?:benef[ií]cio|limbo)\s+previdenci[áa]rio', re.I)
 FULLDATE_RE = re.compile(r'\d{2}/\d{2}/\d{4}')
 TOTAL_EXCL_RE = re.compile(r'total\s+exclu[ií]do\s*:\s*~?\s*(\d+)\s*dias', re.I)
 
@@ -845,10 +850,19 @@ TOTAL_EXCL_RE = re.compile(r'total\s+exclu[ií]do\s*:\s*~?\s*(\d+)\s*dias', re.I
 def _afastamentos(text):
     """Períodos de afastamento do bloco ▶ AFASTAMENTOS, PRESOS À SEÇÃO (do header ao próximo
     boundary) — imune ao 'De:/até:' de COVID do agente M, que fica fora da seção. Para cada linha
-    'De:', as 2 primeiras datas = (início, fim). Retorna (intervalos, ok): ok=False se alguma linha
-    'De:' tiver data ilegível/incompleta → o chamador NÃO desconta (degrada pro manual) e avisa.
-    Linha 'De:  até:  motivo:' VAZIA (0 datas) = placeholder do template → ignorada, não conta.
-    Sem seção / sem linha 'De:' → ([], True) = no-op (a maioria dos processos)."""
+    de período, as 2 primeiras datas = (início, fim). Retorna (intervalos, ok): ok=False se
+    alguma linha de período tiver data ilegível/incompleta → o chamador avisa e degrada pro
+    manual. Linha VAZIA (0 datas) = placeholder do template → ignorada, não conta.
+    Sem seção / sem linha de período → ([], True) = no-op (a maioria dos processos).
+
+    ⚠ DUAS gramáticas de propósito. A original ('De: … até: …') é a dos bundles antigos. O
+    template que o montar_formulario escreve HOJE é outro — '**Afastamento 1:**' seguido de
+    '- Benefício previdenciário (espécie + datas): … de X até Y' — e por ele esta função ficou
+    CEGA, devolvendo ([], True) em silêncio (guard falhando ABERTO). Descoberto em 22/08/2026
+    no 0011183-33, o PRIMEIRO processo real com o bloco preenchido: dois afastamentos escritos
+    no formulário e nenhuma linha de eco da D2. Regra que fica: parser de bloco do formulário
+    tem de casar com o TEMPLATE que o montador escreve — quando o template muda, este casal
+    anda junto."""
     lines = text.split('\n')
     h = next((i for i, l in enumerate(lines) if AFAST_HEADER_RE.search(l)), None)
     if h is None:
@@ -856,7 +870,7 @@ def _afastamentos(text):
     end = _next_boundary(lines, h + 1)
     out, ok = [], True
     for l in lines[h + 1:end]:
-        if not DE_LINE_RE.match(l):
+        if not (DE_LINE_RE.match(l) or PERIODO_LINE_RE.match(l)):
             continue                       # ignora 'Total excluído:' e linhas soltas
         ds = FULLDATE_RE.findall(l)
         if len(ds) == 0:
@@ -1188,9 +1202,9 @@ def _coverage_gaps(agente, wins):
 
 
 def _imprescrito_months(text):
-    """Meses de EXPOSIÇÃO para o denominador do slot 'cobre X/Y meses' = span do imprescrito
-    (clampado ao fim do contrato) MENOS os afastamentos. ~30,44 dias/mês. Mesma régua do
-    denominador da cobertura() → o slot e o 📐 nunca divergem."""
+    """Meses de EXPOSIÇÃO para o denominador do slot 'cobre X/Y meses' = span do imprescrito,
+    clampado à admissão e ao fim do contrato. ~30,44 dias/mês. Mesma régua do denominador da
+    cobertura() → o slot e o 📐 nunca divergem."""
     m = IMPRESCRITO_RE.search(text)
     if not m:
         return None
@@ -1203,11 +1217,12 @@ def _imprescrito_months(text):
         ad, bd = date.fromisoformat(a), date.fromisoformat(b)
     except ValueError:
         return None
-    days = (bd - ad).days
-    afast, afast_ok = _afastamentos(text)
-    if afast_ok and afast:                # desconta a ausência (só se a leitura foi confiável)
-        days -= _afastamento_days_in(afast, ad, bd)
-    return max(0, days) / 30.44
+    # D2: o afastamento NÃO desconta — nem aqui. Este era o outro lado do parser cego: com os
+    # afastamentos ilegíveis o desconto nunca acontecia, e o furo não aparecia. Consertar só o
+    # parser faria o denominador do slot encolher sozinho, divergindo do 📐 (que já segue a D2
+    # desde a v1.5.0) — o mesmo formulário diria 'cobre 13,8/71,4' no resumo e '~73,6 meses de
+    # imprescrito' no 📐. Os dois consertos são um só.
+    return max(0, (bd - ad).days) / 30.44
 
 
 # slot do EPI — RESUMO: "… cobre __/__ meses …" OU um valor já preenchido. O guard é a fonte
@@ -1349,9 +1364,21 @@ def _resumo_an7_note(items):
 
 
 # A) slots COM cobertura: substitui só o trecho entre "label: " e " · cobre" (não toca cobertura)
-_BUL = r'[•\-\*]\s*'   # o bullet fica DENTRO do grupo 1 — o sub reconstrói a linha a partir dele
-_RES_PROT_RE = re.compile(r'(' + _BUL + r'Protetor[^:(]*\(ru[ií]do[^)]*\):\s*).*?(\s*·\s*cobre)', re.I)
-_RES_CREME_RE = re.compile(r'(' + _BUL + r'Creme[^:]*:\s*).*?(\s*·\s*cobre)', re.I)
+_BUL = r'^[ \t]*[•\-\*][ \t]*'   # bullet DENTRO do grupo 1 (o sub reconstrói a linha a partir dele)
+# ⚠ TODA classe negada daqui exclui a QUEBRA DE LINHA, e o bullet está ancorado em ^ (re.M).
+# Sem isso o rótulo atravessa linhas — e o estrago é destrutivo, não cosmético. Caso real
+# (22/08/2026, 0011183-33): a Observação do modelo "- Cremes sem qualificador (CA 43802 …)"
+# entrou como bullet de CREME, o [^:]* correu CINCO linhas até o ":" de "**A) Conta fecha**
+# …:", o \s* pulou a quebra e o .*? comeu a linha INTEIRA do Protetor auditivo: ela saiu do
+# formulário sem rótulo e com a lista de itens do CREME. Silencioso — e a régua manda rodar
+# este script DEPOIS da Fase 2, ou seja, em cima do formulário já revisado à mão.
+# Mesmo parente do \s* que já mordeu três vezes: quantificador de rótulo que não sabe onde a
+# linha termina. Em regex de rótulo de UMA linha: classe com \n excluído, [ \t]*, ^ + re.M.
+_RES_PROT_RE = re.compile(
+    r'(' + _BUL + r'Protetor[^:(\n]*\(ru[ií]do[^)\n]*\):[ \t]*).*?([ \t]*·[ \t]*cobre)',
+    re.I | re.M)
+_RES_CREME_RE = re.compile(
+    r'(' + _BUL + r'Creme[^:\n]*:[ \t]*).*?([ \t]*·[ \t]*cobre)', re.I | re.M)
 # B) slots SEM cobertura: substitui o valor até o fim da linha
 _RES_LUVA_RE = re.compile(r'(' + _BUL + r'Luva\s+imperm\.:\s*).*$', re.I | re.M)
 _RES_MASK_RE = re.compile(r'(' + _BUL + r'M[aá]scara/resp\.:\s*).*$', re.I | re.M)

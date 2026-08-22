@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 import time
 import zlib
 from pathlib import Path
@@ -464,6 +465,10 @@ def origem_declarada(resposta_p3a):
 # bullet do montador. Mesma regra do parse_ficha_rows: quem produz e quem confere têm de ler
 # da mesma origem.
 _LINHA_ENTREGA_RE = re.compile(r'^[\s\-–—•·*]*\|?\s*\d{2}[./-]\d{2}[./-](?:\d{4}|\d{2})\s*[|·]', re.M)
+# Mesma linha, com a data CAPTURADA — a conferência por data (T7.2 fino) precisa saber
+# QUANDO cada linha transcrita foi entregue, não só quantas são.
+_LINHA_ENTREGA_DATA_RE = re.compile(
+    r'^[\s\-–—•·*]*\|?\s*(\d{2}[./-]\d{2}[./-](?:\d{4}|\d{2}))\s*[|·]', re.M)
 # Rodapé de emissão — a assinatura de ficha REIMPRESSA. Ver o porquê em conferir_contagem().
 _EMISSAO_RE = re.compile(
     r'(?:emiss[ãa]o|emitid[oa]|impress[ãa]o|gerado)\D{0,24}(\d{2}/\d{2}/\d{4})', re.I)
@@ -513,6 +518,16 @@ def contar_entregas_transcritas(resposta_p3a):
     return len(_LINHA_ENTREGA_RE.findall(resposta_p3a or ""))
 
 
+def datas_transcritas(resposta_p3a):
+    """Data de cada linha de entrega devolvida pelo modelo, normalizada dd/mm/aaaa."""
+    out = []
+    for bruta in _LINHA_ENTREGA_DATA_RE.findall(resposta_p3a or ""):
+        norm = _datas_do_texto(bruta.replace('.', '/').replace('-', '/'))
+        if norm:
+            out.append(norm[0])
+    return out
+
+
 def ficha_reimpressa(pdf_path):
     """Datas DISTINTAS de rodapé de emissão — 2 ou mais = ficha reimpressa.
 
@@ -529,6 +544,63 @@ def ficha_reimpressa(pdf_path):
         return set(_EMISSAO_RE.findall(' '.join(_pdf_linhas(raw))))
     except Exception:
         return set()
+
+
+def conferir_por_data(datas_pdf, resposta_p3a, log_fn=log):
+    """T7.2 FINO: compara a contagem POR DATA, não só o total. Só avisa.
+
+    Por que o total sozinho não bastava — caso real, 0010094-14, ficha DIGITAL de 6 páginas
+    (22/08/2026): o modelo devolveu 34 entregas contra as 38 verdadeiras, e as 4 perdidas
+    estavam TODAS numa data só — 31/01/2025, 6 linhas de 10. No agregado isso dá 76% contra
+    um piso de 75% e sai um "✓ contagem confere" tranquilo; por data, a MESMA leitura acusa
+    `31/01/2025: 6 de 10`. As outras 15 datas batiam exatas, uma a uma.
+
+    O que fez o modelo perder as 4: aquela data aparece em DOIS blocos de aprovação da mesma
+    ficha (fim da pág. 4 e começo da pág. 6) com itens repetidos — mesmo dia, mesmo item,
+    mesmo C.A. Linha repetida parece engano de digitação, e o modelo "limpa". Na ficha a
+    linha É a unidade de prova: repetida ou não, transcreve-se.
+
+    Duas contenções contra alarme falso, porque gate que grita à toa é gate que o perito
+    aprende a ignorar:
+    • **déficit** (🚩) só em data que o modelo TRANSCREVEU — aí não há como confundir com
+      cabeçalho, e é a forma comum da perda (parte das linhas do dia);
+    • **data sumida inteira** (⚠, mais fraco) só quando cai ESTRITAMENTE DENTRO do intervalo
+      que o próprio modelo transcreveu. É o que mantém a régua agnóstica de layout: as datas
+      de cabeçalho/rodapé (admissão, autuação, emissão, "Período: X até Y") ficam nas pontas
+      ou fora, e não entram. Na ficha real são exatamente as 6 de `01/04/2011` (admissão) e a
+      de `26/01/2026` — nenhuma delas dispara.
+    """
+    do_pdf = Counter(datas_pdf)
+    do_modelo = Counter(datas_transcritas(resposta_p3a))
+    if not do_pdf or not do_modelo:
+        return []
+
+    def _chave(d):                                   # dd/mm/aaaa ordena errado como string
+        dd, mm, aa = d.split('/')
+        return (aa, mm, dd)
+
+    deficits = sorted(((d, do_pdf[d], do_modelo[d]) for d in do_modelo
+                       if do_pdf.get(d, 0) > do_modelo[d]), key=lambda t: _chave(t[0]))
+    lo, hi = min(do_modelo, key=_chave), max(do_modelo, key=_chave)
+    sumidas = sorted((d for d in do_pdf
+                      if d not in do_modelo and _chave(lo) < _chave(d) < _chave(hi)),
+                     key=_chave)
+
+    if deficits:
+        falta = sum(g - t for _, g, t in deficits)
+        log_fn("   🚩 CONTAGEM POR DATA NÃO FECHA — %d linha(s) a menos que o PDF, em %d "
+               "data(s): %s. O total pode até fechar no agregado; aqui não fecha. Confira "
+               "essas datas na ficha (linha repetida no mesmo dia é entrega, não engano)."
+               % (falta, len(deficits),
+                  ', '.join('%s: %d de %d' % (d, t, g) for d, g, t in deficits)))
+    if sumidas:
+        log_fn("   ⚠ data(s) com linha no PDF e NENHUMA entrega transcrita, dentro do "
+               "intervalo que o modelo leu: %s. Pode ser linha de cabeçalho do layout — "
+               "confira na ficha." % ', '.join(sumidas))
+    if not deficits and not sumidas:
+        log_fn("   ✓ contagem por data confere: %d data(s), todas com a mesma contagem do PDF."
+               % len(do_modelo))
+    return deficits
 
 
 def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
@@ -580,6 +652,10 @@ def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
     else:
         log_fn(f"   ✓ contagem confere: {transcritas} transcritas × {len(datas)} linhas com "
                f"data no PDF ({razao:.0%}).")
+    # O agregado passa com folga e a perda pode estar inteira numa data (caso real de
+    # 22/08/2026 — ver conferir_por_data). Roda SEMPRE que houve comparação, inclusive
+    # depois do ✓, que é justamente quando ninguém iria olhar.
+    conferir_por_data(datas, resposta_p3a, log_fn=log_fn)
     return transcritas, len(datas)
 
 

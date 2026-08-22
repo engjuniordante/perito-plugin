@@ -820,6 +820,91 @@ def t16_resumo_frio():
     check(out2 == out, "Frio idempotente")
 
 
+# T17 — o parser de AFASTAMENTOS tem de casar com o TEMPLATE QUE O MONTADOR ESCREVE.
+# Bug real (22/08/2026, 0011183-33 — o PRIMEIRO processo com o bloco preenchido de verdade):
+# `_afastamentos` só sabia ler "De: … até: …" e o formulário traz "**Afastamento 1:**" com
+# rótulos nomeados. Resultado: ([], True) — guard falhando ABERTO, em silêncio, e a linha de
+# eco da D2 nunca saiu num formulário que tinha DOIS afastamentos escritos.
+def t17_afastamento_template_do_montador():
+    print("T17 — afastamento no template do montador (bloco '**Afastamento N:**')")
+    cab = ["### ▶ Afastamentos / períodos a excluir",
+           "★ **Último dia efetivamente trabalhado**: 21/12/2025  ·  Houve retorno? [X] Sim"]
+    real = cab + [
+        "**Afastamento 1:**",
+        "- Último dia efetivamente trabalhado antes do afastamento: 20/10/2024 (acidente típico)",
+        "- Benefício previdenciário (espécie + datas): Auxílio-Doença acidentário (espécie 31/91,"
+        " NB 7169350913) de 05/11/2024 até 19/12/2024 *(21/10/2024 a 04/11/2024 pagos pela empresa)*",
+        "- Limbo previdenciário / suspensão (se houve): não localizado nos autos",
+        "- Retorno efetivo às atividades: 21/12/2024",
+        "**Afastamento 2:**",
+        "- Benefício previdenciário (espécie + datas): doença de 22/12/2025 até 07/02/2026",
+        "- Retorno efetivo às atividades: 08/02/2026",
+        "",
+        "## ▶ ATIVIDADES POR FUNÇÃO"]
+    afast, ok = ce._afastamentos("\n".join(real))
+    check(ok and len(afast) == 2, "os 2 afastamentos do template novo têm de ser lidos: %r" % (afast,))
+    check(afast[0][0].isoformat() == "2024-11-05" and afast[0][1].isoformat() == "2024-12-19",
+          "as 2 PRIMEIRAS datas da linha de benefício = (início, fim): %r" % (afast[0],))
+    check(afast[1][0].isoformat() == "2025-12-22" and afast[1][1].isoformat() == "2026-02-07",
+          "segundo período lido: %r" % (afast[1],))
+    # as linhas de UMA data só (último dia / retorno) são legítimas e NÃO podem virar
+    # "período incompleto" — se virarem, ok=False e o guard degrada pro manual sem motivo.
+    check(ok, "linha de uma data só (último dia/retorno) não pode zerar a confiança")
+    # template EM BRANCO não inventa afastamento
+    vazio = cab + ["**Afastamento 1:**",
+                   "- Último dia efetivamente trabalhado antes do afastamento: ____",
+                   "- Benefício previdenciário (espécie + datas): de ____ até ____",
+                   "- Limbo previdenciário / suspensão (se houve): de ____ até ____",
+                   "- Retorno efetivo às atividades: ____",
+                   "## ▶ ATIVIDADES POR FUNÇÃO"]
+    check(ce._afastamentos("\n".join(vazio)) == ([], True),
+          "template vazio não pode virar afastamento fantasma")
+    # período PELA METADE = ilegível → ok=False (o guard avisa em vez de fingir que leu)
+    meio = cab + ["**Afastamento 1:**",
+                  "- Benefício previdenciário (espécie + datas): B31 de 05/11/2024 até ____",
+                  "## ▶ ATIVIDADES POR FUNÇÃO"]
+    check(ce._afastamentos("\n".join(meio))[1] is False,
+          "período com UMA data só tem de derrubar a confiança (avisa, não some)")
+    # D2 também no denominador do slot: ler o afastamento NÃO pode encolher os meses
+    corpo = ["Período imprescrito: ★ de 24/06/2020 até 20/08/2026",
+             "Período trabalhado: de 03/07/2020 até "] + real
+    com = ce._imprescrito_months("\n".join(corpo))
+    sem = ce._imprescrito_months("\n".join(["Período imprescrito: ★ de 24/06/2020 até 20/08/2026",
+                                            "Período trabalhado: de 03/07/2020 até "]))
+    check(com is not None and abs(com - sem) < 0.05,
+          "D2: o denominador do slot NÃO desconta afastamento (%.2f × %.2f)" % (com or -1, sem or -1))
+
+
+# T18 — regex de rótulo do RESUMO não pode atravessar linha. Bug real da mesma rodada: uma
+# Observação do modelo começando por "- Cremes sem qualificador (…)" fez o rótulo do CREME
+# correr cinco linhas e o `.*?` COMER a linha inteira do Protetor auditivo, que saiu do
+# formulário sem rótulo e com a lista de itens do creme. Destrutivo e silencioso.
+def t18_resumo_nao_atravessa_linha():
+    print("T18 — rótulo do RESUMO preso à sua própria linha")
+    linhas = ["Período imprescrito: ★ de 01/01/2021 até 01/01/2026",
+              "TABELA DE FORNECIMENTO DE EPIs",
+              "• 09/03/2022 · 1un · PROT AURIC SILICONE · CA 5745",
+              "• 09/03/2022 · 2 · CREME PROTETOR · CA 11070",
+              "▶ OBSERVAÇÕES GERAIS"]
+    body = "\n".join([
+        "Observações sobre os EPIs:",
+        '- Cremes sem qualificador (CA 43802 "Creme Protetor/Creme") — confirmar in loco.',
+        "",
+        "**A) Conta fecha** (cobertura = bloco 📐 do `check_epi.py`):",
+        "- Protetor auditivo (ruído An.1): __un · CA__ · cobre __/__ meses · [ ]✓ [ ]⚠ gap [ ]✗",
+        "- Creme (óleo/álcali An.13): __ potes · cobre __/__ meses · [ ]✓ [ ]⚠ [ ]✗"])
+    out = ce.fill_resumo_items(body, linhas, {}, FAKE)
+    prot = next((l for l in out.split("\n") if "Protetor auditivo (ruído An.1)" in l), "")
+    creme = next((l for l in out.split("\n") if "Creme (óleo/álcali An.13)" in l), "")
+    check(prot.startswith("- Protetor auditivo (ruído An.1): "),
+          "a linha do Protetor perdeu o rótulo: %r" % prot)
+    check("5745" in prot and "11070" not in prot,
+          "o Protetor ficou com os itens do CREME (bug de 22/08/2026): %r" % prot)
+    check("11070" in creme, "o creme tem de ser preenchido na linha DELE: %r" % creme)
+    check(out.split("\n")[1].startswith("- Cremes sem qualificador"),
+          "a Observação do perito/modelo não pode ser reescrita: %r" % out.split("\n")[1])
+
+
 def main():
     print("== Teste de regressão do guard de EPI ==")
     for t in (t0_extract_ca, t1_creme_regra_absoluta, t2_gap_unico, t3_morte_por_mil_cortes,
@@ -830,7 +915,8 @@ def main():
               t12_classificacao_implausivel, t13_inline_coverage_overwrite,
               t14_resumo_items, t15_resumo_conjunto, t16_resumo_frio,
               t10_clamp_fim_contrato, t10b_clamp_inicio_admissao, t11_desconto_afastamento,
-              t11b_empilha_saldo, t11c_agrupa_por_ca):
+              t11b_empilha_saldo, t11c_agrupa_por_ca,
+              t17_afastamento_template_do_montador, t18_resumo_nao_atravessa_linha):
         t()
     print()
     if FALHAS:

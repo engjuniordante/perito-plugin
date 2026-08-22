@@ -237,6 +237,10 @@ finally:
     p.unlink(missing_ok=True)
 
 
+def LINHA_ENTREGA_FIXTURE(datas):
+    """Datas -> tabela de entregas como o modelo devolve (uma linha por entrega)."""
+    return chr(10).join('| %s | 1 | X | 1 |' % d for d in datas)
+
 # ── 7. calibragem contra a ficha REAL (quando o Drive está alcançável) ────────────────
 REAL = Path(r'G:\Meu Drive\Base Perícia Irineu\Extração-notebooklm\Processados'
             r'\0010094-14.2026.5.15.0079\3-EPI.pdf')
@@ -245,15 +249,41 @@ if REAL.exists():
     check(pags == 7, 'ficha real: esperava 7 páginas, deu %d' % pags)
     check(40 <= len(datas) <= 50,
           'ficha real: gabarito %d fora da faixa medida (~45 p/ 38 entregas reais)' % len(datas))
-    # 38 é a contagem REAL de entregas desta ficha (a extração dela saiu íntegra e bateu
-    # exato contra o pdftotext). Não pode dar alarme.
+    # 38 é a contagem REAL de entregas desta ficha (medida linha a linha contra o pdftotext).
+    # O gabarito dá 45 porque conta o cabeçalho junto: 6 linhas de 01/04/2011 (admissão) + 1
+    # de 26/01/2026 (autuação). Tirar essas duas datas devolve EXATAMENTE as 38 — e é por isso
+    # que este fixture vale como transcrição honesta, o que `datas[:38]` não era (cortava datas
+    # reais do fim e trazia cabeçalho no começo).
+    CABECALHO = ('01/04/2011', '26/01/2026')
+    reais = [d for d in datas if d not in CABECALHO]
+    check(len(reais) == 38,
+          'ficha real: esperava 38 entregas fora do cabeçalho, deu %d' % len(reais))
     msgs = []
-    transcrito = '\n'.join('| %s | 1 | X | 1 |' % d for d in datas[:38])
+    transcrito = LINHA_ENTREGA_FIXTURE(reais)
     ep.conferir_contagem(str(REAL), transcrito, 'digital', log_fn=msgs.append)
     check('NÃO FECHA' not in ' '.join(msgs),
           'ALARME FALSO na ficha real (38 entregas verdadeiras): %r' % msgs)
     check(not any('COLAPSADA' in m for m in msgs),
           'ficha real (38 entregas em 7 págs) disparou o piso do T7.3')
+    check(any('por data confere' in m for m in msgs),
+          'ficha real íntegra: a conferência por data devia ter dito que confere: %r' % msgs)
+
+    # O BUG REAL de 22/08/2026 como regressão: a rodada que saiu com 34 perdeu 4 linhas de
+    # 31/01/2025 (6 de 10) e passou pelo agregado com 76% contra um piso de 75%. A mesma
+    # entrada tem de ser pega aqui — e pega DIZENDO a data, que é o que manda o perito à ficha.
+    faltam, perdidas = 4, []
+    for d in reais:
+        if d == '31/01/2025' and faltam:
+            faltam -= 1
+            continue
+        perdidas.append(d)
+    msgs = []
+    ep.conferir_contagem(str(REAL), LINHA_ENTREGA_FIXTURE(perdidas), 'digital', log_fn=msgs.append)
+    junto = ' '.join(msgs)
+    check('CONTAGEM NÃO FECHA' not in junto,
+          'o agregado NÃO pega este caso — é por isso que a conferência por data existe: %r' % msgs)
+    check('POR DATA NÃO FECHA' in junto and '31/01/2025: 6 de 10' in junto,
+          'perda concentrada em 31/01/2025 passou sem alarme: %r' % msgs)
 else:
     pulados.append(REAL.name)
 
