@@ -248,8 +248,10 @@ ATRIBUIÇÃO DE AUTORIA DOS QUESITOS — não confie no rótulo do arquivo (um d
 - Dúvida residual → marcar "[autoria provável: ___ — confirmar]" em vez de atribuir errado.
 
 REGRA DE ESCOPO DOS QUESITOS — POR BLOCO (não quesito a quesito): a decisão é do BLOCO inteiro. NÃO avaliar quesito por quesito.
-- Bloco de perícia MÉDICA/ergonômica (pelo rótulo/orientação, ex.: "Quesitos do Juízo – Perícia Médica") → NÃO transcrever nada; escrever só: "Bloco de perícia médica — não pertinente ao perito técnico."
-- Bloco técnico (insalubridade/periculosidade) ou genérico/sem rótulo → transcrever o bloco INTEIRO, com a numeração original.
+⚠ RÉGUA: o extrator TRANSCREVE, não TRIA. Quem decide o que é pertinente é o perito. Na dúvida, transcreva.
+- Bloco de perícia MÉDICA — e SÓ médica (lesão, nexo causal, incapacidade, CID, grau de invalidez), pelo rótulo/orientação, ex.: "Quesitos do Juízo – Perícia Médica" → NÃO transcrever nada; escrever só: "Bloco de perícia médica — não pertinente ao perito técnico."
+- ⚠ ERGONOMIA (NR-17), SEGURANÇA DE MÁQUINAS/EQUIPAMENTOS (NR-12) e RECONSTITUIÇÃO DE ACIDENTE **SÃO DO PERITO DE ENGENHARIA** → transcrever o bloco INTEIRO, com a numeração original. NUNCA descartar pelo rótulo do capítulo (ex.: "QUESITOS TÉCNICOS DE SEGURANÇA, ERGONOMIA E RECONSTITUIÇÃO DO ACIDENTE" é para transcrever, não para pular).
+- Bloco técnico (insalubridade/periculosidade/ergonomia/segurança) ou genérico/sem rótulo → transcrever o bloco INTEIRO, com a numeração original.
 - Reclamada com dois blocos separados ("Quesitos de Insalubridade" + "Quesitos Médicos") → transcrever integralmente o de insalubridade; do médico, só a linha-resumo.
 
 ▶ QUESITOS DO JUÍZO  (se nada: "Não localizado")
