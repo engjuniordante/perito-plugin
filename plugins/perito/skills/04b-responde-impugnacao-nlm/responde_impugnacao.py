@@ -181,6 +181,57 @@ def strip_citacoes(s):
     return re.sub(padrao, "", s)
 
 
+# ── caixinha de conversa do NLM/Gemini (cópia VERBATIM do 01-extrator) ───────
+# Sem isto a caixinha vira parágrafo da PETIÇÃO protocolada. O test_helper_parity.py
+# trava o drift entre as duas cópias — alterar aqui = alterar no montar_formulario.py.
+# Ícones que SÃO do formulário do perito (vêm dos prompts de extração) e nunca podem ser
+# descartados: ▶ abre seção, ★ marca DATA CRÍTICA, ▼ delimita o início do imprescrito na
+# tabela de EPI (o guard de EPI depende dele).
+_MARCADORES_PERITO = ("▶", "★", "▼")
+
+# A caixinha de conversa do NotebookLM/Gemini Notebook ("Sugestão para o próximo passo: ...").
+# O ícone VARIA conforme o artefato do Studio que ele resolve oferecer (💡 antes; hoje 📊
+# infográfico, 🎧 áudio, 🧩 ...), então a âncora é o TEXTO, não o emoji.
+_SUGESTAO_RE = re.compile(
+    r"^[\s#>*\-]*[^\w\s]{0,4}\s*sugest(?:ão|ao)\s+(?:de|para\s+o)\s+pr[óo]ximo\s+passo\b",
+    re.I,
+)
+
+
+def _abre_caixinha_nlm(line: str) -> bool:
+    """A linha inicia uma caixinha de conversa do NLM (não é dado do processo)?"""
+    if _SUGESTAO_RE.match(line):
+        return True
+    # Rede de segurança p/ variações futuras de redação: linha que ABRE com um emoji que não é
+    # marcador nosso. Restrito aos blocos de pictogramas/dingbats — não pega —, ·, ’ nem →.
+    s = line.lstrip()
+    if not s or s[0] in _MARCADORES_PERITO:
+        return False
+    cp = ord(s[0])
+    return cp >= 0x1F000 or 0x2600 <= cp <= 0x27BF
+
+
+def strip_nlm_suggestion_box(text: str) -> str:
+    """Descarta as caixinhas de conversa do NLM e suas linhas de continuação (até uma linha em
+    branco, o próximo cabeçalho ▶/#, um separador --- ou uma linha de tabela)."""
+    lines = text.split("\n")
+    out: list[str] = []
+    skipping = False
+    for line in lines:
+        if not skipping and _abre_caixinha_nlm(line):
+            skipping = True
+            continue
+        if skipping:
+            s = line.strip()
+            if (not s or s.startswith("▶") or s.startswith("#")
+                    or s.startswith("---") or s.startswith("|")):
+                skipping = False
+            else:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def limpar(s):
     """Tira citações/refs de imagem; tira ** e espaços órfãos (igual ao extrator)."""
     s = strip_citacoes(s)
@@ -195,6 +246,37 @@ HEADER_KEYS = ("CIDADE_VARA", "NUMERO_PROCESSO", "NOME_RECLAMANTE",
                "NOME_RECLAMADA", "IMPUGNANTES")
 # fecho fixo do template — cortar da minuta pra não sair em dobro (sem acento p/ robustez)
 FECHO_PREFIXOS = ("pelo exposto", "em razao de todo o exposto")
+
+# Marca a minuta que o parser NÃO reconheceu (formato novo do modelo), para o chamador
+# RECUSAR o documento em vez de gerar uma peça com "____" e o header no corpo.
+_FLAG_NAO_RECONHECIDA = "MINUTA NÃO RECONHECIDA"
+
+# Vocabulário FECHADO do que pode vir decorado como heading/bullet: as 5 chaves do header e o
+# título do bloco. Fora dessa lista nada é desdecorado — é a mesma contenção do
+# HEADING_SEM_MARCADOR_RE do extrator, e é ela que impede o remédio de virar doença (um
+# "### 3 - Do laudo" no meio da peça não pode virar rótulo).
+_VOCAB_MINUTA = r"(?:" + "|".join(HEADER_KEYS) + r")\s*:|ESCLARECIMENTOS\s+SOLICITADOS"
+_DECORACAO_RE = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]+|>[ \t]*|[-*+•][ \t]+)+(?=" + _VOCAB_MINUTA + ")",
+    re.M | re.I,
+)
+# Decoração markdown no CORPO: numa petição ela nunca é conteúdo — sairia literal no .docx.
+# O "-" já era comido pelo strip("-") de sempre; exige espaço depois do # para não morder "#3".
+_BULLET_LINHA_RE = re.compile(r"^[ \t]*(?:#{1,6}[ \t]+|>[ \t]*|[*+•][ \t]+)+")
+
+
+def normalize_minuta(text: str) -> str:
+    """Normalização de ingestão da minuta — a ÚNICA. Espelha o normalize_bundle() do extrator.
+
+    O Gemini Notebook não é determinístico na formatação: a mesma minuta sai ora em texto puro,
+    ora "*   **CIDADE_VARA:**", ora "### ESCLARECIMENTOS SOLICITADOS…", e às vezes com a
+    caixinha de Studio no fim. Medido: sem isto, 3 dos 4 escalares viram "____", as linhas do
+    header vazam para o corpo e a caixinha entra na peça — tudo com o .docx gerado assim mesmo.
+    """
+    text = text.replace("**", "")          # 1º: o ** fica ENTRE o "###" e a chave
+    text = _DECORACAO_RE.sub("", text)     # heading/bullet só no vocabulário fechado
+    text = strip_citacoes(text)            # [12] · [Image 4] — inclusive dentro do corpo
+    return strip_nlm_suggestion_box(text)  # a caixinha de conversa do Studio
 
 
 def _sem_acento(s):
@@ -244,7 +326,7 @@ def _parse_impugnantes(valor, corpo_titulos):
 def parse_minuta(texto, pasta_name):
     """texto (minuta crua do NLM) → (scalars, esclarecimentos, flags)."""
     flags = []
-    linhas = [limpar(l) for l in texto.splitlines()]
+    linhas = [limpar(l) for l in normalize_minuta(texto).splitlines()]
 
     # 1) header — linhas 'CHAVE: valor' (com ou sem '- ' na frente) ANTES do corpo
     campos = {}
@@ -261,7 +343,7 @@ def parse_minuta(texto, pasta_name):
     corpo_linhas = linhas[idx_corpo:] if idx_corpo is not None else linhas
     esclarecimentos = []
     for l in corpo_linhas:
-        s = l.strip().strip("-").strip()
+        s = _BULLET_LINHA_RE.sub("", l).strip().strip("-").strip()
         if not s:
             continue
         low = _sem_acento(s)
@@ -294,6 +376,15 @@ def parse_minuta(texto, pasta_name):
     if not impugnantes:
         flags.append("PARTE(S) impugnante(s) não identificada(s) — INTRO_IMPUGNANTE ficará com ____")
     scalars["INTRO_IMPUGNANTE"] = _compor_intro(impugnantes)
+
+    # Gate: nenhum título E nenhum campo do header reconhecidos. Só na CONJUNÇÃO — alarme
+    # falso em gate diário ensina o perito a ignorar o gate, e custa mais que o bug que ele
+    # pegaria. (NUMERO_PROCESSO fica de fora: ele tem o fallback do nome da pasta.)
+    if not titulos and all(scalars[k] == "____" for k in
+                           ("CIDADE_VARA", "NOME_RECLAMANTE", "NOME_RECLAMADA")):
+        flags.insert(0, _FLAG_NAO_RECONHECIDA + ": nem o título 'ESCLARECIMENTOS SOLICITADOS' "
+                     "nem um único campo do header foram lidos — é o formato da MINUTA que o "
+                     "parser não reconhece, não a peça que está vazia.")
 
     hoje = datetime.date.today()
     scalars["DATA_EXTENSO"] = f"{hoje.day} de {MESES[hoje.month - 1]} de {hoje.year}"
@@ -377,6 +468,9 @@ def processar_pasta(nlm, pasta, prompt, template, perito_nome, nomes_proibidos,
         scalars, esclarecimentos, flags = parse_minuta(minuta, pasta.name)
         if not esclarecimentos:
             raise FalhaPasta("minuta sem corpo de esclarecimentos após o parse", nb_id)
+        nao_lida = [f for f in flags if f.startswith(_FLAG_NAO_RECONHECIDA)]
+        if nao_lida:
+            raise FalhaPasta(nao_lida[0], nb_id)
 
         data = {"perito_nome": perito_nome, "scalars": scalars,
                 "esclarecimentos": esclarecimentos}

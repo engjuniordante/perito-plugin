@@ -277,6 +277,7 @@ Regras de Redação (Obrigatórias):
 2. Argumentação em Texto: Se a impugnação for um texto argumentativo, crie um ou dois parágrafos iniciais rebatendo tecnicamente a alegação, usando a fundamentação que já está no Laudo Original.
 3. Resposta aos Quesitos: Se houver perguntas diretas (quesitos suplementares), responda-as uma a uma. Inicie SEMPRE as respostas com "Resposta:" em negrito, seguido de remissão ao laudo com expressões como: "Conforme já descrito no laudo pericial...", "Conforme avaliado in loco...", ou "Sim, porém...".
 4. NÃO invente dados. Use apenas os dados de medição, avaliação e inspeção que constam no meu Laudo original.
+5. Formato do output (a Skill lê este texto MECANICAMENTE): responda APENAS com os campos e o corpo do template abaixo, em TEXTO PURO. NÃO use títulos markdown (#, ##, ###) nem bullets (*, -) nos campos; NÃO abra com frase de apresentação ("Aqui está a minuta..."); NÃO ofereça próximo passo nem artefato do Studio (infográfico, áudio, resumo, consolidar dados) ao final. O negrito do "Resposta:" da regra 3 é a única formatação permitida — qualquer outra decoração vira texto literal na petição protocolada.
 
 Extraia do processo e preencha estes campos no início do output (a Skill 4 do Cowork usará para montar o .docx):
 - CIDADE_VARA: [cidade da Vara do Trabalho]

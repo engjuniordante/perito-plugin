@@ -36,6 +36,16 @@ MUST_MATCH = {
     'all_paragraphs': ['02', '03', '04'],
     'replace_scalar': ['02', '03', '04'],
     'strip_citacoes': ['01', '01b', '04b'],
+    # A caixinha de conversa do Studio ("Sugestão de próximo passo") tem de ser descartada
+    # igual nas duas pontas: no bundle do extrator ela vazou para o bloco de quesitos; na
+    # minuta da 04b ela vazaria para a PETIÇÃO protocolada.
+    '_abre_caixinha_nlm': ['01', '04b'],
+    'strip_nlm_suggestion_box': ['01', '04b'],
+}
+# Constantes de módulo que acompanham esses helpers (a AST de função não as alcança).
+MUST_MATCH_CONST = {
+    '_SUGESTAO_RE': ['01', '04b'],
+    '_MARCADORES_PERITO': ['01', '04b'],
 }
 
 FALHAS = []
@@ -45,6 +55,14 @@ def check(cond, msg):
     print(("  ✓ " if cond else "  ✗ FALHOU: ") + msg)
     if not cond:
         FALHAS.append(msg)
+
+
+def _const_ast(tree, name):
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and any(
+                isinstance(tg, ast.Name) and tg.id == name for tg in n.targets):
+            return ast.dump(n)
+    return None
 
 
 def _fn_ast(tree, name):
@@ -65,6 +83,15 @@ def main():
             continue
         check(len(set(dumps.values())) == 1,
               '%s idêntico entre %s (se falhar: alguém reintroduziu drift)' % (fn, ', '.join(skills)))
+
+    for cte, skills in MUST_MATCH_CONST.items():
+        dumps = {k: _const_ast(trees[k], cte) for k in skills}
+        faltando = [k for k, d in dumps.items() if d is None]
+        check(not faltando, '%s presente em %s' % (cte, ', '.join(skills)))
+        if faltando:
+            continue
+        check(len(set(dumps.values())) == 1,
+              '%s idêntica entre %s' % (cte, ', '.join(skills)))
 
 
 if __name__ == '__main__':

@@ -51,6 +51,7 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
 - Mantenha o cabeçalho (Vara, Processo, Reclamante, Reclamada), a qualificação do perito e o fecho **exatamente como estão no template**.
 - Os dois blocos fixos do template (parágrafo "Inicialmente venho esclarecer..." e conclusão "Pelo exposto...") **permanecem inalterados**.
 - Linguagem técnica e imparcial — voz do perito.
+- **A formatação do Gemini não entra na peça.** O que vier decorado — título markdown (`###`), bullets (`*`/`-`) nos campos, refs `[12]`/`[Image 4]` — vai para o JSON **sem a decoração**, e a caixinha de conversa do Studio (*"Sugestão de próximo passo: quer um infográfico…"*) **não vai para o JSON de jeito nenhum**: é fala do assistente, não da minuta. Na via automática (04b) isso é mecânico (`normalize_minuta`); aqui é você.
 - A data por extenso usa o formato do Irineu: "[Cidade], DD de MMMM de AAAA." (ex.: "Sumaré, 2 de junho de 2026.")
 
 ### Saída — via SCRIPT (não editar o XML na mão)

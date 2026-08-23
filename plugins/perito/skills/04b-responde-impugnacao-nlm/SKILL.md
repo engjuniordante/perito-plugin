@@ -28,7 +28,7 @@ O script sobe **todos** os PDFs/arquivos de fonte da pasta (aceita `.pdf`, `.doc
 
 ## Passo 1 — Rodar o script `responde_impugnacao.py` (pasta → docx, tudo mecânico)
 
-> Um script faz **toda a parte mecânica**: cria o notebook `EFÊMERO IMPUG — <nº>`, sobe as fontes esperando indexar, roda **1 query** (o prompt de impugnação, verbatim), limpa citações `[n]`, parseia a minuta em campos + corpo, **corta o fecho duplicado** (que já é fixo no template), compõe a frase de abertura (1 OU 2 partes), monta o JSON, chama o `build_impugnacao.py` → `esclarecimentos-<nº>.docx` e **apaga o notebook**. No terminal, **sem token**.
+> Um script faz **toda a parte mecânica**: cria o notebook `EFÊMERO IMPUG — <nº>`, sobe as fontes esperando indexar, roda **1 query** (o prompt de impugnação, verbatim), **normaliza a ingestão da minuta** (`normalize_minuta`: negrito, heading/bullet do Gemini, citações `[n]`/`[Image n]` e a caixinha "Sugestão de próximo passo" do Studio), parseia a minuta em campos + corpo, **corta o fecho duplicado** (que já é fixo no template), compõe a frase de abertura (1 OU 2 partes), monta o JSON, chama o `build_impugnacao.py` → `esclarecimentos-<nº>.docx` e **apaga o notebook**. No terminal, **sem token**.
 
 No Windows/Code use **`python`** (não `python3`). O script auto-descobre o `perito-config.json` (subindo do caminho), acha o `nlm` sozinho e usa o **template BUNDLED** do plugin (o contrato do `.docx` é acoplado a esta versão do script — não usa a cópia do Drive).
 
@@ -45,6 +45,7 @@ No Windows/Code use **`python`** (não `python3`). O script auto-descobre o `per
 2. **Tratar as saídas** (a fila continua mesmo se uma pasta falhar):
    - `⏭️ PULADO — nenhuma fonte` → subpasta sem PDF de fonte; segue.
    - `auth`/`nlm login` → credenciais expiraram: rode `nlm login` e re-dispare. **Se o `nlm login` der `Login timeout` mesmo com o navegador logado → é versão velha, veja a regra do `0.9.4` no Passo 0.**
+   - `❌ FALHOU — MINUTA NÃO RECONHECIDA` → o Gemini respondeu num formato que o parser não lê (nem o título `ESCLARECIMENTOS SOLICITADOS`, nem um campo do header). **Não é peça vazia e não se gera nada** — o notebook fica de pé; abra a minuta nele e, se for formato novo, é caso de ajustar o `normalize_minuta` (nunca de editar o `.docx` na mão).
    - `❌ FALHOU` (query vazia / `INVALID_ARGUMENT` / build recusou) → o script **mantém aquele notebook de pé** (título `EFÊMERO IMPUG — …`, id no resumo) e **não move** a subpasta, para inspeção/re-run.
 3. **Sucesso** → o notebook **já foi apagado** e a subpasta **movida** pelo script. **Entregue o(s) `.docx`** ao perito (salva em `Laudos-Gerados/`). O script grava um `esclarecimentos-<nº>.json` ao lado do `.docx` (o JSON que alimentou o build) — útil para depurar; não precisa abrir.
 
@@ -90,7 +91,7 @@ Se o CLI `nlm` não puder rodar, faça pela MCP, na mão (uma pasta por vez): `n
 ## Regras de ouro
 
 1. **Só Code + `nlm` autenticado.** Cowork → mandar usar `/04-responde-impugnacao` manual.
-2. **Conteúdo intocado.** A skill/script **não avalia nem reescreve** — o mérito técnico é do prompt no NLM. A única limpeza é tirar `[n]`/`**` e cortar o fecho duplicado.
+2. **Conteúdo intocado.** A skill/script **não avalia nem reescreve** — o mérito técnico é do prompt no NLM. A limpeza é só de FORMATAÇÃO: decoração markdown do Gemini, `[n]`/`[Image n]`, a caixinha do Studio e o fecho duplicado. **Nenhuma frase da minuta é reescrita.**
 3. **1 ou 2 partes num só documento.** O corpo aceita os dois blocos `ESCLARECIMENTOS SOLICITADOS PELA X`; a frase de abertura sai no singular ou plural conforme o nº de partes.
 4. **Efêmero apaga sozinho no sucesso.** Falha → mantém o `EFÊMERO IMPUG — …` de pé para inspeção.
 5. **Template BUNDLED.** O script usa o template do plugin (não o do Drive), porque o marcador `{{INTRO_IMPUGNANTE}}` é desta versão.
