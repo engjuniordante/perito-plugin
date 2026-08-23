@@ -469,6 +469,10 @@ _LINHA_ENTREGA_RE = re.compile(r'^[\s\-–—•·*]*\|?\s*\d{2}[./-]\d{2}[./-](
 # QUANDO cada linha transcrita foi entregue, não só quantas são.
 _LINHA_ENTREGA_DATA_RE = re.compile(
     r'^[\s\-–—•·*]*\|?\s*(\d{2}[./-]\d{2}[./-](?:\d{4}|\d{2}))\s*[|·]', re.M)
+# Marcador da nota da sonda. ESPELHA `SONDA_FICHA` do montar_formulario.py — quem escreve
+# e quem le tem de usar a mesma string (test_sonda_no_formulario.py trava as duas pontas).
+SONDA_FICHA = "▶ SONDA FICHA"
+
 # Rodapé de emissão — a assinatura de ficha REIMPRESSA. Ver o porquê em conferir_contagem().
 _EMISSAO_RE = re.compile(
     r'(?:emiss[ãa]o|emitid[oa]|impress[ãa]o|gerado)\D{0,24}(\d{2}/\d{2}/\d{4})', re.I)
@@ -603,6 +607,29 @@ def conferir_por_data(datas_pdf, resposta_p3a, log_fn=log):
     return deficits
 
 
+def nota_sonda(deficits):
+    """Déficits por data → a linha que o montador iça para o topo da tabela de EPI.
+
+    Por que sair do console: a sonda por data existe desde a v1.5.2 e ACUSOU a perda do
+    0010094-14 (`31/01/2025: 6 de 10`) — no log do lote, que ninguém reabre. O formulário,
+    que é o que o perito lê na diligência, saiu limpo, e o laudo foi redigido em cima dele.
+    Nota que só aparece no console e nota que não existe dão no mesmo.
+
+    Formato: uma linha `SONDA_FICHA: <texto>`, colada ABAIXO da tabela da Parte 3a — abaixo
+    para não se meter entre as linhas `| … |` que o montador recorta por data.
+    """
+    if not deficits:
+        return ""
+    falta = sum(g - t for _, g, t in deficits)
+    onde = '; '.join('%s: %d de %d' % (d, t, g) for d, g, t in deficits)
+    return ("%s: FALTAM ~%d entrega(s) na tabela abaixo, em %d data(s) — %s. O modelo leu a "
+            "ficha e devolveu MENOS linhas do que ela tem nesses dias (tipicamente linha "
+            "repetida no mesmo dia, que ele \"limpa\" achando que é engano de digitação, ou "
+            "entrega partida entre duas páginas). CONFIRA essas datas na ficha original antes "
+            "de fechar o laudo — na ficha, linha repetida É entrega."
+            % (SONDA_FICHA, falta, len(deficits), onde))
+
+
 def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
     """T7.2 no ramo digital, T7.3 nos dois. Só avisa — nada entra no bundle."""
     transcritas = contar_entregas_transcritas(resposta_p3a)
@@ -619,19 +646,19 @@ def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
         # assim que um formulário saiu com 5 entregas de uma ficha que tinha 29.
         log_fn(f"   ⚠ {transcritas} entrega(s) transcritas, SEM conferência automática "
                "possível (a ficha não expõe tabela legível). Confira na ficha original.")
-        return transcritas, len(datas)
+        return transcritas, len(datas), ""
 
     emissoes = ficha_reimpressa(pdf_path)
     if len(emissoes) >= 2:
         log_fn(f"   ⚠ FICHA REIMPRESSA — rodapés de emissão em datas distintas "
                f"({', '.join(sorted(emissoes))}). O histórico aparece mais de uma vez e a "
                f"contagem sairia em dobro, então NÃO comparo. Confira na via original.")
-        return transcritas, len(datas)
+        return transcritas, len(datas), ""
 
     if not datas:
         log_fn(f"   ⚠ {transcritas} entrega(s) transcritas, mas não consegui montar gabarito "
                "de datas no PDF — sem conferência automática nesta ficha.")
-        return transcritas, 0
+        return transcritas, 0, ""
 
     if len(datas) < transcritas:
         # O gabarito é um TETO: sair MENOR que o transcrito significa que a régua não
@@ -640,7 +667,7 @@ def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
         log_fn(f"   ⚠ gabarito ({len(datas)} linha(s) com data) MENOR que o transcrito "
                f"({transcritas}) — a régua não leu o layout desta ficha, então NÃO há "
                f"conferência de contagem aqui. Não é sinal de que está certo.")
-        return transcritas, len(datas)
+        return transcritas, len(datas), ""
 
     razao = transcritas / len(datas)
     if razao < RAZAO_MINIMA_CONTAGEM:
@@ -655,8 +682,8 @@ def conferir_contagem(pdf_path, resposta_p3a, origem, log_fn=log):
     # O agregado passa com folga e a perda pode estar inteira numa data (caso real de
     # 22/08/2026 — ver conferir_por_data). Roda SEMPRE que houve comparação, inclusive
     # depois do ✓, que é justamente quando ninguém iria olhar.
-    conferir_por_data(datas, resposta_p3a, log_fn=log_fn)
-    return transcritas, len(datas)
+    deficits = conferir_por_data(datas, resposta_p3a, log_fn=log_fn)
+    return transcritas, len(datas), nota_sonda(deficits)
 
 
 def avisar_rotacao(pdf_path, log_fn=log):
@@ -1116,6 +1143,7 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                 respostas[key] = ""   # ausente → [NÃO LOCALIZADO] no pipeline
                 log(f"   ⚠ {key}: ausente no arquivo de prompts")
                 continue
+            nota = ""
             if key == "P3a" and ficha:
                 # fora da conversa do lote: leva o imprescrito da P1 no texto da pergunta
                 res = query_ficha(prompt, imprescrito_de(respostas.get("P1")))
@@ -1130,7 +1158,7 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                     # 0011183-33 (21/08/2026), ficha de 397 entregas sem conferência nenhuma.
                     p3a_txt = texto_resposta(res)
                     _origem, _ = conferir_origem_ficha(ficha, p3a_txt)
-                    conferir_contagem(ficha, p3a_txt, _origem)
+                    _, _, nota = conferir_contagem(ficha, p3a_txt, _origem)
                 except Exception as e:
                     log(f"   ⚠ sonda da ficha falhou ({e}) — seguindo sem ela.")
             else:
@@ -1150,6 +1178,11 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
             ans = texto_resposta(res).strip()
             if not ans:
                 raise FalhaPasta(f"query {key} voltou VAZIA (fonte faltando/indexação?)", nb_id)
+            if nota:
+                # ABAIXO da tabela: o parse_ficha_rows recorta as linhas `| … |` por data e
+                # ignora o resto, então a nota no meio se perderia. Ele a reconhece pelo
+                # prefixo e a iça para o topo da tabela do formulário.
+                ans = ans + "\n\n" + nota
             respostas[key] = ans
             log(f"   ✓ {key}: {len(ans)} chars")
 

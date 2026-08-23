@@ -163,6 +163,9 @@ LINHA DIVISÓRIA DO IMPRESCRITO:
 
 REGRAS:
 - Uma linha por entrega (uma data + um item = uma linha). Mesma data com 5 itens = 5 linhas.
+- LINHA REPETIDA NO MESMO DIA É ENTREGA, NÃO ERRO DE DIGITAÇÃO. Se a mesma data trouxer o MESMO item com o MESMO C.A. duas ou mais vezes, transcreva TODAS as ocorrências, uma linha para cada. NÃO deduplique, NÃO "limpe" a repetição, NÃO junte somando as quantidades. Na ficha, a LINHA é a unidade de prova: repetida ou não, transcreve-se.
+- A MESMA DATA PODE APARECER EM MAIS DE UM BLOCO/PÁGINA. Uma entrega grande costuma ser partida entre o fim de um bloco de aprovação e o começo do seguinte (ex.: fim da pág. 4 e recomeço na pág. 6, com o cabeçalho do prontuário no meio). Transcreva as linhas dos DOIS blocos — não são a mesma entrega repetida por engano. Caso real (0010094-14): uma data com 10 linhas partidas em dois blocos saiu com 6; as 4 perdidas eram exatamente as repetições do segundo bloco, e o laudo foi redigido sem elas.
+- CONFERÊNCIA ANTES DE ENTREGAR: para cada data da ficha, conte as linhas no documento e confira com as que você transcreveu. Data em que a sua contagem der MENOS que a da ficha = linha perdida; volte e transcreva.
 - CÉLULA DE DATA COM DUAS DATAS = UMA ENTREGA SÓ. Quando a coluna DATA traz um período (ex.: "19/4/21 á 24/4/21" — entrega e troca), transcreva APENAS a data inicial e mantenha a quantidade que está ao lado, uma única vez. Transcrever cada extremo como uma entrega DOBRA o total de entregas e de unidades (caso real: 11 linhas e 63 unidades viraram 22 e 126, e o número dobrado chegou ao laudo).
 - QUANTIDADE: transcreva o número exatamente como está escrito na ficha. Atenção: "1,000" é UMA unidade com três casas decimais, NÃO mil — ler como milhar multiplica por mil a cobertura daquele EPI.
 - Transcreva o C.A. se registrado; senão "C.A. não informado". NUNCA inventar nem completar valor provável.

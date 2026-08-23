@@ -54,6 +54,11 @@ HEADING_SEM_MARCADOR_RE = re.compile(
     re.M | re.I)
 DATE_ROW_RE = re.compile(r"^\|\s*\d{2}/\d{2}/\d{4}\s*\|")
 DIVISORIA = "▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO"
+# Nota da sonda de contagem do 01b (conferir_por_data), colada ABAIXO da tabela da Parte 3a.
+# A sonda sabia da perda desde a v1.5.2, mas só falava no console do lote — e o perito lê o
+# FORMULÁRIO, não o log. Caso real 0010094-14: 4 entregas perdidas numa data só e o formulário
+# saiu limpo. Aqui a nota é içada para o topo da tabela de EPI, onde não dá para não ver.
+SONDA_FICHA = "▶ SONDA FICHA"
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do pacto,
 # quando o contrato cabe inteiro na prescrição). Esta janela resgata a entrega de admissão sem
 # readmitir histórico anterior. Espelha IMPRESC_GRACE_DAYS do check_epi.py.
@@ -284,7 +289,11 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
 
     after_split = False
     divider_seen = DIVISORIA in ficha_block
+    notas_sonda: list[str] = []
     for raw in ficha_block.splitlines():
+        if raw.lstrip().startswith(SONDA_FICHA):
+            notas_sonda.append(raw.split(":", 1)[-1].strip() if ":" in raw else raw.strip())
+            continue
         if DIVISORIA in raw:
             after_split = True
             continue
@@ -327,6 +336,10 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
         rows.insert(0, "- ⚠ ATENÇÃO — a tabela de EPI veio ACHATADA do NotebookLM (sem separadores) e foi "
                        "RECONSTRUÍDA automaticamente por âncora de data. CONFIRA cada C.A. e descrição "
                        "contra a ficha original antes de fechar o laudo.")
+    # No topo, acima até do aviso de tabela achatada: dizer que FALTA linha é mais grave que
+    # dizer que a linha foi reconstruída — uma o perito confere, a outra ele nem sabe que existe.
+    for nota in reversed(notas_sonda):
+        rows.insert(0, "- 🚩 %s" % nota)
     return rows
 
 
