@@ -73,10 +73,11 @@ O perito cola o output do NotebookLM — a minuta já redigida contendo:
    }
    ```
 2. **Rodar o script** (caixa-preta — não leia o código):
-   `python3 scripts/build_impugnacao.py "<00-Template/template-impugnacao.docx>" data-impugnacao.json /tmp/perito/esclarecimentos-<processo>.docx`
+   `python3 scripts/build_impugnacao.py "<00-Template/template-impugnacao.docx>" data-impugnacao.json "<config.caminhos.saida_laudos>/esclarecimentos-<processo>.docx"`
    - **Template (1º arg) tem FALLBACK BUNDLED automático:** no Cowork o **bash não enxerga o Drive** → o script cai sozinho no `template-impugnacao.docx` **bundled** em `assets/templates/` (imprime `ℹ️ usando o BUNDLED`). Passe o caminho do Drive normalmente. **Nunca formate o .docx à mão.**
-   - **SAÍDA = `/tmp/perito/esclarecimentos-<processo>.docx`** (pasta de trabalho do bash — no Cowork o script não grava no Drive). **Entregue o arquivo ao perito**, que salva em `Base Perícia Irineu/Laudos-Gerados/`.
-   (saída dentro do workspace montado — nunca no Desktop).
+   - **SAÍDA = `config.caminhos.saida_laudos`** (no Irineu: `Base Perícia Irineu/Laudos-Gerados/`) — o **mesmo destino da 04b**, para esclarecimentos e laudos não se espalharem. O script **cria a pasta** se ela não existir.
+   - **Só caia em `/tmp/perito/` quando o Drive NÃO estiver acessível** (Cowork: o bash roda em sandbox e não enxerga o `G:`). Aí sim **entregue o arquivo ao perito**, que salva em `Laudos-Gerados/` à mão. **No Claude Code o Drive está montado — grave direto lá, não faça o perito mover arquivo.**
+   (nunca no Desktop nem na pasta de entrada `Impugnações-notebooklm/`, que é fila de ENTRADA).
 3. **Ler o relatório do script** — avisa marcador residual, identidade, vazamento. Aviso → corrigir o JSON e rodar de novo.
 
 ### Ao final, liste em separado:

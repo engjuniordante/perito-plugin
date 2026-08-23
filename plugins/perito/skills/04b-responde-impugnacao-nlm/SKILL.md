@@ -33,6 +33,7 @@ O script sobe **todos** os PDFs/arquivos de fonte da pasta (aceita `.pdf`, `.doc
 No Windows/Code use **`python`** (não `python3`). O script auto-descobre o `perito-config.json` (subindo do caminho), acha o `nlm` sozinho e usa o **template BUNDLED** do plugin (o contrato do `.docx` é acoplado a esta versão do script — não usa a cópia do Drive).
 
 - **LOTE (o padrão)** — cada subpasta de `config.notebooklm.pasta_impugnacoes`, em fila; a cada sucesso **move a subpasta para `Processados/`**:
+  > ⚠ **Um processo = uma SUBPASTA** (nomeada pelo nº) com o laudo + a(s) impugnação(ões) dentro. Arquivo solto na raiz da fila o lote não vê — ele avisa e não faz nada.
   ```
   python <plugin>/skills/04b-responde-impugnacao-nlm/responde_impugnacao.py --lote "<config.notebooklm.pasta_impugnacoes>"
   ```
@@ -47,7 +48,7 @@ No Windows/Code use **`python`** (não `python3`). O script auto-descobre o `per
    - `auth`/`nlm login` → credenciais expiraram: rode `nlm login` e re-dispare. **Se o `nlm login` der `Login timeout` mesmo com o navegador logado → é versão velha, veja a regra do `0.9.4` no Passo 0.**
    - `❌ FALHOU — MINUTA NÃO RECONHECIDA` → o Gemini respondeu num formato que o parser não lê (nem o título `ESCLARECIMENTOS SOLICITADOS`, nem um campo do header). **Não é peça vazia e não se gera nada** — o notebook fica de pé; abra a minuta nele e, se for formato novo, é caso de ajustar o `normalize_minuta` (nunca de editar o `.docx` na mão).
    - `❌ FALHOU` (query vazia / `INVALID_ARGUMENT` / build recusou) → o script **mantém aquele notebook de pé** (título `EFÊMERO IMPUG — …`, id no resumo) e **não move** a subpasta, para inspeção/re-run.
-3. **Sucesso** → o notebook **já foi apagado** e a subpasta **movida** pelo script. **Entregue o(s) `.docx`** ao perito (salva em `Laudos-Gerados/`). O script grava um `esclarecimentos-<nº>.json` ao lado do `.docx` (o JSON que alimentou o build) — útil para depurar; não precisa abrir.
+3. **Sucesso** → o notebook **já foi apagado** e a subpasta **movida** pelo script. **Entregue o(s) `.docx`** ao perito — o script **ja gravou** em `config.caminhos.saida_laudos` (no Irineu: `Base Pericia Irineu/Laudos-Gerados/`), criando a pasta se preciso. Ele nao precisa mover nada. O script grava um `esclarecimentos-<nº>.json` ao lado do `.docx` (o JSON que alimentou o build) — útil para depurar; não precisa abrir.
 
 ## Passo 2 — Relatório ao perito
 

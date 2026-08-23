@@ -135,6 +135,8 @@ def achar_fontes(pasta):
             continue
         if any(bad in f.stem.lower() for bad in DENYLIST):
             continue
+        if f.stat().st_size == 0:   # placeholder vazio (o Drive nao deixa pasta vazia) nao e fonte
+            continue
         fontes.append(f)
     return fontes
 
@@ -575,6 +577,19 @@ def main():
     subs = [d for d in sorted(raiz.iterdir())
             if d.is_dir() and d.name != DIR_PROCESSADOS]
     if not subs:
+        # O erro natural do perito: jogar o laudo + a impugnacao SOLTOS na fila. O lote varre
+        # SUBPASTAS, entao sem esta mensagem ele so via "nada a fazer" e achava que a fila
+        # estava vazia — com os arquivos ali, na frente dele.
+        soltas = [f for f in sorted(raiz.iterdir())
+                  if f.is_file() and f.suffix.lower() in SOURCE_EXTS
+                  and not any(bad in f.stem.lower() for bad in DENYLIST)]
+        if soltas:
+            log(f"⚠ nenhuma SUBPASTA de processo em {raiz}, mas ha {len(soltas)} arquivo(s) "
+                f"solto(s) na raiz: " + " · ".join(f.name for f in soltas))
+            log("   Cada processo precisa da propria subpasta (nomeada pelo n do processo) com "
+                "o laudo + a(s) impugnacao(oes) dentro. Mova os arquivos e rode de novo — ou "
+                "aponte a pasta direto, sem --lote.")
+            return
         log(f"(nada a fazer: nenhuma subpasta de processo em {raiz})")
         return
     log(f"📚 LOTE: {len(subs)} subpasta(s) em {raiz}")

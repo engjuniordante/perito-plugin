@@ -196,6 +196,11 @@ def build(template, data_path, out_path):
         print('   Nenhum arquivo foi salvo. Corrija e rode de novo.')
         return False
 
+    # A saída agora é o Drive (config.caminhos.saida_laudos), não mais o /tmp do bash:
+    # se a pasta não existir, criar é melhor que estourar depois de todo o trabalho feito.
+    destino = os.path.dirname(os.path.abspath(out_path))
+    if destino:
+        os.makedirs(destino, exist_ok=True)
     doc.save(out_path)
     blocos = sum(1 for it in data.get('esclarecimentos', [])
                  if it.strip().upper().startswith('ESCLARECIMENTOS SOLICITADOS'))
