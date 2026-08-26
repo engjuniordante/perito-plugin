@@ -59,8 +59,29 @@ MARCADORES = [
 ]
 
 
-def confere_contrato(texto, origem):
+def confere_tamanho(caminho, origem):
+    """Nenhum prompt pode passar do teto de uma query do NotebookLM.
+
+    O buraco que isto fecha (medido em 26/08, na instalação nova do perito): a Parte 3a
+    tinha 4810 chars contra o LIMITE_QUERY de %d. Pelo script isso não aparecia — a 3a vai
+    por ARTEFATO, que não tem teto —, mas as duas vias que sobram para ela (o fallback de
+    chat de dentro do script, e a extração na mão pela MCP) mandavam a pergunta acima do
+    limite e voltavam INVALID_ARGUMENT. Não era azar de uma rodada: era todas.
+    Um prompt que cresce 100 chars não quebra nada visível até ser a única via que restou.
+    """ % ep.LIMITE_QUERY
+    blocos, _faltando = ep.ler_prompts(str(caminho))
+    for k, _rotulo in ep.PARTES:
+        corpo = (blocos.get(k) or '').strip()
+        check(len(corpo) <= ep.LIMITE_QUERY,
+              '%s: a parte %s tem %d chars, acima do LIMITE_QUERY de %d — por chat essa '
+              'pergunta volta INVALID_ARGUMENT, sempre. Encolha o prompt.'
+              % (origem, k, len(corpo), ep.LIMITE_QUERY))
+
+
+def confere_contrato(texto, origem, caminho=None):
     """O contrato inteiro contra UM arquivo de prompts."""
+    if caminho:
+        confere_tamanho(caminho, origem)
     sec = split_subsections(texto)
     check(len(sec) >= 10,
           '%s: split_subsections achou só %d seções — os marcadores ▶ não estão no início '
@@ -85,7 +106,7 @@ check(ep.PROMPTS_BUNDLED.exists(),
 
 if ep.PROMPTS_BUNDLED.exists():
     texto_bundled = ep.PROMPTS_BUNDLED.read_text(encoding='utf-8')
-    confere_contrato(texto_bundled, 'BUNDLED')
+    confere_contrato(texto_bundled, 'BUNDLED', ep.PROMPTS_BUNDLED)
 
     # As 6 partes que o extrai_processo dispara têm de sair do arquivo, em bloco de código.
     blocos, faltando = ep.ler_prompts(str(ep.PROMPTS_BUNDLED))
@@ -109,7 +130,7 @@ check(ep.resolver_prompts(str(AQUI / 'test_contrato_prompts.py')) == str(AQUI / 
 VIVA = Path(r'G:\Meu Drive\Base Perícia Irineu\prompts-extracao-notebooklm.md')
 if VIVA.exists():
     texto_vivo = VIVA.read_text(encoding='utf-8')
-    confere_contrato(texto_vivo, 'VIVA (Drive)')
+    confere_contrato(texto_vivo, 'VIVA (Drive)', VIVA)
     if ep.PROMPTS_BUNDLED.exists() and texto_vivo != texto_bundled:
         avisos.append('a cópia VIVA do Drive difere da BUNDLED do plugin — as duas cumprem o '
                       'contrato, mas o plugin está publicando uma versão diferente da que o '
@@ -124,5 +145,5 @@ if falhas:
     for f in falhas:
         print('  ✗', f)
     sys.exit(1)
-print('✓ tudo verde — contrato prompts↔parser conferido em %d seções + %d marcadores'
-      % (len(PREFIXOS), len(MARCADORES)))
+print('✓ tudo verde — contrato prompts↔parser conferido em %d seções + %d marcadores '
+      '+ tamanho de query' % (len(PREFIXOS), len(MARCADORES)))

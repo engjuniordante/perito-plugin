@@ -1113,12 +1113,26 @@ def processar_pasta(nlm, pasta, blocos, out_path, wait_timeout, query_timeout,
                     log(f"   ⚠ artefato falhou ({e}); caindo para a via do CHAT, "
                         f"que TEM teto de resposta — confira o total de entregas.")
 
-            texto = prompt_p3a
+            # O prompt da 3a é o maior do arquivo e esta é a via de EMERGÊNCIA (o artefato
+            # já falhou). Mandar acima do teto aqui devolve INVALID_ARGUMENT e derruba a
+            # pasta inteira depois de tudo indexado — melhor dizer o motivo real.
+            if len(prompt_p3a) > LIMITE_QUERY:
+                raise FalhaPasta(
+                    f"a Parte 3a tem {len(prompt_p3a)} chars, acima do limite de "
+                    f"{LIMITE_QUERY} por query: o artefato falhou e por chat esta pergunta "
+                    f"volta INVALID_ARGUMENT sempre. Encolha o bloco da PARTE 3a no arquivo "
+                    f"de prompts.", nb_id)
+            # O CONTEXTO do imprescrito vai como TURNO PRÓPRIO, não prefixado: prefixar somava
+            # ~150 chars ao maior prompt do arquivo e era o que empurrava a 3a acima do teto
+            # justamente na via que só roda quando a outra já quebrou. Encadeado, cada
+            # mensagem cabe sozinha e o modelo mantém o contexto igual.
+            conv_f = None
             if impr:
-                texto = (f"CONTEXTO (já apurado na Parte 1): o período imprescrito começa em "
-                         f"{impr}. Use EXATAMENTE esta data na linha divisória ▼▼▼.\n\n"
-                         + prompt_p3a)
-            return query(texto, "P3a(ficha dedicada)", None, alvo=nb_ficha[0])
+                ctx = (f"CONTEXTO (já apurado na Parte 1): o período imprescrito começa em "
+                       f"{impr}. Use EXATAMENTE esta data na linha divisória ▼▼▼.")
+                res_ctx = query(ctx, "P3a(contexto do imprescrito)", None, alvo=nb_ficha[0])
+                conv_f = res_ctx.get("conversation_id")
+            return query(prompt_p3a, "P3a(ficha dedicada)", conv_f, alvo=nb_ficha[0])
 
         conv_id = None
         prompts = dict(blocos)
@@ -1285,6 +1299,13 @@ def main():
         sys.exit(f"ERRO: PARTE 1 ausente no arquivo de prompts: {faltando}")
     if faltando:
         log(f"⚠ partes ausentes (viram [NÃO LOCALIZADO]): {faltando}")
+    # Teto de query conferido AQUI, antes de criar notebook e subir PDF: descobrir isso na
+    # query é descobrir depois de ~10 min de indexação, e com a mensagem errada.
+    for _k, _r in PARTES:
+        _n = len((blocos.get(_k) or "").strip())
+        if _n > LIMITE_QUERY:
+            log(f"⚠ {_k}: {_n} chars > LIMITE_QUERY ({LIMITE_QUERY}) — essa parte volta "
+                f"INVALID_ARGUMENT se for por chat. Encolha o bloco no arquivo de prompts.")
 
     comum = dict(blocos=blocos, wait_timeout=args.wait_timeout,
                  query_timeout=args.query_timeout, regras_mode=args.regras, keep=args.keep,
