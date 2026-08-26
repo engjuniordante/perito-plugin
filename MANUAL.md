@@ -73,15 +73,38 @@ ou **cola o material**, e ele usa a ferramenta certa sozinho. Aqui vai cada uma.
 ### 1. Montar o formulário de campo
 
 **O que faz:** junta os papéis do processo num **formulário** pra você levar na visita.
+Tem **dois jeitos**:
 
-**Como usar:**
+**Jeito 1 — colar os pedaços (funciona em qualquer lugar):**
 1. Passe o processo no **NotebookLM**. Ele te devolve
    **5 pedaços de texto** (Partes 1, 2, 3a, 3b e 4).
 2. **Cole os 5 pedaços** aqui na conversa.
 3. Escreva: **montar o formulário de campo**
 
-Ele monta o formulário. Onde faltar informação nos autos, ele escreve **[NÃO LOCALIZADO]** —
-quer dizer "isso você vê na hora, na empresa". Ele **nunca inventa**.
+**Jeito 2 — em lote, sem colar nada** *(só no Claude Code, com o NotebookLM ligado no PC):*
+1. Crie uma pasta com o **número do processo** dentro de **`Extração-notebooklm`**.
+2. Jogue lá dentro os **PDFs do processo**, do jeito que você já separa:
+   `1-INICIAL.pdf` · `2-CONTESTAÇÃO E DOCUMENTOS.pdf` · `3-EPI.pdf` · `4-ATA E QUESITOS.pdf`
+3. Se quiser, faça isso pra **vários processos** (cada um na sua pastinha).
+4. Escreva: **extrair processo**
+
+Ele faz tudo sozinho: cria o caderno no NotebookLM, sobe os PDFs, faz as 5 perguntas, monta o
+formulário em **`Formularios-Campo`** e **apaga o caderno** no fim. Cada pasta terminada ele
+move pra `Processados`.
+
+> ⚠️ **O arquivo da ficha de EPI precisa ter `EPI` ou `ficha` no nome** (ex.: `3-EPI.pdf`) — é
+> assim que ele sabe separar a ficha num caderno só dela. Sem isso, a ficha se perde no meio da
+> contestação e a tabela de entregas sai **curta e convincente** — o pior tipo de erro. Se a
+> ficha vier dentro da própria contestação, tudo bem: ele lida.
+>
+> Faltou algum dos PDFs (a reclamada nem contestou, por exemplo)? **Roda mesmo assim** com o que
+> tiver — o que faltar sai como [NÃO LOCALIZADO].
+>
+> ⚠️ O Jeito 2 precisa do **NotebookLM ligado** no computador (o Junior deixa pronto — veja o
+> `GUIA-CONEXAO-NOTEBOOKLM-CLAUDE-CODE.md`). Sem isso, use o **Jeito 1**.
+
+Nos dois jeitos, onde faltar informação nos autos ele escreve **[NÃO LOCALIZADO]** — quer dizer
+"isso você vê na hora, na empresa". Ele **nunca inventa**.
 
 > Depois disso você vai na empresa, olha, mede e preenche à mão o que faltou. Essa parte é sua. 😄
 
@@ -122,16 +145,31 @@ nunca recalcula nada.
 
 ### 4. Responder uma impugnação
 
-**O que faz:** pega a resposta que o NotebookLM já escreveu e **arruma a aparência** no seu modelo.
+**O que faz:** monta a resposta da impugnação no seu **modelo do Word**, do seu jeito. Ele só
+arruma a forma — **não muda o que foi escrito**. Tem **dois jeitos**:
 
-**Como usar:**
-1. Primeiro o **NotebookLM** escreve a resposta pra você.
+**Jeito 1 — colar a resposta (funciona em qualquer lugar):**
+1. Primeiro o **NotebookLM** escreve a resposta pra você (com o prompt de impugnação).
 2. **Cole essa resposta** aqui na conversa.
 3. Escreva: **responder impugnação**
 
-Ele só ajeita a forma; **não muda o que você escreveu**.
-
 > Se você escrever isso **sem colar** a resposta, ele para e pede. É normal.
+
+**Jeito 2 — em lote, sem colar nada** *(só no Claude Code, com o NotebookLM ligado no PC):*
+1. Crie uma pasta com o **número do processo** dentro de **`Impugnações-notebooklm`**.
+2. Jogue lá dentro o seu **laudo** + a(s) **impugnação(ões)** em PDF — pode ser de **uma parte
+   só ou das duas**.
+3. Se quiser, faça isso pra **vários processos** (cada um na sua pastinha).
+4. Escreva: **responder impugnação em lote**
+
+Ele faz tudo sozinho: lê no NotebookLM, escreve a resposta e salva o **Word pronto** em
+`Laudos-Gerados` — um por processo. Cada pasta terminada ele move pra `Processados`.
+
+> Quando **as duas partes** impugnam, sai **um documento só** com as duas respostas. Quando é
+> uma só, sai a dela. O texto continua sendo o que o NotebookLM escreveu — ele só formata.
+>
+> ⚠️ O Jeito 2 precisa do **NotebookLM ligado** no computador (o Junior deixa pronto — veja o
+> `GUIA-CONEXAO-NOTEBOOKLM-CLAUDE-CODE.md`). Sem isso, use o **Jeito 1**.
 
 ---
 
@@ -169,16 +207,18 @@ ajudante esperto com EPI.* Ele guarda o C.A., não o nome comercial — então u
 **O que faz:** lê seus laudos antigos e aprende o seu jeito de escrever. Quanto mais ele
 conhece, melhor ele monta os próximos.
 
-⚠️ **Atenção — esta é a única que pede um preparo:** o ajudante só lê laudo no formato
-**`.md`** (um tipo de texto simples). Então, **antes**:
+**Laudo em Word (`.docx`) ele lê direto** — é só salvar na pasta **`09-Inbox`** e pronto. Ele
+converte sozinho pra ler, **sem tocar no seu arquivo original**.
 
-1. Se o laudo antigo for **PDF**, abra o site **https://www.pdftomarkdown.net/**
+⚠️ **Só o PDF pede um preparo** (ele não lê PDF):
+
+1. Abra o site **https://www.pdftomarkdown.net/**
 2. Jogue o PDF lá e baixe o arquivo **`.md`** que ele te dá.
 3. Salve esse `.md` dentro da pasta **`09-Inbox`**.
 
-*(Laudo que já está em `.md` é só salvar na `09-Inbox`, sem converter.)*
+*(Resumindo: `.docx` e `.md` vão direto pra `09-Inbox`; só PDF precisa converter antes.)*
 
-**Como usar (depois de salvar os `.md` na pasta):**
+**Como usar (depois de salvar os arquivos na pasta):**
 - Escreva: **povoar a base**
 
 Ele lê os laudos, aprende e **te mostra o que vai guardar antes de salvar**. Nunca guarda
@@ -224,8 +264,8 @@ do jeito certo** aqui e escreva:
 Da próxima vez, ele já escreve do jeito que você ensinou.
 
 **2. Ensinar bastante de uma vez (com laudos antigos):**
-Quer que ele aprenda o seu estilo de montão? Junte vários laudos seus antigos (em `.md`,
-na pasta `09-Inbox` — veja a ferramenta 6) e escreva:
+Quer que ele aprenda o seu estilo de montão? Junte vários laudos seus antigos (em `.docx`
+ou `.md`, na pasta `09-Inbox` — veja a ferramenta 6) e escreva:
 
 > **povoar a base**
 
@@ -254,8 +294,13 @@ não promete o que não consegue.
 - **Apareceu "plugin não configurado"** → escreva **mudar configuração** (ou me avise — eu já deixei isso pronto).
 - **O laudo saiu com nome ou cidade errados** → escreva **mudar configuração** e confira;
   se continuar, me avise.
-- **A impugnação não fez nada** → você esqueceu de **colar a resposta** antes.
-- **O ajudante não achou os laudos antigos** → confira se estão em `.md` na pasta `09-Inbox`.
+- **A impugnação não fez nada** (Jeito 1) → você esqueceu de **colar a resposta** antes.
+- **O "responder impugnação em lote" não achou nada** (Jeito 2) → confira se cada processo tem a **sua pasta com o nº** dentro de `Impugnações-notebooklm`, com o **laudo + a impugnação** em PDF lá dentro; e se o **NotebookLM está ligado** (senão use o Jeito 1).
+- **O "extrair processo" não achou nada** → mesma coisa: cada processo na **sua pasta com o nº** dentro de `Extração-notebooklm`, com os **PDFs** lá dentro. Pasta sem nenhum PDF ele pula e avisa.
+- **A tabela de EPI saiu curta** (poucas entregas pra uma ficha grande) → confira se o PDF da ficha tem **`EPI` ou `ficha` no nome**, e confira o total contra a ficha original antes de usar.
+- **Ele diz que o NotebookLM não está conectado / pede pra "relogar"** → me avise. É a conexão do NotebookLM, que vence sozinha de tempos em tempos; renovar leva um minuto. Enquanto isso, os modos de **colar** (Jeito 1) continuam funcionando normalmente.
+- **O ajudante não achou os laudos antigos** → confira se estão em `.docx` ou `.md` na pasta `09-Inbox` (PDF não serve — veja a ferramenta 6).
+- **Apareceu alguma coisa que eu disse que ele fazia e ele não faz** → pode ser versão velha do ajudante. Escreva **`/plugin update perito`** e reinicie o programa.
 
 ---
 
