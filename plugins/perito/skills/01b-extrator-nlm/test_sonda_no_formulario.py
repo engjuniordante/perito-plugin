@@ -39,7 +39,13 @@ IMPR, DEM = '26/01/2021', '08/12/2025'
 # A ficha do Jeferson, reduzida ao dia que se perdeu: 31/01/2025 tem 10 linhas na ficha e o
 # modelo devolveu 6 — as 4 que faltam são as repetições do segundo bloco (18069, 37089,
 # colete) mais o capuz 38352.
-TABELA = """| Data de Entrega | Quantidade | Descrição do EPI | C.A. |
+# A linha ▶ ORIGEM DA FICHA faz parte do bloco em produção (é a âncora do corta_bloco_ficha)
+# e decide se sai a ressalva de procedência: PDF digital nativo NÃO ganha 🚩. Sem ela aqui, o
+# fixture pediria a ressalva de "procedência não declarada" e este arquivo — que é sobre a
+# SONDA, não sobre procedência — passaria a medir outra coisa.
+TABELA = """▶ ORIGEM DA FICHA: [X] PDF digital nativo (texto selecionável — alta confiança) · [ ] Imagem escaneada / manuscrita / OCR
+
+| Data de Entrega | Quantidade | Descrição do EPI | C.A. |
 | :--- | :---: | :--- | :---: |
 | 07/02/2024 | 1 | PROTETOR AUDITIVO SILICONE PLUGUE | 11512 |
 | 07/02/2024 | 1 | CREME PROT PELE G3 LUZ NEGRA 120G | 35339 |

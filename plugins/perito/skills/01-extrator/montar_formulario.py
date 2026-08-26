@@ -59,6 +59,18 @@ DIVISORIA = "▼▼▼ INÍCIO DO PERÍODO IMPRESCRITO"
 # FORMULÁRIO, não o log. Caso real 0010094-14: 4 entregas perdidas numa data só e o formulário
 # saiu limpo. Aqui a nota é içada para o topo da tabela de EPI, onde não dá para não ver.
 SONDA_FICHA = "▶ SONDA FICHA"
+# Sub-cabeçalhos que começam com ▶ mas ainda são DA FICHA — não encerram o bloco. Sem esta
+# lista o corte parava no PRIMEIRO ▶ depois da tabela, e na via do ARTEFATO (T7.1, padrão
+# desde a v1.5.x) esse primeiro ▶ é logo o "EVIDÊNCIA DE ASSINATURA": iam junto a CONFERÊNCIA
+# OBRIGATÓRIA e a nota da SONDA, que o 01b cola no FIM do bloco. Ou seja, o fix da v1.5.8
+# valia na via do chat e era anulado em silêncio na via do artefato — que é a que roda.
+# Medido em 23/08/2026 no 0010719-09 (ficha manuscrita de 9 fls.): formulário sem uma linha
+# de procedência, e 29 divergências de data/quantidade contra a ficha original.
+SUBTITULOS_FICHA = ("▶ EVIDÊNCIA DE ASSINATURA", "▶ CONFERÊNCIA OBRIGATÓRIA", SONDA_FICHA)
+CONFERENCIA_FICHA = "▶ CONFERÊNCIA OBRIGATÓRIA"
+# Teto de notas de conferência içadas ao formulário. Ficha ruim gera dezenas de avisos; oitenta
+# linhas 🚩 no topo da tabela não são conferência, são ruído — e ruído o perito aprende a pular.
+MAX_NOTAS_CONFERENCIA = 6
 # EPI de admissão é entregue 0–poucos dias ANTES do início do imprescrito (= início do pacto,
 # quando o contrato cabe inteiro na prescrição). Esta janela resgata a entrega de admissão sem
 # readmitir histórico anterior. Espelha IMPRESC_GRACE_DAYS do check_epi.py.
@@ -108,12 +120,24 @@ def corta_bloco_ficha(text: str) -> str:
     """Bloco da ficha de EPI = de 'ORIGEM DA FICHA' até o fim da subseção, e não até o fim do
     arquivo. O modelo às vezes emenda uma cauda depois do último ▶ (ex.: '### NOTAS
     COMPLEMENTARES AO PERITO'); indo até o fim, qualquer linha com pipe e data dessa cauda
-    virava entrega de EPI."""
+    virava entrega de EPI.
+
+    O fim da subseção NÃO é o primeiro ▶: os sub-cabeçalhos de SUBTITULOS_FICHA (evidência de
+    assinatura, conferência obrigatória, sonda) ainda pertencem à ficha e têm de entrar no
+    recorte — é deles que saem as notas 🚩 do formulário."""
     i = text.find("ORIGEM DA FICHA")
     if i < 0:
         return text
-    fins = [p for p in (text.find("\n▶", i), text.find("\n#", i)) if p != -1]
-    return text[i:min(fins)] if fins else text[i:]
+    pos = i
+    while True:
+        fins = [p for p in (text.find("\n▶", pos), text.find("\n#", pos)) if p != -1]
+        if not fins:
+            return text[i:]
+        corte = min(fins)
+        if text[corte + 1:].startswith(SUBTITULOS_FICHA):
+            pos = corte + 1          # ainda é ficha — segue procurando o fim de verdade
+            continue
+        return text[i:corte]
 
 
 def cleanup_value(text: str) -> str:
@@ -260,6 +284,28 @@ def _reflow_flat_ficha(text: str) -> tuple[str, bool]:
     return "\n".join(rebuilt), True
 
 
+def _nota_procedencia(ficha_block: str) -> str:
+    """A linha ORIGEM DA FICHA → nota 🚩, salvo quando a ficha é PDF digital nativo.
+
+    Por que o formulário tem de dizer isso: a via do artefato (data-table) transcreve célula de
+    IMAGEM sem em momento nenhum declarar que era imagem, e ficha manuscrita erra data e
+    quantidade com leitura confiante — quantidade é o que alimenta a cobertura do 📐. Ficha
+    digital não ganha linha: aviso que aparece sempre é aviso que ninguém lê."""
+    linha = next((l for l in ficha_block.splitlines() if "ORIGEM DA FICHA" in l), "")
+    if not linha:
+        return ("procedência da ficha NÃO declarada pela extração — trate a tabela de EPI como "
+                "NÃO conferida e confronte com a ficha original.")
+    val = linha.split(":", 1)[-1].strip()
+    if re.search(r"\[\s*[xX]\s*\]\s*PDF digital", val):
+        return ""
+    if re.search(r"\[\s*[xX]\s*\]", val):
+        return ("ficha ESCANEADA/MANUSCRITA — data e quantidade vêm de leitura de imagem, que "
+                "erra com confiança; confronte com a ficha original antes de usar o 📐.")
+    return ("procedência da ficha EM ABERTO — a extração não marcou se é PDF digital ou imagem "
+            "escaneada/manuscrita. Sendo imagem, data e quantidade não são confiáveis; confira "
+            "na ficha original antes de fechar o laudo.")
+
+
 def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str = "") -> list[str]:
     """Linhas da ficha (tabela markdown) → bullets '- Data · Qtd · Descrição · CA NNN', recortadas
     ao período imprescrito.
@@ -290,10 +336,24 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
     after_split = False
     divider_seen = DIVISORIA in ficha_block
     notas_sonda: list[str] = []
+    notas_conf: list[str] = []
+    em_conferencia = False
     for raw in ficha_block.splitlines():
         if raw.lstrip().startswith(SONDA_FICHA):
             notas_sonda.append(raw.split(":", 1)[-1].strip() if ":" in raw else raw.strip())
             continue
+        if raw.lstrip().startswith(CONFERENCIA_FICHA):
+            em_conferencia = True
+            continue
+        if em_conferencia:
+            # a conferência é uma lista de bullets; o primeiro ▶/# depois dela a encerra
+            if raw.lstrip().startswith(("▶", "#")):
+                em_conferencia = False
+            elif raw.lstrip().startswith("-"):
+                nota = raw.lstrip().lstrip("-").strip()
+                if nota and "alta confiança" not in nota.lower():
+                    notas_conf.append(nota)
+                continue
         if DIVISORIA in raw:
             after_split = True
             continue
@@ -316,6 +376,10 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
                 ca_fmt = f"CA {ca}"
             rows.append(f"- {data} · {qty_fmt} · {desc} · {ca_fmt}")
 
+    # Houve ENTREGA de verdade? A linha de ACHADO abaixo (ficha 100% pré-imprescrito) não é
+    # tabela, é conclusão — qualificar a procedência dela seria ruído, e o achado tem de sair
+    # sozinho para o perito não ler ressalva de leitura onde não há o que ler.
+    tem_entregas = bool(rows)
     if deterministic and not rows and all_dates:
         isos = sorted(d for d in map(_iso, all_dates) if d)
         if isos:
@@ -336,6 +400,18 @@ def parse_ficha_rows(ficha_block: str, impr_start: str = "", contract_end: str =
         rows.insert(0, "- ⚠ ATENÇÃO — a tabela de EPI veio ACHATADA do NotebookLM (sem separadores) e foi "
                        "RECONSTRUÍDA automaticamente por âncora de data. CONFIRA cada C.A. e descrição "
                        "contra a ficha original antes de fechar o laudo.")
+    if tem_entregas:
+        conf = list(notas_conf)
+        if len(conf) > MAX_NOTAS_CONFERENCIA:
+            extras = len(conf) - MAX_NOTAS_CONFERENCIA
+            conf = conf[:MAX_NOTAS_CONFERENCIA]
+            conf.append("(+%d outra(s) ressalva(s) de leitura — a lista inteira está na "
+                        "CONFERÊNCIA OBRIGATÓRIA do bundle)" % extras)
+        for nota in reversed(conf):
+            rows.insert(0, "- 🚩 conferir na ficha: %s" % nota)
+        proc = _nota_procedencia(ficha_block)
+        if proc:
+            rows.insert(0, "- 🚩 %s" % proc)
     # No topo, acima até do aviso de tabela achatada: dizer que FALTA linha é mais grave que
     # dizer que a linha foi reconstruída — uma o perito confere, a outra ele nem sabe que existe.
     for nota in reversed(notas_sonda):

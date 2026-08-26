@@ -153,6 +153,74 @@ b3, n3, _ = csv_para_p3a("DATA_ENTREGA,QUANTIDADE,EQUIPAMENTO,CA\n01/01/2015,1,L
 ok("▼▼▼" in b3 and n3 == 1,
    "ficha 100% anterior ao imprescrito → divisória ainda é emitida (no fim)")
 
+# ── E. o bloco do artefato ATRAVESSA o montador inteiro ──────────────────────
+# Esta seção existe por causa do buraco de 23/08/2026: o fix da v1.5.8 (sonda no formulário)
+# passava no teste porque o teste exercitava um bloco em formato de CHAT, sem nenhum ▶ no
+# meio. Na via do ARTEFATO — que é a que roda — o primeiro ▶ depois da tabela é a EVIDÊNCIA
+# DE ASSINATURA, e o corta_bloco_ficha encerrava o bloco ali: iam junto a CONFERÊNCIA
+# OBRIGATÓRIA e a nota da SONDA, que o 01b cola no fim. O fix valia no chat e era anulado em
+# silêncio na via real. O que trava isso é medir o caminho INTEIRO, não a função do meio.
+print()
+print("E — csv_para_p3a → corta_bloco_ficha → parse_ficha_rows (o caminho que o perito lê)")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "01-extrator"))
+import montar_formulario as mf          # noqa: E402
+from extrai_processo import nota_sonda  # noqa: E402
+
+csv_e = """DATA_ENTREGA,QUANTIDADE,EQUIPAMENTO,CA
+07/01/2022,01,PROTETOR AUDITIVO SILICONE,11512
+07/01/2023,01,PROTETOR AUDITIVO SILICONE,5745
+1[2/?]/2023,01,LUVA VAQUETA,20573
+"""
+bloco_e, n_e, avisos_e = csv_para_p3a(csv_e, impr="01/01/2021")
+p3a_e = bloco_e + "\n\n" + nota_sonda([("07/01/2022", 3, 1)])
+
+recorte = mf.corta_bloco_ficha(p3a_e)
+ok(recorte.startswith("ORIGEM DA FICHA"),
+   "o recorte começa na âncora (o find() cai no texto, não no ▶)")
+ok("CONFERÊNCIA OBRIGATÓRIA" in recorte,
+   "a CONFERÊNCIA OBRIGATÓRIA sobrevive ao recorte (vinha DEPOIS do 1º ▶ e se perdia)")
+ok(mf.SONDA_FICHA in recorte,
+   "a nota da SONDA sobrevive ao recorte (o 01b cola no FIM do bloco)")
+
+rows = mf.parse_ficha_rows(recorte, "01/01/2021", "31/12/2025")
+ok(bool(rows) and rows[0].startswith("- 🚩") and "07/01/2022: 1 de 3" in rows[0],
+   "a sonda chega ao formulário na PRIMEIRA linha, pela via do artefato: %r" % (rows[:1],))
+ok(any("🚩" in r and "LUVA VAQUETA" in r for r in rows),
+   "a linha de data ilegível chega como ressalva de conferência, não some")
+ok(any("🚩" in r and ("escaneada" in r.lower() or "EM ABERTO" in r) for r in rows),
+   "procedência não declarada pelo artefato vira ressalva explícita")
+entregas_e = [r for r in rows if "🚩" not in r and "·" in r]
+ok(len(entregas_e) == 2,
+   "as 2 entregas legíveis continuam na tabela, sem serem comidas pelas notas (saiu %d)"
+   % len(entregas_e))
+
+# Ficha PDF digital nativo NÃO ganha ressalva de procedência: aviso que aparece sempre é
+# aviso que ninguém lê.
+csv_dig = """DATA_ENTREGA,QUANTIDADE,EQUIPAMENTO,CA
+07/01/2022,01,LUVA VAQUETA,20573
+"""
+bloco_dig, _, _ = csv_para_p3a(
+    csv_dig, impr="01/01/2021",
+    origem="[X] PDF digital nativo (texto selecionável — alta confiança)")
+rows_dig = mf.parse_ficha_rows(mf.corta_bloco_ficha(bloco_dig), "01/01/2021", "31/12/2025")
+ok(bool(rows_dig) and not any("procedência" in r for r in rows_dig),
+   "ficha digital nativa não ganha linha de procedência: %r" % (rows_dig,))
+
+# Teto das ressalvas: ficha ruim gera dezenas; oitenta linhas 🚩 no topo do formulário não
+# são conferência, são ruído — e ruído o perito aprende a pular.
+csv_ruim = "DATA_ENTREGA,QUANTIDADE,EQUIPAMENTO,CA\n07/01/2022,01,LUVA,20573\n" + "".join(
+    "ilegiv%02d,01,ITEM %02d,111\n" % (i, i) for i in range(12))
+bloco_r, _, _ = csv_para_p3a(csv_ruim, impr="01/01/2021")
+rows_r = mf.parse_ficha_rows(mf.corta_bloco_ficha(bloco_r), "01/01/2021", "31/12/2025")
+conf_r = [r for r in rows_r if "conferir na ficha" in r]
+ok(len(conf_r) <= mf.MAX_NOTAS_CONFERENCIA + 1,
+   "ressalvas içadas respeitam o teto (saíram %d, teto %d + a linha do resto)"
+   % (len(conf_r), mf.MAX_NOTAS_CONFERENCIA))
+ok(any("outra(s) ressalva(s)" in r for r in conf_r),
+   "…e o que não coube é anunciado, em vez de sumir")
+
+
 # ── resultado ────────────────────────────────────────────────────────────────
 print()
 if falhas:
