@@ -32,6 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from collections import Counter
 import time
@@ -76,21 +77,135 @@ class FalhaPasta(RuntimeError):
 
 
 # ── localizar o executável nlm ────────────────────────────────────────────────
-def achar_nlm(explicit=None):
+# O `nlm` instalado com `pip install --user` cai numa pasta de Scripts que quase nunca está
+# no PATH do shell (no Windows, %APPDATA%\Python\Python3xx\Scripts). Por isso `nlm` cru
+# responde "command not found" numa máquina PERFEITAMENTE SADIA — e foi essa leitura errada
+# que, em 26 e 27/08, fez a sessão concluir "CLI quebrado" e escorregar para a extração na
+# mão, que não isola a ficha de EPI. Quem decide se o CLI existe é esta função, nunca o olho
+# do modelo num `command not found`; é o que o --doctor expõe.
+NLM_MINIMO = (0, 9, 4)
+
+
+def _candidatos_nlm():
+    """Onde o nlm.exe/nlm pode estar, na ordem em que vale procurar."""
+    nomes = ("nlm.exe", "nlm")
+    vistos, saida = set(), []
+
+    def poe(d):
+        if not d:
+            return
+        for n in nomes:
+            c = Path(d) / n
+            if str(c) not in vistos:
+                vistos.add(str(c))
+                saida.append(c)
+
+    # 1) o diretório de scripts do PRÓPRIO interpretador que está rodando (user e sistema):
+    #    é a resposta exata, sem chutar número de versão do Python.
+    for chave in (f"{os.name}_user", None):
+        try:
+            poe(sysconfig.get_path("scripts", chave) if chave else sysconfig.get_path("scripts"))
+        except Exception:
+            pass
+    poe(Path(sys.executable).parent / "Scripts")
+    poe(Path(sys.executable).parent)
+    # 2) rede: o layout do pip --user no Windows, para quando o Code roda com outro Python.
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        for py in ("Python313", "Python312", "Python311", "Python310", "Python314"):
+            poe(Path(appdata) / "Python" / py / "Scripts")
+    home = Path.home()
+    poe(home / ".local" / "bin")
+    return saida
+
+
+def localizar_nlm(explicit=None):
+    """O caminho do `nlm`, ou None. NÃO encerra o processo — quem decide é o chamador."""
     if explicit:
-        if Path(explicit).exists():
-            return explicit
-        sys.exit(f"ERRO: --nlm apontado não existe: {explicit}")
+        return explicit if Path(explicit).exists() else None
     found = shutil.which("nlm")
     if found:
         return found
-    appdata = os.environ.get("APPDATA", "")
-    if appdata:
-        for py in ("Python312", "Python311", "Python313", "Python310"):
-            cand = Path(appdata) / "Python" / py / "Scripts" / "nlm.exe"
-            if cand.exists():
-                return str(cand)
+    for cand in _candidatos_nlm():
+        if cand.exists():
+            return str(cand)
+    return None
+
+
+def achar_nlm(explicit=None):
+    nlm = localizar_nlm(explicit)
+    if nlm:
+        return nlm
+    if explicit:
+        sys.exit(f"ERRO: --nlm apontado não existe: {explicit}")
     sys.exit("ERRO: não encontrei o executável `nlm`. Rode `nlm login` uma vez ou passe --nlm <caminho>.")
+
+
+def versao_nlm(nlm):
+    """(texto cru, tupla de versão|None). Tupla None = não deu para ler a versão."""
+    try:
+        r = subprocess.run([nlm, "--version"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+    except Exception as e:
+        return (f"<falhou ao executar: {e}>", None)
+    txt = ((r.stdout or "") + (r.stderr or "")).strip()
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", txt)
+    return (txt, tuple(int(g) for g in m.groups()) if m else None)
+
+
+def doctor(explicit=None):
+    """Diagnóstico do CLI `nlm`, para o Passo 0 da SKILL. Exit 0 = pode extrair; 2 = não pode.
+
+    Existe para tirar do modelo o julgamento que ele erra: em vez de rodar `nlm` cru e
+    interpretar o erro, ele roda ISTO e obedece o VEREDITO.
+    """
+    log("── doctor do CLI nlm ─────────────────────────────────────────")
+    if shutil.which("nlm"):
+        log(f"PATH        : ✓ `nlm` no PATH ({shutil.which('nlm')})")
+    else:
+        log("PATH        : ✗ `nlm` NÃO está no PATH  (esperado; NÃO é defeito por si só)")
+    nlm = localizar_nlm(explicit)
+    if not nlm:
+        log("EXECUTÁVEL  : ✗ não encontrado em nenhum dos caminhos conhecidos")
+        for c in _candidatos_nlm()[:8]:
+            log(f"              · procurei em {c}")
+        log("")
+        log("VEREDITO: nlm INDISPONÍVEL — a extração NÃO pode rodar.")
+        log("CONSERTO (nesta ordem):")
+        log("  1) python -m pip install --user --upgrade notebooklm-mcp-cli")
+        log("  2) nlm login   (na conta Google DO PERITO)")
+        log("  3) reiniciar o Claude Code e rodar este --doctor de novo")
+        log("⛔ NÃO extraia na mão pela MCP enquanto isto não passar: na mão os PDFs vão")
+        log("   todos para UM notebook, a ficha de EPI não é isolada e a Parte 3a devolve")
+        log("   uma tabela plausível e ERRADA. Prefira PARAR a entregar isso ao perito.")
+        return 2
+    log(f"EXECUTÁVEL  : ✓ {nlm}")
+    txt, ver = versao_nlm(nlm)
+    log(f"VERSÃO      : {txt or '<vazio>'}")
+    if ver is None:
+        log("")
+        log("VEREDITO: nlm INDISPONÍVEL — o executável existe mas não respondeu --version.")
+        log("CONSERTO: python -m pip install --user --upgrade notebooklm-mcp-cli → nlm login")
+        log("⛔ NÃO extraia na mão pela MCP (ver acima).")
+        return 2
+    if ver < NLM_MINIMO:
+        alvo = ".".join(str(x) for x in NLM_MINIMO)
+        log(f"            ✗ abaixo do mínimo {alvo} — o NotebookLM migrou para")
+        log("              notebook.google.com e versões velhas morrem em `Login timeout`")
+        log("              mesmo com o navegador logado (relogar NÃO resolve).")
+        log("")
+        log("VEREDITO: nlm INDISPONÍVEL — versão velha demais.")
+        log("CONSERTO (nesta ordem):")
+        log("  1) Get-Process | Where-Object { $_.ProcessName -match 'notebooklm' } | Stop-Process -Force")
+        log("  2) python -m pip install --user --upgrade notebooklm-mcp-cli")
+        log("  3) nlm login   (na conta Google DO PERITO)")
+        log("  4) reiniciar o Claude Code e rodar este --doctor de novo")
+        log("⛔ NÃO extraia na mão pela MCP (ver acima).")
+        return 2
+    log("")
+    log("VEREDITO: nlm UTILIZÁVEL — siga o Passo 1B e dispare este mesmo script.")
+    log("(Se a extração falhar por auth mais adiante, é `nlm login`, não é este gate.)")
+    return 0
 
 
 # ── localizar e ler o perito-config.json (subindo a partir do caminho) ────────
@@ -1259,6 +1374,10 @@ def main():
     ap.add_argument("--out", help="[single] caminho do _bundle-<nº>.md (senão deriva)")
     ap.add_argument("--config", help="perito-config.json (senão auto-localiza)")
     ap.add_argument("--nlm", help="caminho do executável nlm (senão auto-localiza)")
+    ap.add_argument("--doctor", action="store_true",
+                    help="diagnostica o CLI nlm e diz se dá para extrair (exit 0 = sim, 2 = "
+                         "não). É o gate do Passo 0 da SKILL: rode ISTO em vez de ler um "
+                         "`command not found` do `nlm` cru")
     ap.add_argument("--regras", choices=["off", "priming", "inline"], default="off",
                     help="REGRAS GERAIS: off (padrão, P1 sozinha e cheia) | priming (turno próprio) | inline (cola na P1)")
     ap.add_argument("--wait-timeout", type=float, default=600.0)
@@ -1274,6 +1393,11 @@ def main():
     ap.add_argument("--artefato-timeout", type=float, default=900.0,
                     help="quanto esperar o data-table da ficha ficar pronto (s)")
     args = ap.parse_args()
+
+    # O doctor roda ANTES de exigir pasta/--lote: ele é o gate do Passo 0, quando ainda não
+    # há nada a processar.
+    if args.doctor:
+        sys.exit(doctor(args.nlm))
 
     if not args.pasta and args.lote is None:
         ap.error("informe uma pasta (single) ou --lote.")
